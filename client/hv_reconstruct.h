@@ -36,10 +36,9 @@ size_t hv_reconstruct(const hv_cache *cache, uint64_t codestream, uint8_t *out,
 
 /* Records delivery of a whole-frame window through `layers` quality layers,
  * without the `reduce` highest resolutions. Call only after applying an entire
- * response ending WINDOW_DONE or IMAGE_DONE for that exact window. Earlier
- * byte-limited responses may have accumulated its bytes on the same channel.
- * Calls and response ingestion must be serialized. Each covered bin's current
- * byte length is a whole-packet boundary. Returns 0, or -1 with error;
+ * response ending WINDOW_DONE or IMAGE_DONE for that exact window, with no byte
+ * limit. Calls and response ingestion must be serialized. Each covered bin's
+ * current byte length is a whole-packet boundary. Returns 0, or -1 with error;
  * a rejected confirmation changes no quality records. */
 int hv_reconstruct_confirm(hv_cache *cache, uint64_t codestream, int reduce, int layers,
                             char *error, size_t error_size);

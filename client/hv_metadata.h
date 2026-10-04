@@ -1,9 +1,7 @@
 /* hv_metadata.h: what the metadata data-bins of a store say about the target.
  *
- * Metadata bin 0 is the file's boxes, with a placeholder box (phld, T.808
- * A.3.6.3) in place of each codestream and, in a JPX file, of each top-level
- * association box, whose contents are a metadata bin of their own. The
- * server sends them all with the first response of a channel. */
+ * Metadata bin 0 holds file boxes and JPIP placeholders. Metadata boxes may
+ * remain inline or have their contents in referenced bins. */
 #ifndef HV_METADATA_H
 #define HV_METADATA_H
 
@@ -30,13 +28,14 @@ int hv_metadata_open(const hv_cache *cache, hv_metadata *metadata,
                      char *error, size_t error_size);
 void hv_metadata_close(hv_metadata *metadata);
 
-/* The XML that describes a codestream, as hv_merge and hvJP2K write it: in a
- * JPX file, the contents of the xml box of the first top-level association
- * box whose number list names the codestream or the compositing layer of
- * that number; failing that, of the first top-level xml box, which a JP2
- * file has for its one codestream. 0, with *xml in the store (good until
- * hv_cache_release) and *size its length, or *xml NULL when the file
- * has none; -1, with a message in error, if the frame index is out of range. */
+/* The first XML associated with the codestream or the same-numbered layer
+ * in this client's movie profile. Number lists at the start of associations
+ * apply to their descendants; grouping boxes are transparent. Inline boxes
+ * and original-content placeholders use the same traversal, bounded by
+ * HV_BOX_DEPTH_MAX. If no associated XML is found, use the first unassociated
+ * file-level XML. Multiple XML documents are reduced to the first in box order.
+ * Returns 0 with borrowed bytes and their size, or *xml NULL if absent;
+ * -1 with a message if the frame index is out of range. */
 int hv_metadata_xml(const hv_metadata *metadata, uint64_t codestream, const uint8_t **xml, size_t *size,
                     char *error, size_t error_size);
 

@@ -4,9 +4,9 @@ The C client does not make HTTP requests. A native host such as JHelioviewer
 can keep a classical request policy around the same `hv_client` cache and
 reconstruction API. The JavaScript transport uses the new server's policy.
 
-The metadata reader accepts both layouts: inline `asoc` boxes in metadata
-bin 0, and `phld` boxes referring to association contents in separate bins.
-Frame XML, palettes, reconstruction and decoding use the same APIs.
+Inline metadata, grouping and association boxes, and metadata reached through
+placeholders are standard JPX/JPIP representations. Their parsing is general
+client functionality and must remain when older servers are retired.
 
 ## Request policy
 
@@ -23,7 +23,9 @@ frame count or XML.
 Use `hv_client_options.layers=0`, meaning full quality. Classical servers do
 not implement layer selection. A missing-header request is
 `cid=<cid>&stream=<frame>&len=<budget>`, without window fields.
-For a prepared frame with dimensions W,H, request:
+For a prepared frame, use W,H from that frame's `hv_client_view`, at its
+requested resolution. Do not reuse another frame's geometry or approximate
+fit dimensions. Request:
 
 ```text
 cid=<cid>&stream=<frame>&fsiz=W,H,closest&rsiz=W+1,H+1&roff=0,0&len=<budget>
@@ -32,11 +34,15 @@ cid=<cid>&stream=<frame>&fsiz=W,H,closest&rsiz=W+1,H+1&roff=0,0&len=<budget>
 Evaluate W+1 and H+1 numerically. The one-pixel padding compensates for the
 classical precinct-selection calculation, which can omit the last precinct
 when the last image coordinate is exactly a precinct boundary. The new
-server clips this window to the image. Padding the region does not change
-the resolution chosen by `fsiz`, or the frame geometry used for decoding.
+server clips this window to the image. With exact frame dimensions, padding
+does not change the resolution chosen by `fsiz` or the decoding geometry.
+With approximate dimensions, the older server can scale the padded region
+past the image and fail during packet lookup. Do not pad a priming request
+before the frame's own geometry is known.
 
-After every response, call `hv_client_prepare` again. A byte-limit EOR retains
-the bytes but does not confirm window completion. Repeat the prepared request
+Response continuation is general client behavior, not an older-server
+workaround. After every response, call `hv_client_prepare` again. A byte-limit
+EOR retains the bytes but does not confirm window completion. Repeat the prepared request
 on the same channel until READY, then reconstruct. Do not change the window
 while accumulating an unfinished request. The JHV frame budget is 2 MiB.
 
@@ -69,12 +75,10 @@ metadata and cached frame-0 headers, not just a successful channel opening.
 
 ## Retirement and limits
 
-The removable pieces are this host request policy, the inline-ASOC branch
-in `hv_metadata_open`, `tests/client/test_classical_metadata.cc`, and its
-`client_classical_metadata` entry in `tests/client/CMakeLists.txt`. The
-separate-bin metadata tests remain in `test_reconstruct.cc`; they require no
-changes at retirement. The separate-bin metadata path and all cache and
-reconstruction APIs continue unchanged.
+Only the older-server host request and channel-restoration policy is removable.
+Keep general metadata parsing and its regression tests. The restoration recipe
+above is specific to the tested server revision and the client's immutable-target,
+whole-frame movie profile, not a general JPIP recovery procedure.
 
 Response-generator validation used classical revision
 `35aca93e6f6b1f3ec203035c9a872d0fd5e54c13` and new-server revision

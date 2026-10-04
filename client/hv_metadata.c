@@ -76,36 +76,87 @@ struct hv_metadata_frame {
     palette_boxes palette;
 };
 
-/* Associates the first XML following a number list with its named frames. */
-static int association(const uint8_t *data, size_t size, hv_metadata *metadata,
-                       char *error, size_t error_size) {
+/* A leading number list applies to descendants of its association. Later
+ * number lists do not create scopes. Grouping boxes are transparent. */
+typedef struct xml_scope {
+    const uint8_t *names;
+    size_t size;
+    const struct xml_scope *parent;
+} xml_scope;
+
+static int xml_boxes(const hv_cache *cache, const uint8_t *data, size_t size,
+                     uint32_t container, const xml_scope *scope, int file_level, int depth,
+                     hv_metadata *metadata, struct hv_metadata_frame *file_xml,
+                     char *error, size_t error_size) {
     hv_boxes boxes;
     hv_box box;
-    size_t at;
+    xml_scope local;
+    size_t children = 0;
     int status;
+    if (depth > HV_BOX_DEPTH_MAX)
+        return hv_fail(error, error_size, "metadata: box.depth-limit");
     hv_boxes_file(&boxes, data, size);
     while ((status = next_box(&boxes, &box, error, error_size)) == 1) {
-        if (box.type == HV_BOX_NLST) {
-            hv_boxes following = boxes;
-            hv_box xml;
-            int found;
-            while ((found = next_box(&following, &xml, error, error_size)) == 1 &&
-                   xml.type != HV_BOX_XML)
-                ;
-            if (found < 0) return -1;
-            if (found == 0) continue;
-            for (at = box.payload; at + 4 <= box.end; at += 4) {
-                uint32_t name = (uint32_t)big_endian(data + at, 4);
-                uint32_t kind = name & 0xFF000000u, index = name & 0xFFFFFFu;
-                if ((kind == NLST_CODESTREAM || kind == NLST_LAYER) && index < metadata->count &&
-                    metadata->frames[index].xml == NULL) {
-                    metadata->frames[index].xml = data + xml.payload;
-                    metadata->frames[index].xml_size = xml.end - xml.payload;
+        const uint8_t *payload = data + box.payload;
+        size_t length = box.end - box.payload;
+        uint32_t type = box.type;
+        if (type == PHLD) {
+            if (length < 4)
+                return hv_fail(error, error_size, "metadata: phld.header");
+            unsigned flags = (unsigned)big_endian(payload, 4);
+            if (!(flags & PHLD_ORIGINAL) || (flags & PHLD_CODESTREAM)) {
+                children++;
+                continue;
+            }
+            if (length < PHLD_HEADER + 8)
+                return hv_fail(error, error_size, "metadata: phld.header");
+            type = (uint32_t)big_endian(payload + PHLD_HEADER + 4, 4);
+            if (type == HV_BOX_ASOC || type == HV_BOX_GRP ||
+                type == HV_BOX_NLST || type == HV_BOX_XML) {
+                const hv_bin *bin = metadata_bin(cache, big_endian(payload + 4, 8),
+                                                  error, error_size);
+                if (bin == NULL) return -1;
+                payload = bin->data;
+                length = bin->length;
+            }
+        }
+        if (container == HV_BOX_ASOC && children == 0) {
+            if (type == HV_BOX_GRP)
+                return hv_fail(error, error_size, "metadata: grp.asoc-first");
+            if (type == HV_BOX_NLST) {
+                if (length % 4 != 0)
+                    return hv_fail(error, error_size, "metadata: nlst.length");
+                local = (xml_scope){payload, length, scope};
+                scope = &local;
+            }
+        }
+        if (type == HV_BOX_ASOC || type == HV_BOX_GRP) {
+            if (xml_boxes(cache, payload, length, type, scope,
+                          file_level && type == HV_BOX_GRP, depth + 1, metadata, file_xml, error, error_size) != 0)
+                return -1;
+        } else if (type == HV_BOX_XML) {
+            if (scope == NULL && file_level && file_xml->xml == NULL) {
+                file_xml->xml = payload;
+                file_xml->xml_size = length;
+            }
+            for (const xml_scope *names = scope; names != NULL; names = names->parent) {
+                for (size_t at = 0; at < names->size; at += 4) {
+                    uint32_t name = (uint32_t)big_endian(names->names + at, 4);
+                    uint32_t kind = name & 0xFF000000u, index = name & 0xFFFFFFu;
+                    if ((kind == NLST_CODESTREAM || kind == NLST_LAYER) &&
+                        index < metadata->count && metadata->frames[index].xml == NULL) {
+                        metadata->frames[index].xml = payload;
+                        metadata->frames[index].xml_size = length;
+                    }
                 }
             }
         }
+        children++;
     }
-    return status;
+    if (status < 0) return -1;
+    if (container == HV_BOX_ASOC && children < 2)
+        return hv_fail(error, error_size, "metadata: asoc.children");
+    return 0;
 }
 
 static int header_palette(const uint8_t *data, const hv_box *header, palette_boxes *found,
@@ -138,8 +189,8 @@ int hv_metadata_open(const hv_cache *cache, hv_metadata *metadata,
     const hv_bin *bin;
     uint64_t count = codestreams(cache, error, error_size);
     palette_boxes defaults = {0};
-    const uint8_t *file_xml = NULL;
-    size_t file_size = 0, header = 0, i;
+    struct hv_metadata_frame file_xml = {0};
+    size_t header = 0, i;
     hv_boxes boxes;
     hv_box box;
     int status;
@@ -172,30 +223,25 @@ int hv_metadata_open(const hv_cache *cache, hv_metadata *metadata,
             if (header_palette(bin->data, &box, &metadata->frames[header++].palette,
                                error, error_size) != 0)
                 goto fail;
-        } else if (box.type == HV_BOX_XML && file_xml == NULL) {
-            file_xml = payload;
-            file_size = box.end - box.payload;
-        } else if (box.type == HV_BOX_ASOC) {
-            /* Classical servers keep association contents in metadata bin 0.
-             * TODO: When JHV drops classical esajpip support, remove this branch,
-             * tests/client/test_classical_metadata.cc and its CMake test entry. */
-            if (association(payload, box.end - box.payload, metadata, error, error_size) != 0)
+        } else if (box.type == HV_BOX_XML && file_xml.xml == NULL) {
+            file_xml.xml = payload;
+            file_xml.xml_size = box.end - box.payload;
+        } else if (box.type == HV_BOX_ASOC || box.type == HV_BOX_GRP) {
+            if (xml_boxes(cache, payload, box.end - box.payload, box.type, NULL,
+                          box.type == HV_BOX_GRP, 1, metadata, &file_xml,
+                          error, error_size) != 0)
                 goto fail;
-        } else if (box.type == PHLD && box.end - box.payload >= PHLD_HEADER + 8 &&
-                   (big_endian(payload, 4) & PHLD_ORIGINAL) &&
-                   big_endian(payload + PHLD_HEADER + 4, 4) == HV_BOX_ASOC) {
-            const hv_bin *contents = metadata_bin(cache, big_endian(payload + 4, 8), error,
-                                                  error_size);
-            if (contents == NULL || association(contents->data, contents->length, metadata,
-                                                error, error_size) != 0)
+        } else if (box.type == PHLD) {
+            if (xml_boxes(cache, bin->data + box.start, box.end - box.start, 0, NULL,
+                          1, 0, metadata, &file_xml, error, error_size) != 0)
                 goto fail;
         }
     }
     if (status < 0) goto fail;
     for (i = 0; i < metadata->count; i++)
         if (metadata->frames[i].xml == NULL) {
-            metadata->frames[i].xml = file_xml;
-            metadata->frames[i].xml_size = file_size;
+            metadata->frames[i].xml = file_xml.xml;
+            metadata->frames[i].xml_size = file_xml.xml_size;
         }
     return 0;
 fail:

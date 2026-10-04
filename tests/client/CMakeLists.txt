@@ -26,7 +26,7 @@ function(client_add_test target name)
 endfunction()
 
 client_add_test(test_client_cache client_cache SOURCES test_cache.c)
-client_add_test(test_client_classical_metadata client_classical_metadata SOURCES test_classical_metadata.cc)
+client_add_test(test_client_metadata client_metadata SOURCES test_metadata.cc)
 client_add_test(test_client_image client_image SOURCES test_image.c)
 client_add_test(test_client_jpp_roundtrip client_jpp SOURCES test_jpp_roundtrip.cc LIBRARIES jpip)
 client_add_test(test_client_jpp_malformed client_jpp_malformed SOURCES test_jpp_malformed.cc LIBRARIES jpip)

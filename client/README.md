@@ -432,8 +432,7 @@ quality across the selected resolution levels.
 The host retains HTTP, channel routing, scheduling and decoding. Submit the
 opening response with `hv_client_response`, then use `hv_client_frames` to
 read the frame count. Keep one request outstanding per source, serialize all
-calls, and keep prepared windows covering the whole frame. A host may add
-`len`, then continue limited responses on the same channel. After each
+calls, and do not add `len` or a region to prepared requests. After each
 response, prepare again until the requested frame is ready. This handles
 heterogeneous movies using each frame's own header. Successful completed
 responses confirm whole-packet layer boundaries automatically.
@@ -474,8 +473,7 @@ hv_client_destroy(source);
 return -1;
 ```
 
-For channel recovery against the new server, keep the source.
-`hv_client_model` writes retained-bin
+For channel recovery, keep the source. `hv_client_model` writes retained-bin
 declarations in bounded batches; start its cursor at zero and stop at an empty
 batch. Select no codestreams (`stream` equal to the frame count, `layers=0`).
 The first batch opens a replacement channel on the original target; later
@@ -494,12 +492,6 @@ order. The XML returned by `hv_client_xml` remains valid until destruction;
 `hv_client_palette` copies into a host buffer. `hv_client_reconstruct` preserves
 sample precision and uses the same size-query/caller-buffer convention as
 `hv_reconstruct`.
-
-### Classical esajpip servers
-
-A native host can use the same cache, metadata and reconstruction API with
-classical servers. Their request policy differs from the JavaScript client;
-see [CLASSICAL.md](CLASSICAL.md). The JavaScript transport targets the new server.
 
 ### Requests
 

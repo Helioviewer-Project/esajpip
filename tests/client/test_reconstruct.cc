@@ -670,48 +670,6 @@ int main() {
         check(found.entries == -1 && found.error == "pclr: bit depth out of range", "depth: " + found.error);
     }
 
-    // Associations are indexed by their number lists, not physical order.
-    // The first match wins; unnamed frames inherit the file XML.
-    {
-        hv_cache cache;
-        hv_cache_begin(&cache);
-        auto add = [&](uint64_t id, const Bytes &bytes) {
-            hv_jpp_message message = {};
-            message.bin_class = HV_BIN_META_DATA;
-            message.bin_id = id;
-            message.length = bytes.size();
-            message.data = bytes.data();
-            message.last_byte = 1;
-            check(hv_cache_apply(&cache, &message), "association fixture bin");
-        };
-        Bytes root = box("xml ", {'f'});
-        for (uint8_t id = 1; id <= 4; id++) {
-            root = root + box("phld", {0, 0, 0, 4}) +
-                   box("phld", {0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, id,
-                                0, 0, 0, 8, 'a', 's', 'o', 'c'});
-        }
-        add(0, root);
-        add(1, box("nlst", {2, 0, 0, 1}) + box("xml ", {'b'}));
-        add(2, box("nlst", {1, 0, 0, 0}) + box("xml ", {'a'}));
-        add(3, box("nlst", {1, 0, 0, 1}) + box("xml ", {'c'}));
-        add(4, box("nlst", {1, 0, 0, 0}) + box("xml ", {'c'}) +
-               box("nlst", {1, 0, 0, 3}) + box("xml ", {'d'}));
-        hv_metadata metadata = {};
-        char error[256] = "";
-        check(hv_metadata_open(&cache, &metadata, error, sizeof error) == 0 && metadata.count == 4,
-              error);
-        const uint8_t expected[] = {'a', 'b', 'f', 'd'};
-        for (size_t frame = 0; frame < 4; frame++) {
-            const uint8_t *xml;
-            size_t size;
-            check(hv_metadata_xml(&metadata, frame, &xml, &size, error, sizeof error) == 0 &&
-                  size == 1 && xml[0] == expected[frame], "indexed association differs");
-        }
-        hv_metadata_close(&metadata);
-        hv_metadata_close(&metadata);
-        hv_cache_release(&cache);
-    }
-
     // The decoder itself, on an image whose pixels are known: at (x, y) the
     // components are (x + 3y) mod 256, (5x + y) mod 256 and x xor y.
     {

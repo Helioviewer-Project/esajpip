@@ -55,16 +55,13 @@ int hv_client_status(hv_client *client, uint64_t frame, const hv_client_options 
 
 /* Inspect and remember the next request. HEADER means stream=frame,layers=0;
  * FRAME means stream=frame,fsiz=width,height,closest,layers=<clamped options>.
- * With layers=0, omit the layers field. The window must cover the whole frame.
- * A host may add len and repeat a limited request until window completion;
- * do not reconstruct before READY. See CLASSICAL.md for older esajpip hosts.
- * After submitting each response, prepare again. Only one request may be pending. */
+ * No len or ROI. With layers=0, omit the layers field. After submitting its
+ * response, prepare again until READY. Only one request may be pending. */
 int hv_client_prepare(hv_client *client, uint64_t frame, const hv_client_options *options,
                       hv_client_view *view);
 
-/* Replacement channel for the same immutable target: on the new server,
- * declare these batches with stream=frame count,layers=0. See CLASSICAL.md
- * for older servers. The host handles cnew/cid and HTTP errors.
+/* Replacement channel for the same immutable target: declare these batches
+ * with stream=frame count,layers=0; the host handles cnew/cid and HTTP errors.
  * Start cursor at zero, repeat until an empty batch. Do not ingest normal
  * responses between batches. Restoration preserves the pending frame request.
  * restore_response checks metadata replay and requires a normal EOR. */
