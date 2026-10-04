@@ -1,12 +1,16 @@
 #pragma once
 
 #include <cstdlib>
-#include <fstream>
+#include <cstdio>
 #include <iostream>
-#include <iterator>
-#include <map>
 #include <string>
 #include <vector>
+
+#if defined(__has_feature)
+#if __has_feature(memory_sanitizer)
+#include <sanitizer/msan_interface.h>
+#endif
+#endif
 
 #include "hv_client.h"
 #include "jpip/index/image_index.h"
@@ -19,18 +23,65 @@ inline void require(bool condition, const char *message) {
     if (!condition) { std::cerr << message << '\n'; std::abort(); }
 }
 
+inline void mark_initialized(std::string &value) {
+#if defined(__has_feature)
+#if __has_feature(memory_sanitizer)
+    __msan_unpoison(&value, sizeof value);
+    __msan_unpoison(value.data(), value.size() + 1);
+#endif
+#endif
+}
+
+inline std::string initialized_string(const char *text) {
+    std::string value(text);
+    mark_initialized(value);
+    return value;
+}
+
 struct Sources : jpip::SourceProvider {
-    struct Entry { std::vector<char> bytes; jpip::Source source; };
-    std::map<std::string, Entry> files;
+    struct Entry {
+        std::string path;
+        std::vector<char> bytes;
+        jpip::Source source;
+        Entry *next = nullptr;
+    };
+    Entry *files = nullptr;
+
+    ~Sources() override {
+        while (files != nullptr) {
+            Entry *next = files->next;
+            delete files;
+            files = next;
+        }
+    }
+
     const jpip::Source *GetSource(const std::string &path) override {
-        auto found = files.find(path);
-        if (found != files.end()) return &found->second.source;
-        std::ifstream input(path, std::ios::binary);
-        if (!input) return nullptr;
-        Entry &entry = files[path];
-        entry.bytes.assign(std::istreambuf_iterator<char>(input), {});
-        entry.source = jpip::Source(entry.bytes.data(), entry.bytes.size());
-        return &entry.source;
+        for (Entry *entry = files; entry != nullptr; entry = entry->next)
+            if (entry->path == path) return &entry->source;
+        FILE *input = fopen(path.c_str(), "rb");
+        if (input == NULL) return nullptr;
+        if (fseek(input, 0, SEEK_END) != 0) {
+            fclose(input);
+            return nullptr;
+        }
+        long length = ftell(input);
+        if (length < 0 || fseek(input, 0, SEEK_SET) != 0) {
+            fclose(input);
+            return nullptr;
+        }
+        Entry *entry = new Entry;
+        entry->path = path;
+        mark_initialized(entry->path);
+        entry->bytes.resize((size_t)length);
+        size_t read = entry->bytes.empty() ? 0 : fread(entry->bytes.data(), 1, entry->bytes.size(), input);
+        if (read != entry->bytes.size() || fclose(input) != 0) {
+            delete entry;
+            return nullptr;
+        }
+        entry->source = jpip::Source(entry->bytes.data(), entry->bytes.size());
+        entry->next = files;
+        files = entry;
+        return &entry->source;
     }
 };
 
@@ -51,10 +102,11 @@ inline Bytes response(jpip::DataBinServer &server, jpip::ImageIndex &image, Sour
 }
 
 struct Context {
+    std::string path;
     Sources sources;
     jpip::ImageIndex image;
     Bytes opening, restoration;
-    explicit Context(const std::string &path, bool jpx) : image(path) {
+    explicit Context(const char *path_, bool jpx) : path(initialized_string(path_)), image(path) {
         const jpip::Source *file = sources.GetSource(path);
         require(file && image.Open(*file, sources, jpx), "client fuzz fixture cannot open");
         jpip::DataBinServer server;
