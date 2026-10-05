@@ -97,26 +97,38 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
     hvc_bin fresh = {0};
     hvc_bin *bin = (hvc_bin *) hvc_cache_find(cache, message->bin_class, message->codestream,
                                             message->bin_id);
-    size_t needed;
+    size_t needed, held = bin != NULL ? bin->length : 0, overlap;
 
     cache->error = NULL;
 
-    if (message->length > (size_t) -1 - (size_t) message->offset) {
+    if (message->offset > SIZE_MAX || message->length > SIZE_MAX - message->offset) {
         Fail(cache, "Data-bin range overflows");
         return 0;
     }
     needed = (size_t) message->offset + (size_t) message->length;
 
-    /* A message must continue the bin where the previous one stopped. Anything
-     * else means the server's record of what this client holds has diverged from
-     * the client's, and no later request can be trusted to correct it. */
-    if (message->offset != (bin != NULL ? bin->length : 0)) {
-        Fail(cache, "Message does not continue the data-bin the client holds");
+    if (message->offset > held) {
+        Fail(cache, "Message leaves a gap in the data-bin");
         return 0;
     }
-    if (bin != NULL && bin->complete) {
-        Fail(cache, "Message extends a data-bin the server already completed");
+    if ((bin != NULL && bin->complete && needed > held) ||
+        (message->last_byte && needed < held)) {
+        Fail(cache, "Message disagrees with the data-bin's final size");
         return 0;
+    }
+    overlap = held - (size_t)message->offset;
+    if (overlap > message->length) overlap = (size_t)message->length;
+    if (overlap != 0 && memcmp(bin->data + (size_t)message->offset,
+                                message->data, overlap) != 0) {
+        Fail(cache, "Message conflicts with cached data-bin bytes");
+        return 0;
+    }
+    if (bin != NULL && needed <= held) {
+        if (message->last_byte && !bin->complete) {
+            Reserve(bin, held, 1);
+            bin->complete = 1;
+        }
+        return 1;
     }
     if (bin == NULL) {
         if (Grow(cache) != 0) {
@@ -138,10 +150,10 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
         *bin = fresh;
         cache->count++;
     }
-    if (message->length) {
-        memcpy(bin->data + bin->length, message->data, (size_t) message->length);
+    if (needed > held) {
+        memcpy(bin->data + held, message->data + overlap, needed - held);
         bin->length = needed;
-        cache->bytes += (size_t) message->length;
+        cache->bytes += needed - held;
     }
     if (message->last_byte) bin->complete = 1;
     return 1;

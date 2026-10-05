@@ -1,11 +1,8 @@
 /* hvc_cache.h: the client's store of delivered data-bins.
  *
  * One source owns one store. Each data-bin is identified by its class,
- * codestream and Bin-ID, and arrives in messages that must append without a gap,
- * because the server tracks exactly the same prefixes: if the client and server
- * disagree about a bin's length, every later request is wrong. The store
- * therefore refuses any message that does not continue a bin where it left off,
- * rather than trying to reconcile the difference.
+ * codestream and Bin-ID. Messages may append or replay identical bytes.
+ * Gaps, conflicting bytes and inconsistent final sizes are rejected.
  *
  * A bin is complete once a message sets the last-byte flag. Bins stay in
  * memory for the life of the source, complete or not: the server will not
@@ -56,10 +53,9 @@ typedef struct {
 /* Prepares an empty store. */
 void hvc_cache_begin(hvc_cache *cache);
 
-/* Applies one message. Returns 0 and sets hvc_cache_error() when the message
- * does not continue the bin the server believes it does, when memory runs out,
- * or when a message arrives for an already completed bin. A rejected message
- * leaves the store unchanged. */
+/* Applies one message, accepting identical overlap and appending its new suffix.
+ * Returns 0 on conflicting bytes, gaps, inconsistent final sizes or allocation
+ * failure. A rejected message leaves the stored bytes and completion unchanged. */
 int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message);
 
 /* Looks a bin up, or NULL when the client has not received any of it. The

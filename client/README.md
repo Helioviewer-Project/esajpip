@@ -328,8 +328,8 @@ records and precinct data-bins remain in the client. Cache hits need no live cha
 Recovery opens the original target with no frame selected and declares retained
 complete bins and exact partial byte prefixes in bounded `model` batches. It
 never declares partial `M0`. Metadata repeated during restoration is checked
-against the retained bytes. Normal responses still must append exactly to each
-bin. Once restoration finishes, the interrupted request resumes; another failure
+against the retained bytes. Normal responses also accept identical overlap and
+append only new bytes to each bin. Once restoration finishes, the interrupted request resumes; another failure
 ends recovery. Closing a source prevents it from reopening a channel.
 
 This relies on the server's immutable-source contract: the target and its linked
@@ -519,7 +519,7 @@ GET /<path>?cid=<cid>&cclose=<cid>
   `layers`, apply its entire response and call `hvc_reconstruct_confirm` only
   after `WINDOW_DONE` or `IMAGE_DONE`, with its exact reduction and clamped
   layer count. This records the whole-packet prefixes for reconstruction.
-  An unconfirmed partial precinct is refused. `layers=0` is
+  Unconfirmed bytes stay cached but are omitted from decoder input. `layers=0` is
   used only to obtain headers.
 - [`../JPIP_PROFILE.md`](../JPIP_PROFILE.md) describes the requests the server
   accepts, and [`../CHANNELS.md`](../CHANNELS.md) its channels, status codes
@@ -559,7 +559,7 @@ data-bin access. Each header documents its calls' results. Calls that take `erro
   with one, it writes. The codestream has empty packets above the cached
   levels or quality layers, so any decoder reads it. For full-quality requests,
   leave out `resolutions - complete` levels. For confirmed previews, use the
-  reduction requested. Unknown partial precincts are refused; confirmed
+  reduction requested. Unconfirmed packets are replaced with empty packets; confirmed
   prefixes stay usable if a later refinement appends unfinished packets.
 - **`hvc_openjpeg_decode`.** `HVC_IMAGE_SAMPLES` scales samples to 8 bits.
   `HVC_IMAGE_INDICES` keeps them as they are, for a frame with a color table;

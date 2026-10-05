@@ -49,11 +49,6 @@ size_t hvc_reconstruct(const hvc_cache *cache, uint64_t codestream, uint8_t *out
             put(&o, bin->data, bin->length);
         } else {
             int received = bin != NULL ? bin->layers : 0;
-            if (bin != NULL && bin->length != 0 && received == 0) {
-                hv_fail(error, error_size, "precinct data-bin %llu is incomplete",
-                        (unsigned long long)id);
-                return 0;
-            }
             if (received != 0) put(&o, bin->data, bin->packet_bytes);
             for (layer = (uint64_t)received; layer < (uint64_t)frame->layers; layer++)
                 put(&o, empty, frame->eph ? 3 : 1);

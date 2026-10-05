@@ -477,6 +477,53 @@ static void cross_source() {
     }
 }
 
+// First inspection must also work when data arrived before request planning.
+static void partial_inspection() {
+    for (bool limited : {false, true}) {
+        Sources sources;
+        jpip::ImageIndex image(IMAGE);
+        check(image.Open(*sources.GetSource(IMAGE), sources, false), image.GetError());
+        jpip::DataBinServer server;
+        int calls = 0;
+        hvc *client = hvc_create(inspect, &calls);
+        jpip::ResponseRequest opening;
+        opening.AddStream(0, 0);
+        opening.layers = 0;
+        submit(client, response(server, image, sources, opening));
+        jpip::ResponseRequest frame;
+        frame.AddStream(0, 0);
+        frame.has.fsiz = true;
+        frame.resolution_size = image.GetCodingParameters(0)->size;
+        frame.layers = limited ? image.GetCodingParameters(0)->num_layers : 1;
+        frame.has.len = limited;
+        frame.length_response = 2000;
+        Bytes body = response(server, image, sources, frame);
+        int reason = hvc_response(client, body.data(), body.size());
+        check(reason == (limited ? HVC_EOR_BYTE_LIMIT_REACHED : HVC_EOR_WINDOW_DONE),
+              "partial inspection response reason");
+        hvc_options options = {};
+        hvc_view view;
+        check(hvc_status(client, 0, &options, &view) == 0 && !view.ready &&
+              view.request == HVC_FRAME && calls == 1, "partial first inspection");
+        Bytes before = reconstruct(client, 0);
+        check(hvc_response(client, body.data(), body.size()) == reason &&
+              reconstruct(client, 0) == before, "unprepared response replay");
+        check(hvc_prepare(client, 0, &options, &view) == 0, hvc_error(client));
+        submit(client, response(server, image, sources, request(view)));
+        check(hvc_status(client, 0, &options, &view) == 0 && view.ready && calls == 1,
+              "partial inspection continuation");
+        hvc *reference = hvc_create(nullptr, nullptr);
+        jpip::DataBinServer other;
+        frame.has.len = false;
+        frame.layers = image.GetCodingParameters(0)->num_layers;
+        submit(reference, response(other, image, sources, frame));
+        check(reconstruct(client, 0) == reconstruct(reference, 0),
+              "continued data differs from uninterrupted response");
+        hvc_destroy(reference);
+        hvc_destroy(client);
+    }
+}
+
 int main(int argc, char **argv) {
     if (argc == 3 && std::string(argv[1]) == "--write-fixtures") {
         for (int layers : {1,2}) {
@@ -492,5 +539,6 @@ int main(int argc, char **argv) {
     verify(MOVIE, true);
     cross_source();
     inspection_retry();
+    partial_inspection();
     return 0;
 }

@@ -704,7 +704,7 @@ int main() {
     }
 
     // A channel whose responses are cut by a byte limit: a partial main
-    // header or precinct bin is refused, until the window is complete.
+    // header is refused; unconfirmed precinct bytes stay cached but are omitted.
     {
         Sources sources;
         std::string name = "jpx-graph-frame2.jp2", path = std::string(VECTORS) + "/" + name;
@@ -729,16 +729,19 @@ int main() {
             check(reason == HVC_EOR_BYTE_LIMIT_REACHED, "limited response ended otherwise");
             check(status(cache, 0, name).complete <= p.num_levels, "a cut window is complete");
             if (hvc_reconstruct(&cache, 0, NULL, 0, error, sizeof error) != 0) {
-                check(reconstruct(cache, 0, name) == expected(image, sources, 0, 0, name),
-                      "a store without precinct data is not the empty image");
-                ++empty_image;
+                Bytes bytes = reconstruct(cache, 0, name);
+                hvc_image decoded = {};
+                check(hvc_openjpeg_decode(bytes.data(), bytes.size(), 0, HVC_IMAGE_SAMPLES,
+                      &decoded, error, sizeof error) == 0, error);
+                free(decoded.pixels);
+                const hvc_bin *bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 0);
+                if (bin != NULL && bin->length && !bin->complete) ++partial_precinct;
+                else ++empty_image;
             } else if (std::string(error) == "main header data-bin is missing" ||
                        std::string(error) == "main header data-bin is incomplete") {
                 ++partial_header;
             } else {
-                check(std::string(error) == "precinct data-bin 0 is incomplete",
-                      "partial store: " + std::string(error));
-                ++partial_precinct;
+                check(false, "partial store: " + std::string(error));
             }
         } while (partial_header + partial_precinct + empty_image < 1000);
         check(reason == HVC_EOR_WINDOW_DONE && partial_header > 0 && partial_precinct > 0,

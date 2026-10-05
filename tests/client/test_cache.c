@@ -1,11 +1,4 @@
-/* test_cache.c: checks the client's data-bin store.
- *
- * The store's central rule is that a message must continue its bin exactly where
- * the previous one stopped, because the server keeps the same record of what the
- * client holds. A gap means the two disagree, and the only safe response is to
- * drop the channel rather than try to reconcile it. These cases cover that rule,
- * completion, and the bounds the store enforces.
- */
+/* Checks append, replay, completion, allocation failure and cache bounds. */
 #include "hvc_cache.h"
 
 #include <stdio.h>
@@ -83,9 +76,9 @@ static void TestGapsRejected(void) {
     Check(!hvc_cache_apply(&cache, &message), "gap rejected");
     Check(hvc_cache_error(&cache)[0] != 0, "gap has a diagnostic");
 
-    /* A retransmission of bytes already held is the same disagreement. */
+    /* Identical retransmissions leave the store unchanged. */
     message = Message(HVC_BIN_PRECINCT, 0, 1, 0, "abc", 3, 0);
-    Check(!hvc_cache_apply(&cache, &message), "retransmission rejected");
+    Check(hvc_cache_apply(&cache, &message), "retransmission accepted");
 
     /* The rejected messages must not have changed the store. */
     Check(hvc_cache_length(&cache, HVC_BIN_PRECINCT, 0, 1) == 3,
@@ -96,6 +89,39 @@ static void TestGapsRejected(void) {
     Check(hvc_cache_apply(&cache, &message), "bin completes");
     message = Message(HVC_BIN_PRECINCT, 0, 1, 4, "e", 1, 0);
     Check(!hvc_cache_apply(&cache, &message), "message after completion rejected");
+    hvc_cache_release(&cache);
+}
+
+static void TestOverlap(void) {
+    hvc_cache cache;
+    hvc_cache_begin(&cache);
+    hvc_jpp_message m = Message(HVC_BIN_PRECINCT, 0, 0, 0, "abcd", 4, 0);
+    Check(hvc_cache_apply(&cache, &m), "overlap seed");
+    m = Message(HVC_BIN_PRECINCT, 0, 0, 1, "bc", 2, 0);
+    Check(hvc_cache_apply(&cache, &m), "contained replay");
+    m = Message(HVC_BIN_PRECINCT, 0, 0, 2, "XXef", 4, 1);
+    Check(!hvc_cache_apply(&cache, &m), "conflicting overlap rejected");
+    m = Message(HVC_BIN_PRECINCT, 0, 0, 0, "abc", 3, 1);
+    Check(!hvc_cache_apply(&cache, &m), "premature final size rejected");
+    hvc_bin *bin = (hvc_bin *)hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 0);
+    bin->layers = 1;
+    bin->packet_bytes = 4;
+    Check(bin->length == 4 && !bin->complete && memcmp(bin->data, "abcd", 4) == 0,
+          "rejections preserve bytes and completion");
+    m = Message(HVC_BIN_PRECINCT, 0, 0, 2, "cdef", 4, 1);
+    Check(hvc_cache_apply(&cache, &m), "overlap plus final suffix");
+    Check(bin->length == 6 && bin->complete && memcmp(bin->data, "abcdef", 6) == 0 &&
+          cache.bytes == 6 && cache.count == 1, "only new bytes counted");
+    Check(hvc_cache_apply(&cache, &m), "completed suffix replay");
+    Check(bin->layers == 1 && bin->packet_bytes == 4, "replay preserves confirmed prefix");
+    m = Message(HVC_BIN_PRECINCT, 0, 0, 0, "abcdef", 6, 1);
+    Check(hvc_cache_apply(&cache, &m), "completed full replay");
+    m = Message(HVC_BIN_PRECINCT, 0, 0, 1, "bc", 2, 0);
+    Check(hvc_cache_apply(&cache, &m) && bin->complete, "replay preserves final flag");
+    m = Message(HVC_BIN_PRECINCT, 0, 0, 4, "efg", 3, 0);
+    Check(!hvc_cache_apply(&cache, &m), "completed bin extension rejected");
+    m = Message(HVC_BIN_PRECINCT, 0, 0, UINT64_MAX, "x", 1, 0);
+    Check(!hvc_cache_apply(&cache, &m), "overflow rejected");
     hvc_cache_release(&cache);
 }
 
@@ -238,7 +264,7 @@ static void TestRecoveryModel(void) {
     message = Message(HVC_BIN_META_DATA, 0, 0, 0, "metadata", 8, 1);
     Check(hvc_cache_apply(&cache, &message), "complete recovery metadata");
     Check(hvc_cache_match_metadata(&cache, &message), "identical metadata replay");
-    Check(!hvc_cache_apply(&cache, &message), "normal append still rejects replay");
+    Check(hvc_cache_apply(&cache, &message), "normal response accepts identical replay");
     message = Message(HVC_BIN_META_DATA, 0, 0, 2, "tada", 4, 0);
     Check(hvc_cache_match_metadata(&cache, &message), "identical metadata subrange");
     message.data = (const uint8_t *)"xxxx";
@@ -339,6 +365,7 @@ static void TestCompletedStorage(void) {
 int main(void) {
     TestCompletedStorage();
     TestRecoveryModel();
+    TestOverlap();
     TestContiguousAppend();
     TestGapsRejected();
     TestDistinctBins();

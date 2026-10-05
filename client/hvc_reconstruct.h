@@ -11,9 +11,10 @@
  * image up to the resolution that was requested.
  *
  * For codestreams of the served profile (JPIP_PROFILE.md): one tile, zero
- * origins, unit sampling, no COC or POC. Every precinct bin held must be
- * complete or have whole packets confirmed by hvc_reconstruct_confirm.
- * Unknown partial precincts are refused. */
+ * origins, unit sampling, no COC or POC. Only complete bins or whole packets confirmed by
+ * hvc_reconstruct_confirm are copied. Unconfirmed bytes remain cached; their
+ * packets are empty in this snapshot. Successful reconstruction does not imply
+ * that the requested resolution or quality is ready. */
 #ifndef HVC_RECONSTRUCT_H
 #define HVC_RECONSTRUCT_H
 
