@@ -9,7 +9,7 @@
  * some (the box tree, the fragments) the file's bytes. The rules on the
  * placement and count of segments and on the file's first boxes the reader
  * and the harness each check in their own code, the reader on the bytes and
- * the harness on the decoded model, under the same names. With HV_PROFILE
+ * the harness on the decoded model, under the same names. With HV_READ_JPIP
  * the reader applies
  * every JP2 rule the profile labels come from; its T.800 mode leaves some
  * out (see README.md, "What the reader checks").
@@ -51,6 +51,11 @@ typedef struct {
     size_t ncomponents;        /* components decoded (Csiz when the segment is valid) */
 } hv_siz;
 
+/* Declaration support of the standard validator, also used by writers
+ * that retain Rsiz without implementing additional profile requirements.
+ * Takes a decoded 16-bit value; does not validate profile-specific fields. */
+const char *hv_rule_rsiz(uint64_t rsiz);
+
 /* SIZ (A.5.1, B.3): Csiz against the components decoded (siz.csiz-count),
  * the image area and the tile grid. Given the Sgcod of a COD (NULL before
  * there is one), also what the multiple component transform requires of
@@ -65,6 +70,16 @@ typedef struct {
  * siz.tile-count). The profile adds zero origins, unit sampling and a
  * single tile. */
 const char *hv_rule_siz(const hv_siz *siz, const Sgcod *sgcod, int profile);
+
+/* Layout requirements: component count, image/tile extents, at most 65,535
+ * tiles and MCT component geometry. Does not classify or validate Rsiz
+ * declarations. Decoded field ranges are the caller's responsibility. */
+const char *hv_rule_siz_geometry(const hv_siz *siz, const Sgcod *sgcod);
+
+/* Header consistency needs the component count, nonempty image area and
+ * JP2 MCT component geometry. No tile-grid or capability validation. Field
+ * ranges and exact segment framing belong to the bounded SIZ reader. */
+const char *hv_rule_siz_header(const hv_siz *siz, int mct);
 
 /* COD (A.6.1): the precinct sizes and the code-block area. The profile
  * adds: no SOP markers. */
@@ -121,7 +136,7 @@ typedef struct {
  * for hv_segments_data, which
  * accepts them only where the packet headers are packed (plt.zero-length:
  * with the headers in the bit stream a packet has at least one byte). The
- * reader's HV_ACCEPT_PLT_PADDING applies plt.padding-position, under the
+ * reader's HV_READ_PADDED applies plt.padding-position, under the
  * same name, to each tile-part instead of the codestream (hv_reader.h). */
 const char *hv_rule_plt_entry(hv_plt_count *count, uint64_t value, int profile);
 
@@ -479,9 +494,10 @@ const char *hv_rule_box_tree(const uint8_t *buf, size_t size, int jpx, hv_box_tr
  * of type `parent` (0: at the top level), and for everything in it: for a
  * writer that copies a box from one file into another. The rules on the
  * whole file (file.*, comp.once, drep.once, gtso.once, jpx.colr) count
- * only what `box` holds. NULL, or the rule and *at the box at fault. */
+ * only what `box` holds. On success, *ipr is the number of IPR boxes
+ * in the copied tree. NULL, or the rule and *at the box at fault. */
 const char *hv_rule_box_placed(const uint8_t *buf, const hv_box *box, uint32_t parent,
-                               size_t *at);
+                               int *ipr, size_t *at);
 
 /* The fragments of the codestreams of a JPX file (the flst of each ftbl,
  * at the top level or in a j2cx), after hv_rule_box_tree has successfully

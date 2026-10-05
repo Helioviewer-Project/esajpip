@@ -41,3 +41,13 @@ client_add_test(test_client_source client_source SOURCES test_client.cc LIBRARIE
 target_compile_definitions(test_client_source PRIVATE
     IMAGE="${ESAJPIP_CLIENT_RGB_FIXTURE}"
     MOVIE="${ESAJPIP_CLIENT_MOVIE_FIXTURE}")
+
+# Local source access and selection require no built-in decoder.
+add_executable(test_client_local test_local_source.c)
+esajpip_configure_target(test_client_local)
+target_link_libraries(test_client_local PRIVATE esajpip_client)
+esajpip_add_test(client_local COMMAND test_client_local LABELS client)
+add_dependencies(client_tests test_client_local)
+target_compile_definitions(test_client_local PRIVATE
+    IMAGE="${ESAJPIP_CLIENT_RGB_FIXTURE}"
+    MOVIE="${ESAJPIP_CLIENT_MOVIE_FIXTURE}")

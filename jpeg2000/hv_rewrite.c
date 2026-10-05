@@ -30,7 +30,7 @@ static size_t min_size(size_t a, size_t b) { return a < b ? a : b; }
 
 typedef struct {
     const uint8_t *buf;
-    unsigned flags;
+    hv_read_mode mode;
     hv_out *out;
     hv_rewrite_result *r;
     uint64_t *lengths;      /* the nonzero entries of a PLT segment */
@@ -138,7 +138,7 @@ static int rewrite_codestream(rewrite *w, size_t start, size_t end) {
     hv_codestream cs;
     hv_item item;
     size_t tp_start = 0;
-    int status = hv_codestream_open(&cs, w->buf, start, end, w->flags);
+    int status = hv_codestream_open(&cs, w->buf, start, end, w->mode);
 
     if (status == 0 && hv_write_marker(w->out, HV_SOC) != 0) {
         hv_codestream_close(&cs);
@@ -355,15 +355,24 @@ static int rewrite_boxes(rewrite *w, hv_boxes *it, int depth) {
     return status < 0 ? -1 : 0;
 }
 
-int hv_rewrite(const uint8_t *buf, size_t size, int raw, unsigned flags, hv_out *out,
+int hv_rewrite(const uint8_t *buf, size_t size, int raw, hv_read_mode mode, hv_out *out,
                hv_rewrite_result *r) {
     rewrite w;
     int status;
+    size_t out_start = out->size;
 
     memset(r, 0, sizeof *r);
+    if (out->error != NULL) {
+        r->error = out->error;
+        return -1;
+    }
+    if (mode != HV_READ_VALIDATE && mode != HV_READ_PADDED && mode != HV_READ_JPIP) {
+        r->error = "rewrite requires validation mode";
+        return -1;
+    }
     memset(&w, 0, sizeof w);
     w.buf = buf;
-    w.flags = flags;
+    w.mode = mode;
     w.out = out;
     w.r = r;
     if (raw) {
@@ -374,5 +383,6 @@ int hv_rewrite(const uint8_t *buf, size_t size, int raw, unsigned flags, hv_out 
         status = rewrite_boxes(&w, &it, 0);
     }
     free(w.lengths);
+    if (status != 0) hv_out_rewind(out, out_start);
     return status;
 }

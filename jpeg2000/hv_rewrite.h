@@ -40,9 +40,11 @@ typedef struct {
 
 /* Appends the rewrite of buf[0, size) to out: a raw codestream when `raw`,
  * otherwise a box structure (the whole file, as hv_boxes_file reads it).
- * Codestreams are read with hv_codestream_open and `flags`. 0, or -1 with
- * r->error set. */
-int hv_rewrite(const uint8_t *buf, size_t size, int raw, unsigned flags, hv_out *out,
+ * Codestreams are read with hv_codestream_open and `mode`; packet and index modes
+ * are refused because rewriting needs decoded bodies and lengths. 0, or -1 with
+ * r->error set and out rewound to its original size. An earlier out->error
+ * fails immediately and remains set. */
+int hv_rewrite(const uint8_t *buf, size_t size, int raw, hv_read_mode mode, hv_out *out,
                hv_rewrite_result *r);
 
 #ifdef __cplusplus

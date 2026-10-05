@@ -86,7 +86,7 @@ are in [`spec/`](spec/README.md).
 | [`jpip/`](jpip/README.md) | `jpip` | C++ JPIP request parsing, indexed targets and response generation |
 | `server/` | `esajpip_server`, `esajpip` | File mapping, HTTP, channels, scheduling and logging |
 | `merge/`, `transcode/` | `hv_merge`, `hv_transcode` | Format tools using the C library |
-| [`client/`](client/README.md) | `esajpip_client`, `hv_jpp2j2k`, `esajpip_client_wasm` | C client side for JP2 images and JPX movies: JPP-stream reading, data-bin store, codestream reconstruction, frame count, XML and color table from the metadata, what is held of each frame, decoding with the vendored OpenJPEG, and a WebAssembly build with a JavaScript interface for web applications |
+| [`client/`](client/README.md) | `esajpip_client`, `hvc_jpp2j2k`, `esajpip_client_wasm` | C client side for JP2 images and JPX movies: JPP-stream reading, data-bin store, codestream reconstruction, frame count, XML and color table from the metadata, what is held of each frame, decoding with the vendored OpenJPEG, and a WebAssembly build with a JavaScript interface for web applications |
 | [`tests/`](tests/README.md) | Test executables | Independent library tests and server integration |
 
 Each production component owns its CMake definition. The `jpip` library links
@@ -130,8 +130,9 @@ servable. The server accepts JPX movies produced by `hv_merge` (and hvJP2K's
 `hv_jpx_merge`), embedded or linked, and the compatible `kdu_merge` form. It
 preserves the order stored in the JPX, so pass source frames to the merge
 tool in timestamp order. `hv_merge --validate` additionally validates every
-codestream against the served profile; default merging checks the container
-and required headers without traversing PLT entries.
+input container and codestream against the served profile. Default embedded
+merging reads a JP2-compatible container and checks required headers without
+traversing PLT entries. Linked merging also requires served input containers.
 
 Never modify a JP2, JPX, or linked source while a channel may be using it. The
 server indexes a target once and memory-maps its sources as responses need

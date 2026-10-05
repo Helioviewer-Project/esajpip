@@ -9,6 +9,7 @@
 #define _DARWIN_C_SOURCE 1
 #endif
 
+#include "jpeg2000/hv_served.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -124,7 +125,7 @@ static int merge_mode(const hv_merge_input *in, size_t n, int links, int validat
         snprintf(error, error_size, "no temporary file");
         return -1;
     }
-    status = hv_merge_buffers(in, n, links, validate, f, error, error_size);
+    status = hv_merge_buffers(in, n, links, validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, f, error, error_size);
     if (status == 0 && (fseek(f, 0, SEEK_END) != 0 || (size = ftell(f)) < 0 ||
                         fseek(f, 0, SEEK_SET) != 0 ||
                         (out->data = malloc(size ? (size_t)size : 1)) == NULL ||
@@ -143,32 +144,32 @@ static int merge(const hv_merge_input *in, size_t n, int links, bytes *out, char
     return merge_mode(in, n, links, test_validate, out, error, error_size);
 }
 
-/* The JPX file is within the served profile: hv_check_jpx, and every
- * codestream with HV_PROFILE, embedded or linked; and its header boxes are
+/* The JPX file is within the served profile: hv_served_jpx, and every
+ * codestream with HV_READ_JPIP, embedded or linked; and its header boxes are
  * valid (hv_check_jpx_headers). */
 static void expect_served(const char *name, const bytes *jpx, const hv_merge_input *in) {
-    hv_jpx j;
+    hv_served_sources j;
     size_t at, i;
     const char *error = hv_check_jpx_headers(jpx->data, jpx->size, &at), *file;
     check(error == NULL, "%s: header boxes: %s at %zu", name, error, at);
-    file = error = hv_check_jpx(jpx->data, jpx->size, &j, &at);
+    file = error = hv_served_jpx(jpx->data, jpx->size, &j, &at);
     check(error == NULL, "%s: %s at %zu", name, error, at);
     for (i = 0; error == NULL && i < j.count; i++) {
         if (j.jp2c != NULL) {
-            error = hv_codestream_check(jpx->data, j.jp2c[i].payload, j.jp2c[i].end, HV_PROFILE,
+            error = hv_codestream_check(jpx->data, j.jp2c[i].payload, j.jp2c[i].end, HV_READ_JPIP,
                                         &at);
             check(error == NULL, "%s: codestream %zu: %s at %zu", name, i, error, at);
         } else {
             char path[4096], *real = realpath(in[i].path, NULL);
-            check(hv_link_path(&j.links[i], NULL, path, sizeof path) == NULL && real != NULL &&
+            check(hv_served_path(&j.links[i], NULL, path, sizeof path) == NULL && real != NULL &&
                   strcmp(path, real) == 0, "%s: link %zu does not name %s", name, i, in[i].path);
-            error = hv_check_link(in[i].buf, in[i].size, &j.links[i], &at);
+            error = hv_served_link(in[i].buf, in[i].size, &j.links[i], &at);
             check(error == NULL, "%s: link %zu: %s at %zu", name, i, error, at);
             free(real);
         }
     }
     if (file == NULL)           /* a failing codestream check included */
-        hv_jpx_free(&j);
+        hv_served_sources_free(&j);
 }
 
 /* The standard features of a Reader Requirements box, in order. */
@@ -308,7 +309,7 @@ static void test_rreq(void) {
     size_t at;
     int rsiz;
 
-    if (files[0].data == NULL || hv_check_jp2(files[0].data, files[0].size, &jp2c, &at) != NULL)
+    if (files[0].data == NULL || hv_served_jp2(files[0].data, files[0].size, &jp2c, &at) != NULL)
         return;
     jp2.data = malloc(files[0].size);
     memcpy(jp2.data, files[0].data, files[0].size);
@@ -328,7 +329,29 @@ static void test_rreq(void) {
             expect_features("Rsiz 1", &out, only, 1);
         else
             expect_features("Rsiz 2", &out, rsiz2, 2);
+        bytes copied;
+        check(merge_mode(in, 1, 0, 0, &copied, error, sizeof error) == 0,
+              "copying Rsiz %d: %s", rsiz, error);
+        if (copied.data != NULL)
+            check(copied.size == out.size && memcmp(copied.data, out.data, out.size) == 0,
+                  "Rsiz %d reader requirements identical in copying/validation modes", rsiz);
+        bytes_free(&copied);
         bytes_free(&out);
+    }
+
+    /* Header information accepts broader declarations; RREQ writing cannot. */
+    {
+        static const unsigned unsupported[] = {3, 0x4000, 0xffff};
+        for (size_t i = 0; i < sizeof unsupported / sizeof *unsupported; i++) {
+            put16(jp2.data + jp2c.payload + 6, unsupported[i]);
+            for (int links = 0; links < 2; links++)
+                for (int validate = 0; validate < 2; validate++) {
+                    check(merge_mode(in, 1, links, validate, &out, error, sizeof error) != 0 &&
+                          strstr(error, "for merge Reader Requirements") != NULL,
+                          "Rsiz %u is rejected by RREQ admission: %s", unsupported[i], error);
+                    bytes_free(&out);
+                }
+        }
     }
 
     /* Rsiz bit 15, T.801 extensions: not in a JP2 file (T.800 I.5.4,
@@ -866,7 +889,7 @@ static int merge_counting(counting *c, int links, char *error, size_t error_size
         snprintf(error, error_size, "no temporary file");
         return -1;
     }
-    status = hv_merge_files(&from, NINPUTS, links, opening_validate, f, error, error_size);
+    status = hv_merge_files(&from, NINPUTS, links, opening_validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, f, error, error_size);
     fclose(f);
     return status;
 }
@@ -928,7 +951,7 @@ static void test_tiled_rreq(void) {
     char error[512];
     size_t at;
     int rsiz;
-    if (jp2.data == NULL || hv_check_jp2(jp2.data, jp2.size, &jp2c, &at) != NULL) {
+    if (jp2.data == NULL || hv_served_jp2(jp2.data, jp2.size, &jp2c, &at) != NULL) {
         check(0, "cannot prepare tiled Rsiz test");
         bytes_free(&jp2);
         return;
@@ -970,8 +993,8 @@ static void test_modes(void) {
         bytes_free(&normal);
         bytes_free(&validated);
     }
-    if (hv_check_jp2(inputs[0].buf, inputs[0].size, &jp2c, &at) != NULL ||
-        hv_codestream_open(&cs, inputs[0].buf, jp2c.payload, jp2c.end, HV_PROFILE) != 0) {
+    if (hv_served_jp2(inputs[0].buf, inputs[0].size, &jp2c, &at) != NULL ||
+        hv_codestream_open(&cs, inputs[0].buf, jp2c.payload, jp2c.end, HV_READ_JPIP) != 0) {
         check(0, "cannot prepare PLT mode test");
         return;
     }
@@ -987,15 +1010,15 @@ static void test_modes(void) {
         check(merge_mode(&bad, 1, 0, 0, &normal, error, sizeof error) == 0,
               "default accepts opaque malformed PLT: %s", error);
         if (normal.data != NULL) {
-            hv_jpx jpx;
-            check(hv_check_jpx(normal.data, normal.size, &jpx, &at) == NULL,
+            hv_served_sources jpx;
+            check(hv_served_jpx(normal.data, normal.size, &jpx, &at) == NULL,
                   "default output container remains valid");
             if (jpx.count == 1)
                 check(jpx.jp2c[0].end - jpx.jp2c[0].payload == jp2c.end - jp2c.payload &&
                       memcmp(normal.data + jpx.jp2c[0].payload, copy + jp2c.payload,
                              jp2c.end - jp2c.payload) == 0,
                       "default copies malformed codestream byte for byte");
-            hv_jpx_free(&jpx);
+            hv_served_sources_free(&jpx);
         }
         bytes_free(&normal);
         check(merge_mode(&bad, 1, 0, 1, &validated, error, sizeof error) != 0 &&
@@ -1011,6 +1034,269 @@ static void test_modes(void) {
     } else check(0, "fixture has no PLT");
 }
 
+/* Main-header bodies copied intact do not belong to header-box checking.
+ * Full standard validation remains explicit and still rejects these cases. */
+static void test_opaque_headers(void) {
+    static const struct { const char *file, *rule; int validation; } cases[] = {
+        {"jp2-rule-qcd.style-72.jp2", "qcd.style", 0},
+        {"jp2-rule-qcc.component-69.jp2", "qcc.component", 0},
+        {"jp2-rule-rgn.component-77.jp2", "rgn.component", 0},
+        {"jp2-rule-crg.length-95.jp2", "invalid CRG", 0},
+        {"jp2-rule-tlm.stlm-83.jp2", "invalid TLM", 0},
+        {"jp2-rule-plm.length-87.jp2", "plm.length", 0},
+        {"jp2-cod.sgcod.progression-5.jp2", "invalid COD", 1},
+        {"jp2-cod.spcod.cbWidthExp-5.jp2", "cod.codeblock-area", 1},
+        {"jp2-cod.spcod.cbStyle-64.jp2", "invalid COD", 1},
+        {"jp2-siz.xtosiz-1.jp2", "siz.tile-origin", 1},
+        {"jp2-siz.ytosiz-1.jp2", "siz.tile-origin", 1},
+        {"jp2-rule-siz.tile-covers-origin-53.jp2", "siz.tile-covers-origin", 1}
+    };
+    size_t i;
+    for (i = 0; i < sizeof cases / sizeof *cases; i++) {
+        char path[4096], error[512];
+        hv_box input_cs;
+        size_t at = 0;
+        bytes input, output;
+        int mode;
+        snprintf(path, sizeof path, "%s/%s", JPEG2000_VECTORS, cases[i].file);
+        input = read_file(path);
+        hv_merge_input in = {path, input.data, input.size};
+        const char *rule = hv_served_jp2(input.data, input.size, &input_cs, &at);
+        check(rule == NULL, "%s: input framing: %s", cases[i].file, rule);
+        if (rule != NULL) { bytes_free(&input); continue; }
+        for (mode = 0; mode < 2; mode++) {
+            int status = merge_mode(&in, 1, 0, mode, &output, error, sizeof error);
+            if (mode && cases[i].validation) {
+                check(status != 0 && strstr(error, cases[i].rule) != NULL,
+                      "%s: explicit merge validation: %s", cases[i].file, error);
+                bytes_free(&output);
+                continue;
+            }
+            check(status == 0, "%s: merge mode %d: %s", cases[i].file, mode, error);
+            if (status == 0) {
+                hv_served_sources jpx;
+                rule = hv_check_jpx_headers(output.data, output.size, &at);
+                check(rule == NULL, "%s: generated header consistency: %s", cases[i].file, rule);
+                rule = hv_served_jpx(output.data, output.size, &jpx, &at);
+                check(rule == NULL && jpx.count == 1, "%s: output framing: %s", cases[i].file, rule);
+                if (rule == NULL) {
+                    if (jpx.count == 1) {
+                        hv_box *out_cs = &jpx.jp2c[0];
+                        size_t n = input_cs.end - input_cs.payload;
+                        check(out_cs->end - out_cs->payload == n &&
+                              memcmp(output.data + out_cs->payload, input.data + input_cs.payload, n) == 0,
+                              "%s: copied codestream identity", cases[i].file);
+                        rule = hv_codestream_check(output.data, out_cs->payload, out_cs->end, HV_READ_VALIDATE, &at);
+                        check(rule != NULL && strcmp(rule, cases[i].rule) == 0,
+                              "%s: explicit validation retained: %s", cases[i].file, rule);
+                    }
+                    hv_served_sources_free(&jpx);
+                }
+            }
+            bytes_free(&output);
+        }
+        /* Opaque bodies still need a bounded length. */
+        {
+            hv_marker m;
+            size_t pos = input_cs.payload;
+            while (hv_marker_read(input.data, pos, input_cs.end, &m) == NULL && m.code != HV_QCD)
+                pos = m.end;
+            check(m.code == HV_QCD, "%s: QCD fixture marker", cases[i].file);
+            if (m.code == HV_QCD) {
+                put16(input.data + m.start + 2, 65535);
+                check(merge_mode(&in, 1, 0, 0, &output, error, sizeof error) != 0,
+                      "%s: opaque segment bounds retained", cases[i].file);
+                bytes_free(&output);
+            }
+        }
+        bytes_free(&input);
+    }
+}
+
+/* Dropped bodies do not determine whether emitted boxes are usable. */
+static void test_unused_boxes(void) {
+    static const uint8_t ignored[][9] = {
+        {0,0,0,9,'u','u','i','d',1},
+        {0,0,0,9,'u','i','n','f',1}
+    };
+    bytes input = read_file(names[0]), baseline = {0}, output = {0};
+    hv_merge_input in = {names[0], input.data, input.size};
+    char error[512];
+    size_t at = 0;
+    if (input.data == NULL) return;
+    check(merge_mode(&in, 1, 0, 0, &baseline, error, sizeof error) == 0,
+          "unused-box baseline: %s", error);
+    for (size_t i = 0; i < sizeof ignored / sizeof *ignored; i++) {
+        bytes altered = {malloc(input.size + sizeof ignored[i]), input.size + sizeof ignored[i]};
+        hv_header header;
+        memcpy(altered.data, input.data, input.size);
+        memcpy(altered.data + input.size, ignored[i], sizeof ignored[i]);
+        in.buf = altered.data; in.size = altered.size;
+        check(hv_read_jp2h(altered.data, altered.size, &header, &at) != NULL,
+              "whole-file header checks retain dropped-body validation");
+        for (int validate = 0; validate < 2; validate++) {
+            check(merge_mode(&in, 1, 0, validate, &output, error, sizeof error) == 0,
+                  "dropped box mode %d: %s", validate, error);
+            check(output.data != NULL && baseline.data != NULL && output.size == baseline.size &&
+                  memcmp(output.data, baseline.data, baseline.size) == 0,
+                  "dropped body has no effect on emitted bytes");
+            if (output.data != NULL)
+                check(hv_check_jpx_headers(output.data, output.size, &at) == NULL,
+                      "dropped body cannot invalidate output headers");
+            bytes_free(&output);
+        }
+        /* The first source's header is copied; its malformed body must fail. */
+        bytes copied = add_to_jp2h(&input, ignored[i], sizeof ignored[i]);
+        in.buf = copied.data; in.size = copied.size;
+        check(merge_mode(&in, 1, 0, 0, &output, error, sizeof error) != 0,
+              "copied malformed header body rejected: %s", error);
+        bytes_free(&output); bytes_free(&copied); bytes_free(&altered);
+    }
+    /* Header count/order remain merge input policy. */
+    {
+        hv_boxes boxes;
+        hv_box box;
+        const char *rule;
+        hv_boxes_file(&boxes, input.data, input.size);
+        while (hv_boxes_next(&boxes, &box, &rule, &at) == 1)
+            if (box.type == HV_BOX_JP2H) {
+                size_t n = box.end - box.start;
+                bytes duplicate = {malloc(input.size + n), input.size + n};
+                memcpy(duplicate.data, input.data, input.size);
+                memcpy(duplicate.data + input.size, input.data + box.start, n);
+                in.buf = duplicate.data; in.size = duplicate.size;
+                check(merge_mode(&in, 1, 0, 0, &output, error, sizeof error) != 0 &&
+                      strstr(error, "jp2.one-jp2h") != NULL,"duplicate header rejected: %s", error);
+                bytes_free(&output); bytes_free(&duplicate);
+                bytes late = {malloc(input.size), input.size};
+                memcpy(late.data, input.data, box.start);
+                memcpy(late.data + box.start, input.data + box.end, input.size - box.end);
+                memcpy(late.data + input.size - n, input.data + box.start, n);
+                in.buf = late.data; in.size = late.size;
+                check(merge_mode(&in, 1, 0, 0, &output, error, sizeof error) != 0 &&
+                      strstr(error, "jp2h.position") != NULL,"late header rejected: %s", error);
+                bytes_free(&output); bytes_free(&late);
+                break;
+            }
+    }
+    /* IPR inside a dropped UINF cannot satisfy the emitted image's flag. */
+    {
+        static const uint8_t nested[] = {
+            0,0,0,56,'u','i','n','f',
+            0,0,0,26,'u','l','s','t',0,1,
+            0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+            0,0,0,13,'u','r','l',' ',0,0,0,0,0,
+            0,0,0,9,'j','p','2','i',1
+        };
+        bytes altered = {malloc(input.size + sizeof nested), input.size + sizeof nested};
+        hv_boxes boxes, children;
+        hv_box box;
+        hv_header header;
+        const char *rule;
+        memcpy(altered.data, input.data, input.size);
+        memcpy(altered.data + input.size, nested, sizeof nested);
+        hv_boxes_file(&boxes, altered.data, altered.size);
+        while (hv_boxes_next(&boxes, &box, &rule, &at) == 1)
+            if (box.type == HV_BOX_JP2H) {
+                hv_boxes_children(&children, altered.data, &box);
+                while (hv_boxes_next(&children, &box, &rule, &at) == 1)
+                    if (box.type == HV_BOX_IHDR) altered.data[box.payload + 13] = 1;
+            }
+        check(hv_read_jp2h(altered.data, altered.size, &header, &at) == NULL,
+              "nested IPR is available in the input file");
+        in.buf = altered.data; in.size = altered.size;
+        check(merge_mode(&in, 1, 0, 0, &output, error, sizeof error) != 0 &&
+              strstr(error, "ihdr.ipr") != NULL,
+              "dropped IPR cannot satisfy output availability: %s", error);
+        bytes_free(&output); bytes_free(&altered);
+    }
+    /* Nested IPR in a copied Resolution box remains available in the output. */
+    {
+        static const uint8_t res[] = {
+            0,0,0,35,'r','e','s',' ',
+            0,0,0,18,'r','e','s','c',0,1,0,1,0,1,0,1,0,0,
+            0,0,0,9,'j','p','2','i',1
+        };
+        bytes altered = add_to_jp2h(&input, res, sizeof res);
+        hv_boxes boxes, children;
+        hv_box box;
+        hv_header header;
+        const char *rule;
+        hv_boxes_file(&boxes, altered.data, altered.size);
+        while (hv_boxes_next(&boxes, &box, &rule, &at) == 1)
+            if (box.type == HV_BOX_JP2H) {
+                hv_boxes_children(&children, altered.data, &box);
+                while (hv_boxes_next(&children, &box, &rule, &at) == 1)
+                    if (box.type == HV_BOX_IHDR) altered.data[box.payload + 13] = 1;
+            }
+        check(hv_read_jp2h(altered.data, altered.size, &header, &at) == NULL,
+              "nested Resolution IPR is valid input");
+        hv_merge_input pair[] = {
+            {names[0], input.data, input.size},
+            {names[0], altered.data, altered.size}
+        };
+        for (int first = 0; first < 2; first++) {
+            const hv_merge_input *sources = first ? &pair[1] : pair;
+            size_t count = first ? 1 : 2;
+            check(merge_mode(sources, count, 0, 0, &output, error, sizeof error) == 0,
+                  "nested IPR survives copied %s: %s", first ? "JP2H" : "RES", error);
+            if (output.data != NULL)
+                check(hv_check_jpx_headers(output.data, output.size, &at) == NULL,
+                      "copied nested IPR satisfies output availability");
+            bytes_free(&output);
+        }
+        bytes_free(&altered);
+    }
+    bytes_free(&baseline); bytes_free(&input);
+}
+
+/* Copying into an embedded JPX does not need the input's primary JP2
+ * brand. Linked output still requires the server's source-file contract. */
+static void test_container_access(void) {
+    bytes input = read_file(names[0]), ordinary = {0}, altered = {0};
+    hv_merge_input in;
+    hv_boxes it;
+    hv_box box;
+    const char *rule;
+    size_t at;
+    char error[1024];
+    int found = 0;
+    if (input.data == NULL)
+        return;
+    in.path = names[0];
+    in.buf = input.data;
+    in.size = input.size;
+    check(merge_mode(&in, 1, 0, 0, &ordinary, error, sizeof error) == 0,
+          "ordinary container baseline: %s", error);
+    hv_boxes_file(&it, input.data, input.size);
+    while (hv_boxes_next(&it, &box, &rule, &at) == 1) {
+        if (box.type == HV_BOX_FTYP) {
+            memcpy(input.data + box.payload, "test", 4);
+            found = 1;
+            break;
+        }
+    }
+    check(found, "container fixture has ftyp");
+    if (found) {
+        check(merge_mode(&in, 1, 0, 0, &altered, error, sizeof error) == 0,
+              "compatible primary brand embedded merge: %s", error);
+        check(ordinary.size == altered.size && ordinary.data != NULL && altered.data != NULL &&
+              memcmp(ordinary.data, altered.data, ordinary.size) == 0,
+              "compatible primary brand identical generated JPX");
+        bytes_free(&altered);
+        check(merge_mode(&in, 1, 0, 1, &altered, error, sizeof error) != 0 &&
+              strstr(error, "file.ftyp-brand") != NULL,
+              "validated merge retains served brand: %s", error);
+        bytes_free(&altered);
+        check(merge_mode(&in, 1, 1, 0, &altered, error, sizeof error) != 0 &&
+              strstr(error, "file.ftyp-brand") != NULL,
+              "linked merge retains source brand: %s", error);
+    }
+    bytes_free(&altered);
+    bytes_free(&ordinary);
+    bytes_free(&input);
+}
+
 int main(void) {
     struct {
         const char *name;
@@ -1018,6 +1304,9 @@ int main(void) {
     } groups[] = {
         {"hvJP2K reference", test_reference},
         {"default and validation modes", test_modes},
+        {"general container access", test_container_access},
+        {"opaque main-header bodies", test_opaque_headers},
+        {"unused file boxes", test_unused_boxes},
         {"tiled Reader Requirements", test_tiled_rreq},
         {"linked merge", test_links},
         {"reader requirements", test_rreq},

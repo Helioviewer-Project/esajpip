@@ -1,6 +1,6 @@
 # Core client for a host decoder; the extended client also decodes with OpenJPEG.
 set(esajpip_client_srcs
-    hv_client.c hv_jpp.c hv_cache.c hv_frame.c hv_reconstruct.c hv_metadata.c)
+    hvc.c hvc_jpp.c hvc_cache.c hvc_frame.c hvc_reconstruct.c hvc_metadata.c)
 
 set(openjpeg_srcs
     bio.c cio.c dwt.c event.c function_list.c ht_dec.c image.c invert.c j2k.c
@@ -10,12 +10,12 @@ list(TRANSFORM openjpeg_srcs PREPEND vendor/openjpeg/)
 set_source_files_properties(${openjpeg_srcs} PROPERTIES COMPILE_OPTIONS -w)
 
 set(esajpip_client_wasm_srcs
-    ${esajpip_client_srcs} hv_image.c hv_wasm.c ${openjpeg_srcs})
+    ${esajpip_client_srcs} hvc_openjpeg.c hvc_wasm.c ${openjpeg_srcs})
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
     # The reader and generated headers needed by reconstruction.
     set(jpeg2000_srcs
-        hv_reader.c hv_rules.c hv_mapping.c hv_error.c
+        hv_reader.c hv_rules.c hv_mapping.c hv_error.c hv_metadata.c hv_render.c
         generated/asn1crt.c generated/asn1crt_encoding.c generated/asn1crt_encoding_acn.c
         generated/asn1crt_encoding_uper.c generated/j2k-headers.c generated/j2k-codestream.c
         generated/jp2-boxes.c generated/jpeg2000-io.c)
@@ -40,9 +40,9 @@ else()
     add_library(esajpip_client_wasm STATIC EXCLUDE_FROM_ALL ${esajpip_client_wasm_srcs})
     target_link_libraries(esajpip_client_wasm PUBLIC jpeg2000 PRIVATE m)
 
-    add_executable(hv_jpp2j2k hv_jpp2j2k.c ${PROJECT_SOURCE_DIR}/tools/hv_file.c)
-    esajpip_configure_target(hv_jpp2j2k)
-    target_link_libraries(hv_jpp2j2k PRIVATE esajpip_client)
+    add_executable(hvc_jpp2j2k hvc_jpp2j2k.c ${PROJECT_SOURCE_DIR}/tools/hv_file.c)
+    esajpip_configure_target(hvc_jpp2j2k)
+    target_link_libraries(hvc_jpp2j2k PRIVATE esajpip_client)
 endif()
 
 esajpip_configure_target(esajpip_client_wasm)

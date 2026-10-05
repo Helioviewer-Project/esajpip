@@ -26,7 +26,7 @@ class ImageIndex {
         size_t tile = 0, segment = 0;
         bool started = false;
         explicit Codestream(const std::string &path_) : path(path_) {
-            hv_plt_init(&reader, HV_PROFILE);
+            hv_plt_init(&reader, HV_PLT_PROFILE);
         }
     };
     std::string path_name;

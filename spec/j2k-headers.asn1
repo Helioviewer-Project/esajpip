@@ -386,7 +386,7 @@ END
 --         codestream is plt.padding-position, and zero entries where the
 --         nonzero ones do not list every packet plt.zero-length. The reader
 --         has the same rule for one tile-part at a time
---         (HV_ACCEPT_PLT_PADDING, for hv_transcode's input), under the same
+--         (HV_READ_PADDED, for explicit padded-input validation), under the same
 --         name. The sum rule (plt.coverage) still rejects any non-zero excess
 --         entry at both layers.
 --

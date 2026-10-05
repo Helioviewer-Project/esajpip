@@ -70,3 +70,17 @@ add_executable(test_rules test_rules.c)
 esajpip_configure_target(test_rules)
 target_link_libraries(test_rules PRIVATE jpeg2000)
 esajpip_add_test(rules COMMAND test_rules LABELS tools)
+
+# Owning local access: real mappings and injected allocation/I/O failures.
+add_executable(test_local test_local.c)
+esajpip_configure_target(test_local)
+target_link_libraries(test_local PRIVATE jpeg2000)
+esajpip_add_test(local_source
+    COMMAND test_local ${PROJECT_SOURCE_DIR}/tests/vectors/j2k
+    LABELS tools)
+
+# Borrowed JPX layer mappings, independent of rendering and serving profiles.
+add_executable(test_presentation test_presentation.c)
+esajpip_configure_target(test_presentation)
+target_link_libraries(test_presentation PRIVATE jpeg2000)
+esajpip_add_test(presentation COMMAND test_presentation LABELS tools)

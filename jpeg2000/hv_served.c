@@ -125,7 +125,7 @@ typedef struct {
 } passed_link;
 
 /* The links that passed, by file: an open-addressed hash set, at most half
- * full. A linked file holds one codestream (hv_check_link), so the links
+ * full. A linked file holds one codestream (hv_served_link), so the links
  * that pass with one file all give the same fragment: each file is read
  * and checked once, however many links name it. */
 typedef struct {
@@ -190,7 +190,7 @@ static int add_passed(passed_set *set, const passed_link *l) {
 /* One linked codestream: its file, found and read as the server does,
  * inside root when there is one; not read again if it passed before. */
 static const char *check_linked(const char *path, const char *root, const uint8_t *buf,
-                                const hv_link *link, passed_set *set, hv_served *r) {
+                                const hv_served_source *link, passed_set *set, hv_served *r) {
     const char *error;
     struct stat st;
     passed_link key;
@@ -199,7 +199,7 @@ static const char *check_linked(const char *path, const char *root, const uint8_
     int fd;
 
     r->at = (size_t)(link->loc - buf);
-    if ((error = hv_link_path(link, path, r->linked_path, sizeof r->linked_path)) != NULL)
+    if ((error = hv_served_path(link, path, r->linked_path, sizeof r->linked_path)) != NULL)
         return error;
     if (root != NULL) {
         char *resolved;
@@ -235,7 +235,7 @@ static const char *check_linked(const char *path, const char *root, const uint8_
     }
     if (linked == NULL)
         return "url.missing-companion";
-    error = hv_check_link(linked, size, link, &r->at);
+    error = hv_served_link(linked, size, link, &r->at);
     r->at_linked = error != NULL;
     free(linked);
     if (error == NULL && add_passed(set, &key) != 0)
@@ -246,7 +246,7 @@ static const char *check_linked(const char *path, const char *root, const uint8_
 const char *hv_check_served(const char *path, const uint8_t *buf, size_t size, int jpx,
                             const char *root, hv_served *r) {
     const char *error;
-    hv_jpx file;
+    hv_served_sources file;
     hv_box jp2c;
     passed_set set;
     size_t i;
@@ -263,17 +263,17 @@ const char *hv_check_served(const char *path, const uint8_t *buf, size_t size, i
         free(resolved);
     }
     if (!jpx) {
-        if ((error = hv_check_jp2(buf, size, &jp2c, &r->at)) == NULL &&
-            (error = hv_codestream_check(buf, jp2c.payload, jp2c.end, HV_PROFILE, &r->at)) ==
+        if ((error = hv_served_jp2(buf, size, &jp2c, &r->at)) == NULL &&
+            (error = hv_codestream_check(buf, jp2c.payload, jp2c.end, HV_READ_JPIP, &r->at)) ==
                 NULL)
             r->embedded = 1;
         return error;
     }
-    if ((error = hv_check_jpx(buf, size, &file, &r->at)) != NULL)
+    if ((error = hv_served_jpx(buf, size, &file, &r->at)) != NULL)
         return error;
     for (i = 0; i < file.count && error == NULL; i++) {
         if (file.jp2c != NULL) {
-            error = hv_codestream_check(buf, file.jp2c[i].payload, file.jp2c[i].end, HV_PROFILE,
+            error = hv_codestream_check(buf, file.jp2c[i].payload, file.jp2c[i].end, HV_READ_JPIP,
                                         &r->at);
             r->embedded += error == NULL;
         } else {
@@ -286,6 +286,6 @@ const char *hv_check_served(const char *path, const uint8_t *buf, size_t size, i
         r->at = 0;
         r->linked_path[0] = 0;
     }
-    hv_jpx_free(&file);
+    hv_served_sources_free(&file);
     return error;
 }

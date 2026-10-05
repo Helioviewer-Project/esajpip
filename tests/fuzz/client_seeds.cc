@@ -21,7 +21,7 @@ static void write(const char *directory, const char *name, const client_fuzz::By
 int main(int argc, char **argv) {
     using namespace client_fuzz;
     require(argc == 3, "client_seeds needs response and source corpus directories");
-    write(argv[1], "window-done", {0, HV_EOR_WINDOW_DONE, 0});
+    write(argv[1], "window-done", {0, HVC_EOR_WINDOW_DONE, 0});
     write(argv[1], "truncated-header", {0xE0});
     for (unsigned selector = 0; selector < 3; selector++) {
         Context &fixture = context(selector);

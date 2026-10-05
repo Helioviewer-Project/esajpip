@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
     }
 
     hv_out_init(&out);
-    status = hv_transcode_file(buf, size, ppx, ppy, &out, error, sizeof error);
+    status = hv_transcode_file(buf, size, ppx, ppy, HV_OUTPUT_JPIP, &out, error, sizeof error);
     free(buf);
     if (status == 0)
         status = write_file(output, &out, (int)(st.st_mode & 0777), error, sizeof error);

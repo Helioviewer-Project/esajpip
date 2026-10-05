@@ -1,4 +1,4 @@
-#include "hv_frame.h"
+#include "hvc_frame.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -7,17 +7,17 @@
 #include "jpeg2000/hv_grid.h"
 #include "jpeg2000/hv_reader.h"
 
-void hv_frame_free(hv_frame *frame) {
+void hvc_frame_free(hvc_frame *frame) {
     if (frame != NULL) free(frame->header);
     free(frame);
 }
 
-const hv_frame *hv_frame_get(const hv_cache *cache, uint64_t codestream,
-                             char *error, size_t error_size) {
-    hv_bin *bin = (hv_bin *) hv_cache_find(cache, HV_BIN_MAIN_HEADER, codestream, 0);
+const hvc_frame *hvc_frame_get(const hvc_cache *cache, uint64_t codestream,
+                               char *error, size_t error_size) {
+    hvc_bin *bin = (hvc_bin *) hvc_cache_find(cache, HVC_BIN_MAIN_HEADER, codestream, 0);
     hv_codestream cs;
     hv_item item;
-    hv_frame *frame;
+    hvc_frame *frame;
     const Cod *cod;
     const SizFixed *siz;
     uint64_t packets, end = 0;
@@ -29,12 +29,12 @@ const hv_frame *hv_frame_get(const hv_cache *cache, uint64_t codestream,
         return NULL;
     }
     if (bin->frame != NULL) return bin->frame;
-    frame = (hv_frame *) calloc(1, sizeof *frame);
+    frame = (hvc_frame *) calloc(1, sizeof *frame);
     if (frame == NULL) {
         hv_fail(error, error_size, "out of memory for frame information");
         return NULL;
     }
-    if (hv_codestream_open(&cs, bin->data, 0, bin->length, HV_PROFILE) != 0) {
+    if (hv_codestream_open(&cs, bin->data, 0, bin->length, HV_READ_JPIP) != 0) {
         hv_fail(error, error_size, "main header: %s", cs.error);
         goto fail;
     }
@@ -91,6 +91,6 @@ const hv_frame *hv_frame_get(const hv_cache *cache, uint64_t codestream,
     return frame;
 fail:
     hv_codestream_close(&cs);
-    hv_frame_free(frame);
+    hvc_frame_free(frame);
     return NULL;
 }

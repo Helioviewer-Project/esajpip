@@ -106,7 +106,7 @@ static void check_elements(const hv_out *out, size_t count) {
     size_t entries = 0, segments = 0, first = 0;
     int status, siz = 0, com = 0;
 
-    if (hv_codestream_open(&cs, out->data, 0, out->size, 0) != 0) {
+    if (hv_codestream_open(&cs, out->data, 0, out->size, HV_READ_VALIDATE) != 0) {
         check(0, "the codestream opens", cs.error);
         hv_codestream_close(&cs);
         return;
@@ -168,7 +168,7 @@ static void check_spare_capacity(void) {
     check(fresh.size == reused.size && memcmp(fresh.data, reused.data, fresh.size) == 0,
           "a rewound hv_out writes what a fresh one does", NULL);
     /* Two PLT segments (Zplt 0 and 1), Psot, and the PLT sums. */
-    error = hv_codestream_check(fresh.data, 0, fresh.size, 0, &(size_t){0});
+    error = hv_codestream_check(fresh.data, 0, fresh.size, HV_READ_VALIDATE, &(size_t){0});
     check(error == NULL, "the codestream reads back", error);
     check_elements(&fresh, 70000);
     hv_out_free(&fresh);
@@ -260,7 +260,7 @@ static void check_xlbox(void) {
     check(hv_begin_box(&out, HV_BOX_JP2C, 0, &start) == 0 && write_codestream(&out, 3) == 0 &&
           hv_end_box(&out, start) == 0 && read_box(out.data, out.size, &box) &&
           box.payload == HV_BOX_HEADER_XL &&
-          hv_codestream_check(out.data, box.payload, box.end, 0, &at) == NULL,
+          hv_codestream_check(out.data, box.payload, box.end, HV_READ_VALIDATE, &at) == NULL,
           "codestream in a jp2c box with XLBox", out.error);
     hv_out_free(&out);
 }

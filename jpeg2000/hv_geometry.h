@@ -95,8 +95,9 @@ typedef struct {
 /* Lays out tile `tile` of `siz` with the coding style `cod`, within
  * `limits`. Checks them first: siz.csiz-count when siz holds other than
  * Csiz components; "invalid SIZ" or "invalid COD" for a field outside its
- * type; the rules of hv_rule_siz and hv_rule_cod (standard layer), as the
- * reader applies them. 0, or -1 with a message in error. Call
+ * type; the layout rules of hv_rule_siz_geometry and hv_rule_cod. Rsiz
+ * declaration validation belongs to the reader, not layout computation.
+ * 0, or -1 with a message in error. Call
  * hv_geometry_free in both cases. */
 int hv_geometry_init(hv_geometry *g, const hv_siz *siz, const Cod *cod, uint32_t tile,
                      const hv_geometry_limits *limits, char *error, size_t error_size);

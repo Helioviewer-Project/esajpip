@@ -62,16 +62,29 @@ static int other_part1_profile(uint64_t rsiz) {
     return 0;
 }
 
-const char *hv_rule_siz(const hv_siz *siz, const Sgcod *sgcod, int profile) {
+static const char *mct_geometry(const hv_siz *siz, int mct) {
+    const Component *k = siz->components;
+    if (mct != 0) {
+        if (siz->ncomponents < 3) return "siz.mct-components";
+        for (size_t i = 1; i < 3; i++)
+            if (k[i].depthMinus1 != k[0].depthMinus1 || k[i].xrsiz != k[0].xrsiz ||
+                k[i].yrsiz != k[0].yrsiz)
+                return "siz.mct-geometry";
+    }
+    return NULL;
+}
+
+const char *hv_rule_siz_header(const hv_siz *siz, int mct) {
+    const SizFixed *s = siz->fixed;
+    if (s->csiz != siz->ncomponents) return "siz.csiz-count";
+    if (!(s->xosiz < s->xsiz && s->yosiz < s->ysiz)) return "siz.origin-inside";
+    return mct_geometry(siz, mct);
+}
+
+static const char *siz_layout(const hv_siz *siz, const Sgcod *sgcod, int profile) {
     const SizFixed *s = siz->fixed;
     const Component *k = siz->components;
     size_t i;
-    if (s->csiz != siz->ncomponents) return "siz.csiz-count";
-    if (!profile && s->rsiz > 2 && !part2_rsiz(s->rsiz)) {
-        if (other_part1_profile(s->rsiz)) return "siz.unsupported-profile";
-        if (s->rsiz & 0x4000) return "siz.unsupported-capabilities";
-        return "siz.rsiz";
-    }
     if (!(s->xosiz < s->xsiz && s->yosiz < s->ysiz)) return "siz.origin-inside";
     if (!(s->xtosiz <= s->xosiz && s->ytosiz <= s->yosiz)) return "siz.tile-origin";
     if (!(s->xtosiz + s->xtsiz > s->xosiz && s->ytosiz + s->ytsiz > s->yosiz))
@@ -81,12 +94,9 @@ const char *hv_rule_siz(const hv_siz *siz, const Sgcod *sgcod, int profile) {
     if (!profile && hv_tile_axis_count(s->xsiz, s->xtosiz, s->xtsiz) *
                     hv_tile_axis_count(s->ysiz, s->ytosiz, s->ytsiz) > 65535)
         return "siz.tile-count";
-    if (sgcod != NULL && sgcod->mct != 0) {
-        if (siz->ncomponents < 3) return "siz.mct-components";
-        for (i = 1; i < 3; i++)
-            if (k[i].depthMinus1 != k[0].depthMinus1 || k[i].xrsiz != k[0].xrsiz ||
-                k[i].yrsiz != k[0].yrsiz)
-                return "siz.mct-geometry";
+    {
+        const char *error = mct_geometry(siz, sgcod != NULL ? (int)sgcod->mct : 0);
+        if (error != NULL) return error;
     }
     if (profile) {
         if (s->xosiz != 0 || s->yosiz != 0 || s->xtosiz != 0 || s->ytosiz != 0)
@@ -97,6 +107,28 @@ const char *hv_rule_siz(const hv_siz *siz, const Sgcod *sgcod, int profile) {
         if (!(s->xtsiz >= s->xsiz && s->ytsiz >= s->ysiz)) return "siz.single-tile";
     }
     return NULL;
+}
+
+const char *hv_rule_rsiz(uint64_t rsiz) {
+    if (rsiz <= 2 || part2_rsiz(rsiz)) return NULL;
+    if (other_part1_profile(rsiz)) return "siz.unsupported-profile";
+    if (rsiz & 0x4000) return "siz.unsupported-capabilities";
+    return "siz.rsiz";
+}
+
+const char *hv_rule_siz(const hv_siz *siz, const Sgcod *sgcod, int profile) {
+    const SizFixed *s = siz->fixed;
+    if (s->csiz != siz->ncomponents) return "siz.csiz-count";
+    if (!profile) {
+        const char *error = hv_rule_rsiz(s->rsiz);
+        if (error != NULL) return error;
+    }
+    return siz_layout(siz, sgcod, profile);
+}
+
+const char *hv_rule_siz_geometry(const hv_siz *siz, const Sgcod *sgcod) {
+    if (siz->fixed->csiz != siz->ncomponents) return "siz.csiz-count";
+    return siz_layout(siz, sgcod, 0);
 }
 
 /* SPcod or SPcoc (A.6.1, A.6.2, Table A.15): the precinct sizes, present
@@ -1530,16 +1562,19 @@ static const char *tree_walk_boxes(tree_walk *w, hv_boxes *it, int depth, size_t
 }
 
 const char *hv_rule_box_placed(const uint8_t *buf, const hv_box *box, uint32_t parent,
-                               size_t *at) {
+                               int *ipr, size_t *at) {
     tree_walk w;
     hv_box_tree tree;
+    const char *error;
     memset(&w, 0, sizeof w);
     memset(&tree, 0, sizeof tree);
     w.buf = buf;
     w.jpx = 1;
     w.tree = &tree;
     w.level[0].type = parent;
-    return tree_walk_box(&w, box, parent != 0, at);
+    error = tree_walk_box(&w, box, parent != 0, at);
+    if (error == NULL) *ipr = tree.ipr;
+    return error;
 }
 
 const char *hv_rule_box_tree(const uint8_t *buf, size_t size, int jpx, hv_box_tree *tree,

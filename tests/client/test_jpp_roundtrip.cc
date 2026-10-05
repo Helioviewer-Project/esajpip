@@ -10,7 +10,7 @@
  * This test is native and links the C++ jpip library. The reader it exercises is
  * the same C code the wasm module runs.
  */
-#include "hv_jpp.h"
+#include "hvc_jpp.h"
 
 #include <cstdio>
 #include <cstring>
@@ -45,13 +45,13 @@ struct Seen {
 };
 
 static void Read(const uint8_t *body, size_t size, struct Seen *seen) {
-    hv_jpp_reader reader;
-    hv_jpp_message message;
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
     int status;
 
     std::memset(seen, 0, sizeof *seen);
-    hv_jpp_begin(&reader, body, size);
-    while ((status = hv_jpp_next(&reader, &message)) == HV_JPP_MESSAGE) {
+    hvc_jpp_begin(&reader, body, size);
+    while ((status = hvc_jpp_next(&reader, &message)) == HVC_JPP_MESSAGE) {
         if (seen->count >= 64) {
             std::printf("FAIL too many messages\n");
             failures++;
@@ -67,14 +67,14 @@ static void Read(const uint8_t *body, size_t size, struct Seen *seen) {
         std::memcpy(seen->message[index].data, message.data,
                     (size_t) message.length);
     }
-    if (status == HV_JPP_ERROR) {
+    if (status == HVC_JPP_ERROR) {
         seen->error = 1;
         std::printf("FAIL reader rejected valid writer output: %s\n",
-                    hv_jpp_error(&reader));
+                    hvc_jpp_error(&reader));
         failures++;
         return;
     }
-    seen->reason = hv_jpp_reason(&reader);
+    seen->reason = hvc_jpp_reason(&reader);
 }
 
 /* Metadata and main-header bins, which open a channel's first response, plus
@@ -192,7 +192,7 @@ static void TestLimitReason() {
     Read((const uint8_t *) buffer, (size_t) used, &seen);
     Check(!seen.error, "limited response parses");
     Check(seen.reason == jpip::EOR::BYTE_LIMIT_REACHED, "byte limit reason");
-    Check(hv_jpp_reason_continues(seen.reason),
+    Check(hvc_jpp_reason_continues(seen.reason),
           "byte limit leaves the channel usable");
 }
 
@@ -249,12 +249,12 @@ static void TestTruncations() {
     used = writer.Finalize();
 
     for (cut = 1; cut < used; cut++) {
-        hv_jpp_reader reader;
-        hv_jpp_message message;
+        hvc_jpp_reader reader;
+        hvc_jpp_message message;
         int status;
-        hv_jpp_begin(&reader, (const uint8_t *) buffer, (size_t) cut);
-        while ((status = hv_jpp_next(&reader, &message)) == HV_JPP_MESSAGE) {}
-        if (status != HV_JPP_ERROR) {
+        hvc_jpp_begin(&reader, (const uint8_t *) buffer, (size_t) cut);
+        while ((status = hvc_jpp_next(&reader, &message)) == HVC_JPP_MESSAGE) {}
+        if (status != HVC_JPP_ERROR) {
             Check(false, "truncated response is rejected");
             return;
         }
@@ -275,12 +275,12 @@ static void TestIntegerBoundaries() {
                            jpip::FileSegment::Null, true) == jpip::DataBinWriter::Result::WRITTEN,
               "writer emits integer boundary");
         writer.WriteEOR(jpip::EOR::WINDOW_DONE);
-        hv_jpp_reader reader;
-        hv_jpp_message message;
-        hv_jpp_begin(&reader, (const uint8_t *)buffer, (size_t)writer.Finalize());
-        Check(hv_jpp_next(&reader, &message) == HV_JPP_MESSAGE && message.offset == value,
+        hvc_jpp_reader reader;
+        hvc_jpp_message message;
+        hvc_jpp_begin(&reader, (const uint8_t *)buffer, (size_t)writer.Finalize());
+        Check(hvc_jpp_next(&reader, &message) == HVC_JPP_MESSAGE && message.offset == value,
               "integer boundary round trips");
-        Check(hv_jpp_next(&reader, &message) == HV_JPP_EOR, "integer boundary reaches EOR");
+        Check(hvc_jpp_next(&reader, &message) == HVC_JPP_EOR, "integer boundary reaches EOR");
     }
 }
 

@@ -1,7 +1,7 @@
 # Native hosts using classical esajpip servers
 
 The C client does not make HTTP requests. A native host such as JHelioviewer
-can keep a classical request policy around the same `hv_client` cache and
+can keep a classical request policy around the same `hvc` cache and
 reconstruction API. The JavaScript transport uses the new server's policy.
 
 Inline metadata, grouping and association boxes, and metadata reached through
@@ -17,13 +17,13 @@ generator has no unlimited default budget.
 
 Open with `cnew=http&type=jpp-stream&tid=0&len=512`. Parse `JPIP-cnew`, then
 request `cid=<cid>&stream=0&metareq=[*]!!&len=2000000` until metadata is
-complete. Submit each response with `hv_client_response` before reading the
+complete. Submit each response with `hvc_response` before reading the
 frame count or XML.
 
-Use `hv_client_options.layers=0`, meaning full quality. Classical servers do
+Use `hvc_options.layers=0`, meaning full quality. Classical servers do
 not implement layer selection. A missing-header request is
 `cid=<cid>&stream=<frame>&len=<budget>`, without window fields.
-For a prepared frame, use W,H from that frame's `hv_client_view`, at its
+For a prepared frame, use W,H from that frame's `hvc_view`, at its
 requested resolution. Do not reuse another frame's geometry or approximate
 fit dimensions. Request:
 
@@ -41,7 +41,7 @@ past the image and fail during packet lookup. Do not pad a priming request
 before the frame's own geometry is known.
 
 Response continuation is general client behavior, not an older-server
-workaround. After every response, call `hv_client_prepare` again. A byte-limit
+workaround. After every response, call `hvc_prepare` again. A byte-limit
 EOR retains the bytes but does not confirm window completion. Repeat the prepared request
 on the same channel until READY, then reconstruct. Do not change the window
 while accumulating an unfinished request. The JHV frame budget is 2 MiB.
@@ -53,7 +53,7 @@ fresh persistent connection and channel. Do not use the new-server recipe
 `stream=<frame count>` to select no codestreams on a classical server.
 
 After successful initialization, frame 0's main and empty tile headers are
-cached. Start a `hv_client_model` cursor at zero and send each returned batch
+cached. Start a `hvc_model` cursor at zero and send each returned batch
 with:
 
 ```text
@@ -67,7 +67,7 @@ before their descriptors appear in later model batches. Keep `len` after
 `model`: the classical parser can lose a terminal descriptor at query EOF.
 The model's partial precinct amounts are additive, so send each batch once.
 
-Pass each restoration response to `hv_client_restore_response`; it validates
+Pass each restoration response to `hvc_restore_response`; it validates
 any repeated metadata against the retained bytes without modifying the cache
 or completing a pending frame request. Stop at an empty model batch, then
 resume the interrupted window. This procedure requires complete initial

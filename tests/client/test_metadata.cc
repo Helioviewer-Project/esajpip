@@ -5,8 +5,8 @@
 #include <string>
 #include <vector>
 
-#include "hv_cache.h"
-#include "hv_metadata.h"
+#include "hvc_cache.h"
+#include "hvc_metadata.h"
 #include "jpeg2000/hv_rules.h"
 
 using Bytes = std::vector<uint8_t>;
@@ -31,25 +31,25 @@ static Bytes placeholder(uint8_t id, const char *type) {
     return box("phld", contents);
 }
 struct Fixture {
-    hv_cache cache;
+    hvc_cache cache;
     hv_metadata metadata = {};
     char error[256] = "";
-    Fixture(const Bytes &root, size_t count = 4) {
-        hv_cache_begin(&cache);
+    Fixture(const Bytes &root, size_t codestream_count = 4) {
+        hvc_cache_begin(&cache);
         Bytes bytes;
-        for (size_t i = 0; i < count; i++) bytes = bytes + box("phld", {0, 0, 0, 4});
+        for (size_t i = 0; i < codestream_count; i++) bytes = bytes + box("phld", {0, 0, 0, 4});
         add(0, bytes + root);
     }
-    ~Fixture() { hv_metadata_close(&metadata); hv_cache_release(&cache); }
+    ~Fixture() { hv_metadata_close(&metadata); hvc_cache_release(&cache); }
     void add(uint8_t id, const Bytes &bytes, bool complete = true) {
-        hv_jpp_message message = {};
-        message.bin_class = HV_BIN_META_DATA; message.bin_id = id;
+        hvc_jpp_message message = {};
+        message.bin_class = HVC_BIN_META_DATA; message.bin_id = id;
         message.data = bytes.data(); message.length = bytes.size(); message.last_byte = complete;
-        check(hv_cache_apply(&cache, &message), hv_cache_error(&cache));
+        check(hvc_cache_apply(&cache, &message), hvc_cache_error(&cache));
     }
     void expect(const std::string &expected) {
-        check(hv_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
-        check(metadata.count == expected.size(), "frame count");
+        check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
+        check(metadata.codestream_count == expected.size(), "frame count");
         for (size_t i = 0; i < expected.size(); i++) {
             const uint8_t *data = NULL; size_t size = 0;
             check(hv_metadata_xml(&metadata, i, &data, &size, error, sizeof error) == 0, error);
@@ -58,9 +58,9 @@ struct Fixture {
         }
     }
     void reject(const std::string &reason) {
-        check(hv_metadata_open(&cache, &metadata, error, sizeof error) == -1 &&
+        check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == -1 &&
               std::string(error).find(reason) != std::string::npos, "expected " + reason + ": " + error);
-        check(metadata.frames == NULL && metadata.count == 0, "failure retained index");
+        check(metadata.frames == NULL && metadata.codestream_count == 0, "failure retained index");
     }
 };
 int main() {
@@ -79,6 +79,18 @@ int main() {
       f.add(1, box("nlst", {2, 0, 0, 1}) + xml('b'));
       f.add(2, list(0) + xml('a')); f.add(3, list(1) + xml('z'));
       f.add(4, list(3) + xml('d')); f.expect("abfd"); }
+    // Inline headers retain their implicit entities through partitioned XML/asoc.
+    { Fixture f(box("jpch", placeholder(1, "xml ")) + box("jplh", placeholder(2, "xml ")) +
+                box("jpch", placeholder(3, "asoc")) + box("jplh", xml('U')), 2);
+      f.add(1, {'S'}); f.add(2, {'T'});
+      f.add(3, box("nlst", {2, 0, 0, 0}) + placeholder(4, "xml ")); f.add(4, {'N'});
+      f.expect("SN");
+      const uint8_t *data = NULL; size_t size = 0;
+      check(hv_metadata_layer_xml(&f.metadata, 0, NULL, &data, &size, f.error, sizeof f.error) == 0 &&
+            data != NULL && size == 1 && data[0] == 'T', "partitioned implicit layer XML");
+      hv_registration registration = {NULL, 1, 0, 1, 1};
+      check(hv_metadata_layer_xml(&f.metadata, 1, &registration, &data, &size, f.error, sizeof f.error) == 0 &&
+            data != NULL && size == 1 && data[0] == 'S', "partitioned mapped-codestream XML"); }
     // All entities of the first list share its XML; scopes stop at siblings.
     { Fixture f(box("asoc", box("nlst", {1, 0, 0, 0, 1, 0, 0, 2}) + xml('a')) +
                 association(3, 'd') + xml('f')); f.expect("afad"); }
@@ -93,6 +105,26 @@ int main() {
     // XML enclosed in an unnumbered association is not file-level fallback.
     { Fixture f(box("asoc", box("lbl ", {'L'}) + box("grp ", xml('x')))); f.expect("----"); }
     { Fixture f(box("grp ", xml('f') + association(1, 'b'))); f.expect("fbff"); }
+    // Later nested scopes still get their first XML after an ancestor got its own.
+    { Fixture f(box("asoc", list(0) + xml('a') + association(1, 'b') +
+                         box("grp ", association(2, 'c') + xml('z')))); f.expect("abc-"); }
+    // A first XML reached through a child applies to both scopes; siblings remain independent.
+    { Fixture f(box("asoc", list(0) + association(1, 'b') + xml('z') + association(2, 'c')));
+      f.expect("bbc-"); }
+    // Large lists with many documents retain the first document for every entity.
+    { const size_t count = 8000;
+      Bytes names, documents;
+      for (size_t i = 0; i < count; i++) {
+          names.push_back(1); names.push_back(static_cast<uint8_t>(i >> 16));
+          names.push_back(static_cast<uint8_t>(i >> 8)); names.push_back(static_cast<uint8_t>(i));
+          Bytes document = xml(i == 0 ? 'a' : 'z');
+          documents.insert(documents.end(), document.begin(), document.end());
+      }
+      Fixture f(box("asoc", box("nlst", names) + documents), count);
+      f.expect(std::string(count, 'a')); }
+    // Traversal must still reject damaged boxes after the first document was indexed.
+    { Fixture f(box("asoc", list(0) + xml('a') + box("grp ", {0, 0, 0, 9, 'x', 'm', 'l', ' '})));
+      f.reject("metadata:"); }
     // Distinct associations are the correct way to encode independent pairings.
     { Fixture f(association(0, 'a') + association(3, 'd') + xml('f')); f.expect("affd"); }
     { Fixture f(box("asoc", box("nlst", {1, 0, 0}) + xml('a'))); f.reject("nlst.length"); }

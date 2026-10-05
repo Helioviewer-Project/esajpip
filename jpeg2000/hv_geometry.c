@@ -23,8 +23,8 @@ static uint64_t sat_add(uint64_t a, uint64_t b) {
 }
 
 
-/* The SIZ and COD as the reader accepts them (standard layer): each field
- * within its type (the model's constraints), then the cross-field rules. */
+/* Decoded SIZ/COD field ranges, then cross-field layout requirements.
+ * Rsiz declaration checks belong to explicit validation or output policy. */
 static int check_input(const hv_siz *hsiz, const Cod *cod, char *error, size_t error_size) {
     const char *rule;
     size_t i;
@@ -36,7 +36,7 @@ static int check_input(const hv_siz *hsiz, const Cod *cod, char *error, size_t e
             return hv_fail(error, error_size, "invalid SIZ");
     if (!Cod_IsConstraintValid(cod, &err))
         return hv_fail(error, error_size, "invalid COD");
-    if ((rule = hv_rule_siz(hsiz, &cod->sgcod, 0)) != NULL ||
+    if ((rule = hv_rule_siz_geometry(hsiz, &cod->sgcod)) != NULL ||
         (rule = hv_rule_cod(&cod->scod, &cod->spcod, 0)) != NULL)
         return hv_fail(error, error_size, "%s", rule);
     return 0;

@@ -1,7 +1,7 @@
 // jpip_channel.mjs: one JPIP channel of an esajpip server: an image or a
 // movie, a frame at a time, as 8-bit pixels, and each frame's XML and color
 // table. A frame can be fetched ahead of being shown. This file does the
-// HTTP exchange; the WebAssembly client (../hv_wasm.c) keeps the data-bins,
+// HTTP exchange; the WebAssembly client (../hvc_wasm.c) keeps the data-bins,
 // writes the codestream back and decodes it. It runs in a browser, in a Web
 // Worker (jpip_worker.mjs, for jpip_source.mjs) and in Node.js.
 
@@ -25,6 +25,7 @@ function system(module, memory) {
             return 0;
         },
         fd_close: () => 0,
+        fd_prestat_get: () => 8, // WASI EBADF: no preopened directories.
         proc_exit(status) {
             throw new Error(`the WebAssembly client exited with status ${status}`);
         },
@@ -82,7 +83,7 @@ export class JpipChannel {
     #last = Promise.resolve();
     #failed = null;         // why the channel can make no more requests
     #closing = false;
-    frames = 0;             // codestreams of the target: the frames of a movie
+    frames = 0;             // JPX layers, or one implicit layer for JP2
     received = 0;           // bytes of response bodies so far
 
     // Opens `image` (a path below the server's image directory) on a new
@@ -104,9 +105,10 @@ export class JpipChannel {
         channel.#image = image.replace(/^\/+/, "");
         channel.#target = channel.#image;
         // The metadata comes with the first response, whatever it asks for:
-        // this one asks for the lowest resolution of the first frame.
+        // this one asks for the lowest resolution of codestream zero.
+        // Layer zero can refer to another codestream; #fetch resolves it.
         await channel.#request({ stream: 0, fsiz: [1, 1, "closest"] });
-        channel.frames = channel.#wasm.hv_wasm_codestreams();
+        channel.frames = channel.#wasm.hvc_wasm_frames();
         if (channel.frames === 0)
             throw new Error(channel.#error());
         return channel;
@@ -149,10 +151,10 @@ export class JpipChannel {
     // null if the file has none.
     xml(index) {
         this.#checkIndex(index);
-        const size = this.#wasm.hv_wasm_xml_size(index);
+        const size = this.#wasm.hvc_wasm_xml_size(index);
         if (size < 0)
             throw new Error(this.#error());
-        const at = this.#wasm.hv_wasm_xml();
+        const at = this.#wasm.hvc_wasm_xml();
         return at === 0 ? null
             : new TextDecoder().decode(new Uint8Array(this.#wasm.memory.buffer, at, size));
     }
@@ -163,15 +165,15 @@ export class JpipChannel {
     // sample values. It is not applied to the frame's pixels.
     palette(index) {
         this.#checkIndex(index);
-        const entries = this.#wasm.hv_wasm_palette(index);
+        const entries = this.#wasm.hvc_wasm_palette(index);
         if (entries < 0)
             throw new Error(this.#error());
         if (entries === 0)
             return null;
-        const channels = this.#wasm.hv_wasm_palette_channels();
+        const channels = this.#wasm.hvc_wasm_palette_channels();
         return {
             entries, channels,
-            table: new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hv_wasm_palette_table(),
+            table: new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_palette_table(),
                                   entries * channels).slice(),
         };
     }
@@ -182,7 +184,7 @@ export class JpipChannel {
         this.#closing = true;
         const closed = this.#last.then(async () => {
             this.#failed = new Error("the channel is closed");
-            this.#wasm.hv_wasm_reset();
+            this.#wasm.hvc_wasm_reset();
             if (this.#cid !== null)
                 await fetch(this.#url({ cid: this.#cid, cclose: this.#cid }));
             this.#cid = null;
@@ -252,13 +254,13 @@ export class JpipChannel {
         this.received += body.length;
 
         const wasm = this.#wasm;
-        const at = wasm.hv_wasm_alloc(body.length);
+        const at = wasm.hvc_wasm_alloc(body.length);
         if (at === 0)
             throw new Error("out of memory");
         new Uint8Array(wasm.memory.buffer, at, body.length).set(body);
-        const reason = restoring ? wasm.hv_wasm_restore_response(at, body.length)
-                                 : wasm.hv_wasm_response(at, body.length);
-        wasm.hv_wasm_free(at);
+        const reason = restoring ? wasm.hvc_wasm_restore_response(at, body.length)
+                                 : wasm.hvc_wasm_response(at, body.length);
+        wasm.hvc_wasm_free(at);
         if (reason < 0)
             throw new Error(this.#error());
         return reason;
@@ -280,7 +282,7 @@ export class JpipChannel {
                 throw new Error("the channel is closed");
             // Selecting the first nonexistent stream avoids receiving headers
             // or precincts before all retained prefixes have been declared.
-            const fields = { stream: this.frames, layers: 0 };
+            const fields = { stream: this.#wasm.hvc_wasm_codestreams(), layers: 0 };
             const routing = this.#cid === null ? { cnew: "http", type: "jpp-stream" }
                                                : { cid: this.#cid };
             const url = new URL(this.#url({ ...routing, ...fields, model: "" }));
@@ -288,7 +290,7 @@ export class JpipChannel {
             const capacity = Math.min(1024, 2048 - new TextEncoder().encode(line).length);
             if (capacity <= 0)
                 throw new Error("target path leaves no room for cache declarations");
-            const at = this.#wasm.hv_wasm_model(cursor, capacity);
+            const at = this.#wasm.hvc_wasm_model(cursor, capacity);
             if (at === 0)
                 throw new Error(this.#error());
             const bytes = new Uint8Array(this.#wasm.memory.buffer, at);
@@ -298,11 +300,11 @@ export class JpipChannel {
             const reason = await this.#exchange(fields, true);
             if (reason !== 1 && reason !== 2)
                 throw new Error("replacement channel did not complete cache restoration");
-            cursor = this.#wasm.hv_wasm_model_next();
+            cursor = this.#wasm.hvc_wasm_model_next();
         }
     }
 
-    // A frame as the module has it (hv_status): its size and resolution
+    // A frame as the module has it (hvc_frame_status): its size and resolution
     // levels, 0 until its header has arrived, and `complete`, how many of
     // the levels, from the lowest, are cached whole.
     #checkIndex(index) {
@@ -312,7 +314,7 @@ export class JpipChannel {
 
     #view(index, options, prepare = false) {
         this.#checkIndex(index);
-        const at = this.#wasm.hv_wasm_view(index,
+        const at = this.#wasm.hvc_wasm_view(index,
             Math.min(options.reduce ?? 0, 2147483647),
             options.fit?.[0] ?? 0, options.fit?.[1] ?? 0,
             Math.min(options.layers ?? 0, 2147483647), prepare ? 1 : 0);
@@ -328,6 +330,7 @@ export class JpipChannel {
             fullWidth, fullHeight, resolutions, layers, totalLayers, quality,
             complete: resolutions > 0 && layers === totalLayers,
             ready: Boolean(ready), request, requestedLayers,
+            codestream: Number(new DataView(this.#wasm.memory.buffer).getBigUint64(at + 184, true)),
         };
     }
 
@@ -342,8 +345,8 @@ export class JpipChannel {
         for (;;) {
             const { request, requestedLayers, ...status } = this.#view(index, options, true);
             if (request === 0) return status;
-            const fields = request === 1 ? { stream: index, layers: 0 }
-                : { stream: index, fsiz: [status.width, status.height, "closest"] };
+            const fields = request === 1 ? { stream: status.codestream, layers: 0 }
+                : { stream: status.codestream, fsiz: [status.width, status.height, "closest"] };
             if (request === 2 && "layers" in options) fields.layers = requestedLayers;
             const reason = await this.#request(fields);
             if (reason !== 1 && reason !== 2)
@@ -355,19 +358,19 @@ export class JpipChannel {
     // module, which keeps its own until the next decode.
     #decode(status) {
         const wasm = this.#wasm;
-        if (wasm.hv_wasm_decode(status.index, status.reduce) !== 0)
+        if (wasm.hvc_wasm_decode(status.index, status.reduce) !== 0)
             throw new Error(this.#error());
-        const width = wasm.hv_wasm_width(), height = wasm.hv_wasm_height();
-        const components = wasm.hv_wasm_components();
+        const width = wasm.hvc_wasm_width(), height = wasm.hvc_wasm_height();
+        const components = wasm.hvc_wasm_components();
         return {
             ...status, width, height, components,
-            pixels: new Uint8Array(wasm.memory.buffer, wasm.hv_wasm_pixels(),
+            pixels: new Uint8Array(wasm.memory.buffer, wasm.hvc_wasm_pixels(),
                                    width * height * components).slice(),
         };
     }
 
     #error() {
-        const bytes = new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hv_wasm_error());
+        const bytes = new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_error());
         return new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
     }
 }

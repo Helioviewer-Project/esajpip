@@ -1,5 +1,5 @@
-/* hv_image.c: see hv_image.h. */
-#include "hv_image.h"
+/* hvc_openjpeg.c: see hvc_openjpeg.h. */
+#include "hvc_openjpeg.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -59,20 +59,20 @@ static void keep_error(const char *text, void *user) {
 }
 
 /* One sample as 8 bits: unsigned, and its most significant bits. */
-static uint8_t sample(const opj_image_comp_t *component, size_t i, hv_image_mode mode) {
+static uint8_t sample(const opj_image_comp_t *component, size_t i, hvc_image_mode mode) {
     int64_t value = component->data[i];
     int64_t max = ((int64_t)1 << component->prec) - 1;
     if (component->sgnd)
         value += (int64_t)1 << (component->prec - 1);
     value = value < 0 ? 0 : value > max ? max : value;
-    if (mode == HV_IMAGE_INDICES)
+    if (mode == HVC_IMAGE_INDICES)
         return (uint8_t)value;
     return (uint8_t)(component->prec > 8 ? value >> (component->prec - 8)
                                          : value << (8 - component->prec));
 }
 
-int hv_image_decode(const uint8_t *codestream, size_t size, int reduce, hv_image_mode mode, hv_image *out,
-                    char *error, size_t error_size) {
+int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, hvc_image_mode mode, hvc_image *out,
+                        char *error, size_t error_size) {
     memory input = {codestream, size, 0};
     message failure = {error, error_size, 0};
     const char *why = "out of memory";
@@ -99,7 +99,7 @@ int hv_image_decode(const uint8_t *codestream, size_t size, int reduce, hv_image
     if (!opj_setup_decoder(codec, &parameters) || !opj_read_header(stream, codec, &image) ||
         (info = opj_get_cstr_info(codec)) == NULL)
         goto done;
-    if (mode == HV_IMAGE_INDICES && (image->numcomps != 1 || image->comps[0].sgnd ||
+    if (mode == HVC_IMAGE_INDICES && (image->numcomps != 1 || image->comps[0].sgnd ||
                                    image->comps[0].prec > 8)) {
         why = "palette indices require one unsigned component of at most 8 bits";
         goto done;

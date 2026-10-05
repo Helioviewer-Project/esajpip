@@ -181,6 +181,47 @@ const char* OPJ_CALLCONV opj_version(void)
 /* ---------------------------------------------------------------------- */
 /* DECOMPRESSION FUNCTIONS*/
 
+/* Opaque codec handles are converted by ordinary calls, not by calling
+ * through incompatible function pointer types. */
+static void j2k_setup_decoder_callback(void *codec, opj_dparameters_t *parameters)
+{
+    opj_j2k_setup_decoder(codec, parameters);
+}
+
+static OPJ_BOOL j2k_read_header_callback(opj_stream_private_t *stream, void *codec,
+        opj_image_t **image, opj_event_mgr_t *manager)
+{
+    return opj_j2k_read_header(stream, codec, image, manager);
+}
+
+static opj_codestream_info_v2_t *j2k_info_callback(void *codec)
+{
+    return j2k_get_cstr_info(codec);
+}
+
+static OPJ_BOOL j2k_resolution_callback(void *codec, OPJ_UINT32 factor,
+        opj_event_mgr_t *manager)
+{
+    return opj_j2k_set_decoded_resolution_factor(codec, factor, manager);
+}
+
+static OPJ_BOOL j2k_decode_callback(void *codec, opj_stream_private_t *stream,
+        opj_image_t *image, opj_event_mgr_t *manager)
+{
+    return opj_j2k_decode(codec, stream, image, manager);
+}
+
+static OPJ_BOOL j2k_end_callback(void *codec, opj_stream_private_t *stream,
+        opj_event_mgr_t *manager)
+{
+    return opj_j2k_end_decompress(codec, stream, manager);
+}
+
+static void j2k_destroy_callback(void *codec)
+{
+    opj_j2k_destroy(codec);
+}
+
 opj_codec_t* OPJ_CALLCONV opj_create_decompress(OPJ_CODEC_FORMAT p_format)
 {
     opj_codec_private_t *l_codec = 00;
@@ -196,33 +237,20 @@ opj_codec_t* OPJ_CALLCONV opj_create_decompress(OPJ_CODEC_FORMAT p_format)
     case OPJ_CODEC_J2K:
         l_codec->opj_dump_codec = (void (*)(void*, OPJ_INT32, FILE*)) j2k_dump;
 
-        l_codec->opj_get_codec_info = (opj_codestream_info_v2_t* (*)(
-                                           void*)) j2k_get_cstr_info;
+        l_codec->opj_get_codec_info = j2k_info_callback;
 
         l_codec->opj_get_codec_index = (opj_codestream_index_t* (*)(
                                             void*)) j2k_get_cstr_index;
 
-        l_codec->m_codec_data.m_decompression.opj_decode =
-            (OPJ_BOOL(*)(void *,
-                         struct opj_stream_private *,
-                         opj_image_t*, struct opj_event_mgr *)) opj_j2k_decode;
+        l_codec->m_codec_data.m_decompression.opj_decode = j2k_decode_callback;
 
-        l_codec->m_codec_data.m_decompression.opj_end_decompress =
-            (OPJ_BOOL(*)(void *,
-                         struct opj_stream_private *,
-                         struct opj_event_mgr *)) opj_j2k_end_decompress;
+        l_codec->m_codec_data.m_decompression.opj_end_decompress = j2k_end_callback;
 
-        l_codec->m_codec_data.m_decompression.opj_read_header =
-            (OPJ_BOOL(*)(struct opj_stream_private *,
-                         void *,
-                         opj_image_t **,
-                         struct opj_event_mgr *)) opj_j2k_read_header;
+        l_codec->m_codec_data.m_decompression.opj_read_header = j2k_read_header_callback;
 
-        l_codec->m_codec_data.m_decompression.opj_destroy =
-            (void (*)(void *))opj_j2k_destroy;
+        l_codec->m_codec_data.m_decompression.opj_destroy = j2k_destroy_callback;
 
-        l_codec->m_codec_data.m_decompression.opj_setup_decoder =
-            (void (*)(void *, opj_dparameters_t *)) opj_j2k_setup_decoder;
+        l_codec->m_codec_data.m_decompression.opj_setup_decoder = j2k_setup_decoder_callback;
 
         l_codec->m_codec_data.m_decompression.opj_decoder_set_strict_mode =
             (void (*)(void *, OPJ_BOOL)) opj_j2k_decoder_set_strict_mode;
@@ -260,10 +288,7 @@ opj_codec_t* OPJ_CALLCONV opj_create_decompress(OPJ_CODEC_FORMAT p_format)
                          struct opj_event_mgr * p_manager,
                          OPJ_UINT32 tile_index)) opj_j2k_get_tile;
 
-        l_codec->m_codec_data.m_decompression.opj_set_decoded_resolution_factor =
-            (OPJ_BOOL(*)(void * p_codec,
-                         OPJ_UINT32 res_factor,
-                         struct opj_event_mgr * p_manager)) opj_j2k_set_decoded_resolution_factor;
+        l_codec->m_codec_data.m_decompression.opj_set_decoded_resolution_factor = j2k_resolution_callback;
 
         l_codec->m_codec_data.m_decompression.opj_set_decoded_components =
             (OPJ_BOOL(*)(void * p_codec,
@@ -687,8 +712,7 @@ opj_codec_t* OPJ_CALLCONV opj_create_compress(OPJ_CODEC_FORMAT p_format)
                 struct opj_stream_private *,
                 struct opj_event_mgr *)) opj_j2k_write_tile;
 
-        l_codec->m_codec_data.m_compression.opj_destroy = (void (*)(
-                    void *)) opj_j2k_destroy;
+        l_codec->m_codec_data.m_compression.opj_destroy = j2k_destroy_callback;
 
         l_codec->m_codec_data.m_compression.opj_setup_encoder = (OPJ_BOOL(*)(void *,
                 opj_cparameters_t *,

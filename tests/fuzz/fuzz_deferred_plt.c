@@ -29,9 +29,9 @@ static void check_stream(const uint8_t *data, size_t start, size_t end) {
         abort();
     memcpy(copy, data, end);
 
-    eager = hv_codestream_check(data, start, end, HV_PROFILE, &eager_at);
-    hv_plt_init(&plt, HV_PROFILE);
-    status = hv_codestream_open(&cs, data, start, end, HV_PROFILE | HV_DEFER_PLT);
+    eager = hv_codestream_check(data, start, end, HV_READ_JPIP, &eager_at);
+    hv_plt_init(&plt, HV_PLT_PROFILE);
+    status = hv_codestream_open(&cs, data, start, end, HV_READ_JPIP_INDEX);
     while (status == 0 && (status = hv_codestream_next(&cs, &item)) == 1) {
         if (item.kind == HV_TILE_PART)
             tile_at = item.start;

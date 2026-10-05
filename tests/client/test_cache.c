@@ -6,10 +6,21 @@
  * drop the channel rather than try to reconcile it. These cases cover that rule,
  * completion, and the bounds the store enforces.
  */
-#include "hv_cache.h"
+#include "hvc_cache.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+
+/* Compile the cache here to inject resize failures without a production hook. */
+static int fail_resize;
+static void *Resize(void *data, size_t size) {
+    if (fail_resize) { fail_resize = 0; return NULL; }
+    return realloc(data, size);
+}
+#define realloc Resize
+#include "../../client/hvc_cache.c"
+#undef realloc
 
 static int failures;
 
@@ -21,10 +32,10 @@ static void Check(int condition, const char *message) {
 }
 
 /* Builds a message delivering length bytes of the given payload at an offset. */
-static hv_jpp_message Message(int cls, uint64_t codestream, uint64_t bin_id,
+static hvc_jpp_message Message(int cls, uint64_t codestream, uint64_t bin_id,
                               uint64_t offset, const char *payload,
                               size_t length, int last) {
-    hv_jpp_message message;
+    hvc_jpp_message message;
     message.bin_class = cls;
     message.codestream = codestream;
     message.bin_id = bin_id;
@@ -36,114 +47,114 @@ static hv_jpp_message Message(int cls, uint64_t codestream, uint64_t bin_id,
 }
 
 static void TestContiguousAppend(void) {
-    hv_cache cache;
-    hv_jpp_message message;
+    hvc_cache cache;
+    hvc_jpp_message message;
 
-    hv_cache_begin(&cache);
-    message = Message(HV_BIN_PRECINCT, 0, 5, 0, "abc", 3, 0);
-    Check(hv_cache_apply(&cache, &message), "first message accepted");
-    message = Message(HV_BIN_PRECINCT, 0, 5, 3, "def", 3, 0);
-    Check(hv_cache_apply(&cache, &message), "continuing message accepted");
-    message = Message(HV_BIN_PRECINCT, 0, 5, 6, "gh", 2, 1);
-    Check(hv_cache_apply(&cache, &message), "final message accepted");
+    hvc_cache_begin(&cache);
+    message = Message(HVC_BIN_PRECINCT, 0, 5, 0, "abc", 3, 0);
+    Check(hvc_cache_apply(&cache, &message), "first message accepted");
+    message = Message(HVC_BIN_PRECINCT, 0, 5, 3, "def", 3, 0);
+    Check(hvc_cache_apply(&cache, &message), "continuing message accepted");
+    message = Message(HVC_BIN_PRECINCT, 0, 5, 6, "gh", 2, 1);
+    Check(hvc_cache_apply(&cache, &message), "final message accepted");
 
-    Check(hv_cache_bin_count(&cache) == 1, "one bin after three messages");
-    Check(hv_cache_length(&cache, HV_BIN_PRECINCT, 0, 5) == 8, "bin length");
-    Check(hv_cache_complete(&cache, HV_BIN_PRECINCT, 0, 5), "bin is complete");
-    Check(hv_cache_total_bytes(&cache) == 8, "total bytes");
+    Check(hvc_cache_bin_count(&cache) == 1, "one bin after three messages");
+    Check(hvc_cache_length(&cache, HVC_BIN_PRECINCT, 0, 5) == 8, "bin length");
+    Check(hvc_cache_complete(&cache, HVC_BIN_PRECINCT, 0, 5), "bin is complete");
+    Check(hvc_cache_total_bytes(&cache) == 8, "total bytes");
     {
-        const hv_bin *bin = hv_cache_find(&cache, HV_BIN_PRECINCT, 0, 5);
+        const hvc_bin *bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 5);
         Check(bin != NULL && memcmp(bin->data, "abcdefgh", 8) == 0,
               "bin payload in order");
     }
-    hv_cache_release(&cache);
+    hvc_cache_release(&cache);
 }
 
 static void TestGapsRejected(void) {
-    hv_cache cache;
-    hv_jpp_message message;
+    hvc_cache cache;
+    hvc_jpp_message message;
 
     /* A message that skips ahead of the recorded length would leave the client
      * and server disagreeing about the bin. */
-    hv_cache_begin(&cache);
-    message = Message(HV_BIN_PRECINCT, 0, 1, 0, "abc", 3, 0);
-    Check(hv_cache_apply(&cache, &message), "seed accepted");
-    message = Message(HV_BIN_PRECINCT, 0, 1, 5, "xyz", 3, 0);
-    Check(!hv_cache_apply(&cache, &message), "gap rejected");
-    Check(hv_cache_error(&cache)[0] != 0, "gap has a diagnostic");
+    hvc_cache_begin(&cache);
+    message = Message(HVC_BIN_PRECINCT, 0, 1, 0, "abc", 3, 0);
+    Check(hvc_cache_apply(&cache, &message), "seed accepted");
+    message = Message(HVC_BIN_PRECINCT, 0, 1, 5, "xyz", 3, 0);
+    Check(!hvc_cache_apply(&cache, &message), "gap rejected");
+    Check(hvc_cache_error(&cache)[0] != 0, "gap has a diagnostic");
 
     /* A retransmission of bytes already held is the same disagreement. */
-    message = Message(HV_BIN_PRECINCT, 0, 1, 0, "abc", 3, 0);
-    Check(!hv_cache_apply(&cache, &message), "retransmission rejected");
+    message = Message(HVC_BIN_PRECINCT, 0, 1, 0, "abc", 3, 0);
+    Check(!hvc_cache_apply(&cache, &message), "retransmission rejected");
 
     /* The rejected messages must not have changed the store. */
-    Check(hv_cache_length(&cache, HV_BIN_PRECINCT, 0, 1) == 3,
+    Check(hvc_cache_length(&cache, HVC_BIN_PRECINCT, 0, 1) == 3,
           "store unchanged after rejection");
 
     /* A completed bin takes no further bytes. */
-    message = Message(HV_BIN_PRECINCT, 0, 1, 3, "d", 1, 1);
-    Check(hv_cache_apply(&cache, &message), "bin completes");
-    message = Message(HV_BIN_PRECINCT, 0, 1, 4, "e", 1, 0);
-    Check(!hv_cache_apply(&cache, &message), "message after completion rejected");
-    hv_cache_release(&cache);
+    message = Message(HVC_BIN_PRECINCT, 0, 1, 3, "d", 1, 1);
+    Check(hvc_cache_apply(&cache, &message), "bin completes");
+    message = Message(HVC_BIN_PRECINCT, 0, 1, 4, "e", 1, 0);
+    Check(!hvc_cache_apply(&cache, &message), "message after completion rejected");
+    hvc_cache_release(&cache);
 }
 
 static void TestDistinctBins(void) {
-    hv_cache cache;
-    hv_jpp_message message;
+    hvc_cache cache;
+    hvc_jpp_message message;
 
     /* Identity is class, codestream and Bin-ID together, so the same id under a
      * different codestream is a different bin. */
-    hv_cache_begin(&cache);
-    message = Message(HV_BIN_MAIN_HEADER, 0, 0, 0, "hdr", 3, 1);
-    Check(hv_cache_apply(&cache, &message), "main header accepted");
-    message = Message(HV_BIN_MAIN_HEADER, 1, 0, 0, "hdr2", 4, 1);
-    Check(hv_cache_apply(&cache, &message), "second codestream main header");
-    message = Message(HV_BIN_TILE_HEADER, 0, 0, 0, "", 0, 1);
-    Check(hv_cache_apply(&cache, &message), "empty tile header accepted");
+    hvc_cache_begin(&cache);
+    message = Message(HVC_BIN_MAIN_HEADER, 0, 0, 0, "hdr", 3, 1);
+    Check(hvc_cache_apply(&cache, &message), "main header accepted");
+    message = Message(HVC_BIN_MAIN_HEADER, 1, 0, 0, "hdr2", 4, 1);
+    Check(hvc_cache_apply(&cache, &message), "second codestream main header");
+    message = Message(HVC_BIN_TILE_HEADER, 0, 0, 0, "", 0, 1);
+    Check(hvc_cache_apply(&cache, &message), "empty tile header accepted");
 
-    Check(hv_cache_bin_count(&cache) == 3, "three distinct bins");
-    Check(hv_cache_length(&cache, HV_BIN_MAIN_HEADER, 0, 0) == 3,
+    Check(hvc_cache_bin_count(&cache) == 3, "three distinct bins");
+    Check(hvc_cache_length(&cache, HVC_BIN_MAIN_HEADER, 0, 0) == 3,
           "codestream 0 header length");
-    Check(hv_cache_length(&cache, HV_BIN_MAIN_HEADER, 1, 0) == 4,
+    Check(hvc_cache_length(&cache, HVC_BIN_MAIN_HEADER, 1, 0) == 4,
           "codestream 1 header length");
-    Check(hv_cache_complete(&cache, HV_BIN_TILE_HEADER, 0, 0),
+    Check(hvc_cache_complete(&cache, HVC_BIN_TILE_HEADER, 0, 0),
           "empty tile header is complete");
-    Check(hv_cache_complete_count(&cache) == 3, "all bins complete");
-    hv_cache_release(&cache);
+    Check(hvc_cache_complete_count(&cache) == 3, "all bins complete");
+    hvc_cache_release(&cache);
 }
 
 static void TestUnknownBinIsZero(void) {
-    hv_cache cache;
+    hvc_cache cache;
 
-    hv_cache_begin(&cache);
-    Check(hv_cache_find(&cache, HV_BIN_PRECINCT, 0, 99) == NULL, "unknown bin absent");
-    Check(hv_cache_length(&cache, HV_BIN_PRECINCT, 0, 99) == 0, "unknown length zero");
-    Check(!hv_cache_complete(&cache, HV_BIN_PRECINCT, 0, 99), "unknown not complete");
-    Check(hv_cache_error(&cache)[0] == 0, "no diagnostic without a failure");
-    hv_cache_release(&cache);
+    hvc_cache_begin(&cache);
+    Check(hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 99) == NULL, "unknown bin absent");
+    Check(hvc_cache_length(&cache, HVC_BIN_PRECINCT, 0, 99) == 0, "unknown length zero");
+    Check(!hvc_cache_complete(&cache, HVC_BIN_PRECINCT, 0, 99), "unknown not complete");
+    Check(hvc_cache_error(&cache)[0] == 0, "no diagnostic without a failure");
+    hvc_cache_release(&cache);
 }
 
 /* A precinct bin can arrive over many quality layers, so the store must grow
  * without losing earlier layers. */
 static void TestGrowthKeepsContents(void) {
-    hv_cache cache;
-    hv_jpp_message message;
+    hvc_cache cache;
+    hvc_jpp_message message;
     char payload[512];
     size_t layer;
     size_t total = 0;
 
-    hv_cache_begin(&cache);
+    hvc_cache_begin(&cache);
     for (layer = 0; layer < 40; layer++) {
         memset(payload, (int) ('a' + (layer % 26)), sizeof payload);
-        message = Message(HV_BIN_PRECINCT, 0, 0, total, payload, 300,
+        message = Message(HVC_BIN_PRECINCT, 0, 0, total, payload, 300,
                           layer == 39);
-        Check(hv_cache_apply(&cache, &message), "layer accepted");
+        Check(hvc_cache_apply(&cache, &message), "layer accepted");
         total += 300;
     }
-    Check(hv_cache_length(&cache, HV_BIN_PRECINCT, 0, 0) == total, "grown bin length");
+    Check(hvc_cache_length(&cache, HVC_BIN_PRECINCT, 0, 0) == total, "grown bin length");
     {
-        const hv_bin *bin = hv_cache_find(&cache, HV_BIN_PRECINCT, 0, 0);
+        const hvc_bin *bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 0);
         int intact = bin != NULL;
         size_t index;
         for (index = 0; intact && index < total; index++) {
@@ -152,105 +163,105 @@ static void TestGrowthKeepsContents(void) {
         }
         Check(intact, "every layer survived growth in order");
     }
-    hv_cache_release(&cache);
+    hvc_cache_release(&cache);
 }
 
 /* A length that cannot be satisfied must be reported rather than attempted. */
 static void TestHostileLength(void) {
-    hv_cache cache;
-    hv_jpp_message message;
+    hvc_cache cache;
+    hvc_jpp_message message;
 
-    hv_cache_begin(&cache);
-    message = Message(HV_BIN_PRECINCT, 0, 0, (uint64_t) -1 - 4, "ab", 8, 0);
-    Check(!hv_cache_apply(&cache, &message), "overflowing range rejected");
-    Check(hv_cache_error(&cache)[0] != 0, "overflow has a diagnostic");
-    hv_cache_release(&cache);
+    hvc_cache_begin(&cache);
+    message = Message(HVC_BIN_PRECINCT, 0, 0, (uint64_t) -1 - 4, "ab", 8, 0);
+    Check(!hvc_cache_apply(&cache, &message), "overflowing range rejected");
+    Check(hvc_cache_error(&cache)[0] != 0, "overflow has a diagnostic");
+    hvc_cache_release(&cache);
 }
 
 /* A movie's worth of bins: every one stays findable, with its own bytes, as
  * the table grows. */
 static void TestManyBins(void) {
     enum { CODESTREAMS = 40, BINS = 1500 };
-    hv_cache cache;
-    hv_jpp_message message;
+    hvc_cache cache;
+    hvc_jpp_message message;
     uint64_t codestream, bin_id;
     int wrong = 0;
 
-    hv_cache_begin(&cache);
+    hvc_cache_begin(&cache);
     for (codestream = 0; codestream < CODESTREAMS; codestream++) {
         for (bin_id = 0; bin_id < BINS; bin_id++) {
             uint8_t payload[2] = {(uint8_t) codestream, (uint8_t) bin_id};
-            message = Message(HV_BIN_PRECINCT, codestream, bin_id, 0, (const char *) payload, 2,
+            message = Message(HVC_BIN_PRECINCT, codestream, bin_id, 0, (const char *) payload, 2,
                               bin_id % 2);
-            wrong += !hv_cache_apply(&cache, &message);
+            wrong += !hvc_cache_apply(&cache, &message);
         }
     }
     Check(!wrong, "many bins accepted");
-    Check(hv_cache_bin_count(&cache) == CODESTREAMS * BINS, "many bins counted");
-    Check(hv_cache_total_bytes(&cache) == 2 * CODESTREAMS * BINS, "many bins' bytes counted");
-    Check(hv_cache_complete_count(&cache) == CODESTREAMS * BINS / 2, "complete bins counted");
+    Check(hvc_cache_bin_count(&cache) == CODESTREAMS * BINS, "many bins counted");
+    Check(hvc_cache_total_bytes(&cache) == 2 * CODESTREAMS * BINS, "many bins' bytes counted");
+    Check(hvc_cache_complete_count(&cache) == CODESTREAMS * BINS / 2, "complete bins counted");
     for (codestream = 0; codestream < CODESTREAMS; codestream++) {
         for (bin_id = 0; bin_id < BINS; bin_id++) {
-            const hv_bin *bin = hv_cache_find(&cache, HV_BIN_PRECINCT, codestream, bin_id);
+            const hvc_bin *bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, codestream, bin_id);
             wrong += bin == NULL || bin->length != 2 || bin->data[0] != (uint8_t) codestream ||
                      bin->data[1] != (uint8_t) bin_id || bin->complete != (int) (bin_id % 2);
         }
     }
     Check(!wrong, "many bins found with their bytes");
-    Check(hv_cache_find(&cache, HV_BIN_PRECINCT, CODESTREAMS, 0) == NULL &&
-          hv_cache_find(&cache, HV_BIN_TILE_HEADER, 0, 0) == NULL, "other bins are unknown");
-    hv_cache_release(&cache);
-    Check(hv_cache_bin_count(&cache) == 0 && hv_cache_find(&cache, HV_BIN_PRECINCT, 0, 0) == NULL,
+    Check(hvc_cache_find(&cache, HVC_BIN_PRECINCT, CODESTREAMS, 0) == NULL &&
+          hvc_cache_find(&cache, HVC_BIN_TILE_HEADER, 0, 0) == NULL, "other bins are unknown");
+    hvc_cache_release(&cache);
+    Check(hvc_cache_bin_count(&cache) == 0 && hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 0) == NULL,
           "a released store is empty");
 }
 
 /* A message that is refused leaves no trace, not even an empty bin. */
 static void TestRejectedLeavesNothing(void) {
-    hv_cache cache;
-    hv_jpp_message message;
+    hvc_cache cache;
+    hvc_jpp_message message;
 
-    hv_cache_begin(&cache);
-    message = Message(HV_BIN_PRECINCT, 0, 7, 3, "abc", 3, 0);
-    Check(!hv_cache_apply(&cache, &message), "a bin cannot start past its first byte");
-    Check(hv_cache_bin_count(&cache) == 0 && hv_cache_find(&cache, HV_BIN_PRECINCT, 0, 7) == NULL,
+    hvc_cache_begin(&cache);
+    message = Message(HVC_BIN_PRECINCT, 0, 7, 3, "abc", 3, 0);
+    Check(!hvc_cache_apply(&cache, &message), "a bin cannot start past its first byte");
+    Check(hvc_cache_bin_count(&cache) == 0 && hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 7) == NULL,
           "a refused message added no bin");
-    hv_cache_release(&cache);
+    hvc_cache_release(&cache);
 }
 
 static void TestRecoveryModel(void) {
-    hv_cache cache;
-    hv_jpp_message message;
+    hvc_cache cache;
+    hvc_jpp_message message;
     char model[20], all[256] = "";
     size_t cursor = 0;
     int batches = 0;
-    hv_cache_begin(&cache);
-    message = Message(HV_BIN_META_DATA, 0, 0, 0, "metadata", 8, 1);
-    Check(hv_cache_apply(&cache, &message), "complete recovery metadata");
-    Check(hv_cache_match_metadata(&cache, &message), "identical metadata replay");
-    Check(!hv_cache_apply(&cache, &message), "normal append still rejects replay");
-    message = Message(HV_BIN_META_DATA, 0, 0, 2, "tada", 4, 0);
-    Check(hv_cache_match_metadata(&cache, &message), "identical metadata subrange");
+    hvc_cache_begin(&cache);
+    message = Message(HVC_BIN_META_DATA, 0, 0, 0, "metadata", 8, 1);
+    Check(hvc_cache_apply(&cache, &message), "complete recovery metadata");
+    Check(hvc_cache_match_metadata(&cache, &message), "identical metadata replay");
+    Check(!hvc_cache_apply(&cache, &message), "normal append still rejects replay");
+    message = Message(HVC_BIN_META_DATA, 0, 0, 2, "tada", 4, 0);
+    Check(hvc_cache_match_metadata(&cache, &message), "identical metadata subrange");
     message.data = (const uint8_t *)"xxxx";
-    Check(!hv_cache_match_metadata(&cache, &message), "changed metadata rejected");
-    message = Message(HV_BIN_META_DATA, 0, 0, 2, "tadata", 6, 1);
-    Check(hv_cache_match_metadata(&cache, &message), "metadata final subrange");
+    Check(!hvc_cache_match_metadata(&cache, &message), "changed metadata rejected");
+    message = Message(HVC_BIN_META_DATA, 0, 0, 2, "tadata", 6, 1);
+    Check(hvc_cache_match_metadata(&cache, &message), "metadata final subrange");
     message.offset = 3;
-    Check(!hv_cache_match_metadata(&cache, &message), "metadata range beyond cache rejected");
-    message = Message(HV_BIN_META_DATA, 0, 0, 0, "meta", 4, 1);
-    Check(!hv_cache_match_metadata(&cache, &message), "early metadata completion rejected");
+    Check(!hvc_cache_match_metadata(&cache, &message), "metadata range beyond cache rejected");
+    message = Message(HVC_BIN_META_DATA, 0, 0, 0, "meta", 4, 1);
+    Check(!hvc_cache_match_metadata(&cache, &message), "early metadata completion rejected");
     message.bin_id = 1;
-    Check(!hv_cache_match_metadata(&cache, &message), "unknown metadata rejected");
-    message = Message(HV_BIN_MAIN_HEADER, 3, 0, 0, "hdr", 3, 1);
-    Check(hv_cache_apply(&cache, &message), "recovery main header");
-    Check(!hv_cache_match_metadata(&cache, &message), "restoration forbids image data");
-    message = Message(HV_BIN_TILE_HEADER, 3, 0, 0, "", 0, 1);
-    Check(hv_cache_apply(&cache, &message), "recovery empty complete header");
-    message = Message(HV_BIN_PRECINCT, 3, 42, 0, "abc", 3, 0);
-    Check(hv_cache_apply(&cache, &message), "recovery partial precinct");
-    message = Message(HV_BIN_PRECINCT, 3, 43, 0, "abc", 3, 1);
-    Check(hv_cache_apply(&cache, &message), "recovery complete precinct");
+    Check(!hvc_cache_match_metadata(&cache, &message), "unknown metadata rejected");
+    message = Message(HVC_BIN_MAIN_HEADER, 3, 0, 0, "hdr", 3, 1);
+    Check(hvc_cache_apply(&cache, &message), "recovery main header");
+    Check(!hvc_cache_match_metadata(&cache, &message), "restoration forbids image data");
+    message = Message(HVC_BIN_TILE_HEADER, 3, 0, 0, "", 0, 1);
+    Check(hvc_cache_apply(&cache, &message), "recovery empty complete header");
+    message = Message(HVC_BIN_PRECINCT, 3, 42, 0, "abc", 3, 0);
+    Check(hvc_cache_apply(&cache, &message), "recovery partial precinct");
+    message = Message(HVC_BIN_PRECINCT, 3, 43, 0, "abc", 3, 1);
+    Check(hvc_cache_apply(&cache, &message), "recovery complete precinct");
     while (cursor < cache.capacity) {
-        int length = hv_cache_model(&cache, &cursor, model, sizeof model);
+        int length = hvc_cache_model(&cache, &cursor, model, sizeof model);
         Check(length >= 0 && length == (int)strlen(model), "model batch length");
         if (length < 0) break;
         if (length == 0) continue;
@@ -263,20 +274,70 @@ static void TestRecoveryModel(void) {
           strstr(all, "[3]P42:3") && strstr(all, "[3]P43"), "model preserves bin identities and prefixes");
     Check(!strstr(all, "M0:") && !strstr(all, "P43:"), "complete bins declare no byte count");
     cursor = 0;
-    Check(hv_cache_model(&cache, &cursor, model, 1) == -1, "undersized model buffer refused");
-    message = Message(HV_BIN_META_DATA, 0, 1, 0, "partial", 7, 0);
-    Check(hv_cache_apply(&cache, &message), "partial metadata seed");
-    Check(!hv_cache_match_metadata(&cache, &message), "incomplete metadata cannot be replayed");
+    Check(hvc_cache_model(&cache, &cursor, model, 1) == -1, "undersized model buffer refused");
+    message = Message(HVC_BIN_META_DATA, 0, 1, 0, "partial", 7, 0);
+    Check(hvc_cache_apply(&cache, &message), "partial metadata seed");
+    Check(!hvc_cache_match_metadata(&cache, &message), "incomplete metadata cannot be replayed");
     cursor = 0;
-    Check(hv_cache_model(&cache, &cursor, all, sizeof all) == -1, "partial metadata not advertised");
-    Check(hv_cache_total_bytes(&cache) == 24, "recovery checks leave cached bytes intact");
-    hv_cache_release(&cache);
+    Check(hvc_cache_model(&cache, &cursor, all, sizeof all) == -1, "partial metadata not advertised");
+    Check(hvc_cache_total_bytes(&cache) == 24, "recovery checks leave cached bytes intact");
+    hvc_cache_release(&cache);
     cursor = 0;
-    Check(hv_cache_model(&cache, &cursor, model, sizeof model) == 0 && model[0] == 0,
+    Check(hvc_cache_model(&cache, &cursor, model, sizeof model) == 0 && model[0] == 0,
           "empty model terminates");
 }
 
+static void TestCompletedStorage(void) {
+    hvc_cache cache;
+    uint8_t payload[300] = {1, 2, 3};
+    hvc_jpp_message message;
+    const hvc_bin *bin;
+    hvc_cache_begin(&cache);
+    message = Message(HVC_BIN_PRECINCT, 0, 0, 0, (const char *)payload, 3, 0);
+    Check(hvc_cache_apply(&cache, &message), "partial bin accepted");
+    bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 0);
+    size_t capacity = bin->capacity;
+    fail_resize = 1;
+    message = Message(HVC_BIN_PRECINCT, 0, 0, 3, NULL, 0, 1);
+    Check(hvc_cache_apply(&cache, &message), "failed shrink still completes bin");
+    bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 0);
+    Check(bin->complete && bin->length == 3 && bin->capacity == capacity &&
+          memcmp(bin->data, payload, 3) == 0, "failed shrink preserves bytes");
+
+    message = Message(HVC_BIN_PRECINCT, 0, 1, 0, (const char *)payload, sizeof payload, 1);
+    fail_resize = 1;
+    Check(!hvc_cache_apply(&cache, &message) &&
+          hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 1) == NULL,
+          "failed allocation leaves new bin absent");
+    Check(hvc_cache_apply(&cache, &message), "completed bin allocation retry succeeds");
+    bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 1);
+    Check(bin->complete && bin->capacity == sizeof payload &&
+          memcmp(bin->data, payload, sizeof payload) == 0, "completed bin is exactly sized");
+
+    message = Message(HVC_BIN_PRECINCT, 0, 2, 0, (const char *)payload, 3, 0);
+    Check(hvc_cache_apply(&cache, &message), "growth failure seed accepted");
+    message = Message(HVC_BIN_PRECINCT, 0, 2, 3, (const char *)payload + 3, sizeof payload - 3, 1);
+    fail_resize = 1;
+    Check(!hvc_cache_apply(&cache, &message), "failed completed-bin growth rejected");
+    bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 2);
+    Check(!bin->complete && bin->length == 3 && memcmp(bin->data, payload, 3) == 0,
+          "failed growth preserves partial bytes");
+    Check(hvc_cache_apply(&cache, &message), "completed-bin growth retry succeeds");
+    bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 2);
+    Check(bin->complete && bin->capacity == sizeof payload &&
+          memcmp(bin->data, payload, sizeof payload) == 0, "completion preserves appended bytes");
+    message = Message(HVC_BIN_PRECINCT, 0, 3, 0, (const char *)payload, 3, 0);
+    Check(hvc_cache_apply(&cache, &message), "shrink seed accepted");
+    message = Message(HVC_BIN_PRECINCT, 0, 3, 3, NULL, 0, 1);
+    Check(hvc_cache_apply(&cache, &message), "zero-length final message accepted");
+    bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 3);
+    Check(bin->complete && bin->capacity == 3 && memcmp(bin->data, payload, 3) == 0,
+          "completed buffer shrinks without losing bytes");
+    hvc_cache_release(&cache);
+}
+
 int main(void) {
+    TestCompletedStorage();
     TestRecoveryModel();
     TestContiguousAppend();
     TestGapsRejected();

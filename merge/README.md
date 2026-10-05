@@ -53,9 +53,17 @@ the inputs must also remain unchanged for as long as the resulting JPX is used.
 The inputs are read in two passes, as hvJP2K does. The first input is
 checked once and stays mapped throughout. Each later input is checked,
 unmapped, then mapped again to write the output using its recorded layout.
-The first pass checks `hv_check_jp2` and `hv_check_jp2h`, linked or embedded.
-With `--validate`, it additionally validates the whole codestream with
-`HV_PROFILE`. The second pass does not repeat validation or compare source
+The first pass uses `hv_read_jp2` for ordinary embedded inputs and
+`hv_served_jp2` for linked or validated inputs. Both paths read header information
+with `hv_read_jp2h_boxes`: SIZ and COD MCT supply header/channel consistency;
+other COD fields remain opaque. Copying mode does not validate the SIZ
+tile grid. Rsiz admission is checked separately for Reader Requirements.
+Ignored input header fields are normalized when writing. Dropped top-level
+box bodies are not validated. Copied boxes are checked in their output
+placement; IPR availability uses the boxes that will be emitted. Input size
+and header count/order remain explicit merge restrictions. Reader Requirements
+use the source's SIZ declaration, read without opening another codestream reader. With `--validate`, merge additionally validates the whole
+codestream with `HV_READ_JPIP`. The second pass does not repeat validation or compare source
 properties. At most two inputs are
 mapped at a time. Mapping reads only what is used: the checks and a linked
 merge touch the headers, an embedded merge reads each codestream once. Every
@@ -96,12 +104,11 @@ As hvJP2K writes it:
   `RreqStandardFeature`, and no vendor features; T.801 M.11.1, Table
   M.14: feature 1, 2 for more than one codestream, 4 and 5 from the
   codestreams' Rsiz (Profile 1, a T.800 codestream without profile; an
-  input's Rsiz is restricted to 0, 1 or 2 by this merger's implemented
-  profile validation, not by the full T.800 Table A.10; other recognized
-  profiles are unvalidated: `siz.unsupported-profile`), 9 and 10 for opacity
+  input's Rsiz is restricted to 0, 1 or 2 by the Reader Requirements this
+  merger writes, not by the full T.800 Table A.10), 9 and 10 for opacity
   channels in `cdef`, 15 when linked);
-- `jp2h`, the first input's, with each `colr`'s APPROX of 0 written as 1
-  (T.801 has no 0);
+- `jp2h`, the first input's, with each `colr`'s ignored PREC and APPROX
+  emitted as 0 and 1;
 - for each input, a `jpch` and a `jplh`: when its `jp2h` is the first
   input's, empty but for the IPR boxes below, otherwise the `ihdr` and
   whatever of `bpcc`, `pclr`, `cmap` (generated where the first input has
@@ -116,18 +123,31 @@ As hvJP2K writes it:
 
 ## Supported input
 
-Every input must pass the served profile's JP2 container checks
-(`hv_check_jp2`) and have valid header boxes (`hv_check_jp2h`: T.800
-I.5.3, with `ihdr` and `bpcc` agreeing with SIZ, and a main header valid
-at the standard layer, which they are checked against), which the JPX
-headers are made of, so theirs are valid too (`hv_check_jpx_headers`).
-The output container passes `hv_check_jpx` in both modes. Only validation mode
-also requires every codestream to pass `HV_PROFILE`; default mode does not
+Ordinary embedded merging uses `hv_read_jp2` to discover one bounded codestream
+in a JP2-compatible input. Linked and validated merging use `hv_served_jp2`,
+which additionally requires the server's primary brand and file-size policy.
+Merge itself limits input size to `INT_MAX`, requires one `jp2h` before `jp2c`,
+and reads that selected pair through `hv_read_jp2h_boxes`. Header image/component
+fields must agree with bounded SIZ fields, and JP2 channel checks use COD's MCT.
+Copying mode leaves other coding fields uninterpreted and does not apply SIZ
+tile-grid rules. Rsiz 0/1/2 admission
+belongs to the Reader Requirements that merge generates. Only `--validate`
+adds complete served codestream checks through `HV_READ_JPIP`.
+
+The first input's header is copied into the output; later headers supply image,
+palette, channel and resolution differences or inherit the first header's
+values. Their interpreted fields and copied tree placement therefore support
+output correctness. Dropped top-level bodies and later unused header extensions
+are not validated. Flat `asoc(nlst, xml)` metadata and intact codestream bytes
+are emitted in input order.
+
+The output container passes `hv_served_jpx` in both modes. Only validation mode
+also requires every codestream to pass `HV_READ_JPIP`; default mode does not
 promise that the codestream can be served or decoded. The
 tests check both of the JPX files they write, but for the Reader
 Requirements cases and `test_opening`'s, and the fuzz target of every
 merge it accepts. Three
-things `hv_check_jp2h` accepts in a JP2 file are invalid in the JPX file,
+things the selected JP2 header reader accepts in a JP2 file are invalid in the JPX file,
 and are rejected: a box that T.801 places elsewhere, in the first input's
 `jp2h`, which is the JPX file's, or in a later input's `res`, which goes
 into its `jplh` (`hv_rule_box_placed`: a `cgrp`, `cgrp.placement`, T.801
@@ -167,7 +187,7 @@ them and keeps the IPR 1 that announces them.
 | `hv_merge.c` | The command: options, `-s`, mapping the inputs, writing the output file. |
 | `merge.h` / `.c` | `hv_merge_files`: checks the inputs, and writes the JPX file box by box to a stream, opening each input when it needs it (`hv_merge_buffers` for inputs already in memory). |
 | `test/` | `test_merge.c`: hvJP2K's output byte for byte (`fixtures/`), the linked merge box for box against it and within the served profile, the reader requirement cases of hvJP2K's tests, IPR boxes carried into each `jpch`, an XML box with LBox = 0 given a length, rejected inputs (Rsiz bit 15, header boxes, `colr` counts and methods, the limits), inputs opened on demand (`test_opening`: how often each is opened, at most two at a time, a failed first or second open), and 1,024- and 1,025-character links; `cli_test.sh`: the command (options as `argparse` parses them, `-s`, permissions, symbolic links, `-links` over an input, failures). |
-| `fuzz_merge.c` | libFuzzer target: two JP2 files from one input, merged in both modes; an accepted merge must pass `hv_check_jpx` and `hv_check_jpx_headers`, plus `HV_PROFILE` for each codestream in validation mode. |
+| `fuzz_merge.c` | libFuzzer target: two JP2 files from one input, merged in both modes; an accepted merge must pass `hv_served_jpx` and `hv_check_jpx_headers`, plus `HV_READ_JPIP` for each codestream in validation mode. |
 
 ## Build and test
 

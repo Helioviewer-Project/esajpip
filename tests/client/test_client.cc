@@ -1,4 +1,5 @@
 // The native source API, driven by actual server responses without HTTP.
+#include "jpeg2000/hv_served.h"
 #include <algorithm>
 #include <climits>
 #include <cstdlib>
@@ -9,8 +10,12 @@
 #include <string>
 #include <vector>
 
-#include "hv_client.h"
-#include "hv_image.h"
+#include "hvc_decode.h"
+#include "openjpeg.h"
+#include <cstring>
+#include <unistd.h>
+#include "hvc_jpp.h"
+#include "hvc_openjpeg.h"
 #include "jpeg2000/hv_reader.h"
 #include "jpip/index/image_index.h"
 #include "jpip/response/databin_server.h"
@@ -52,28 +57,28 @@ static Bytes response(jpip::DataBinServer &server, jpip::ImageIndex &image, Sour
     return body;
 }
 
-static void submit(hv_client *client, const Bytes &body) {
-    int reason = hv_client_response(client, body.data(), body.size());
-    check(reason == HV_EOR_WINDOW_DONE || reason == HV_EOR_IMAGE_DONE, hv_client_error(client));
+static void submit(hvc *client, const Bytes &body) {
+    int reason = hvc_response(client, body.data(), body.size());
+    check(reason == HVC_EOR_WINDOW_DONE || reason == HVC_EOR_IMAGE_DONE, hvc_error(client));
 }
 
-static jpip::ResponseRequest request(size_t frame, const hv_client_view &view) {
+static jpip::ResponseRequest request(const hvc_view &view) {
     jpip::ResponseRequest fields;
-    fields.AddStream(static_cast<int>(frame), static_cast<int>(frame));
-    fields.layers = view.request == HV_CLIENT_HEADER ? 0 : view.requested_layers;
-    if (view.request == HV_CLIENT_FRAME) {
+    fields.AddStream(static_cast<int>(view.codestream), static_cast<int>(view.codestream));
+    fields.layers = view.request == HVC_HEADER ? 0 : view.requested_layers;
+    if (view.request == HVC_FRAME) {
         fields.has.fsiz = true;
         fields.resolution_size = jpip::Size(view.width, view.height);
     }
     return fields;
 }
 
-static Bytes reconstruct(hv_client *client, size_t frame) {
-    size_t size = hv_client_reconstruct(client, frame, nullptr, 0);
-    check(size != 0, hv_client_error(client));
+static Bytes reconstruct(hvc *client, size_t frame) {
+    size_t size = hvc_codestream(client, frame, nullptr, 0);
+    check(size != 0, hvc_error(client));
     Bytes bytes(size);
-    check(hv_client_reconstruct(client, frame, bytes.data(), bytes.size()) == size,
-          hv_client_error(client));
+    check(hvc_codestream(client, frame, bytes.data(), bytes.size()) == size,
+          hvc_error(client));
     return bytes;
 }
 
@@ -83,52 +88,52 @@ static void verify(const char *path, bool jpx) {
     const jpip::Source *file = sources.GetSource(path);
     check(file && image.Open(*file, sources, jpx), image.GetError());
     jpip::DataBinServer server;
-    hv_client *client = hv_client_create();
+    hvc *client = hvc_create(NULL, NULL);
     check(client != nullptr, "client allocation");
-    check(hv_client_frames(client) == 0 && hv_client_error(client)[0], "empty metadata accepted");
-    hv_client_view view;
-    hv_client_options options = {};
+    check(hvc_frames(client) == 0 && hvc_error(client)[0], "empty metadata accepted");
+    hvc_view view;
+    hvc_options options = {};
     jpip::ResponseRequest opening;
     opening.AddStream(0, 0);
     opening.layers = 0;
     submit(client, response(server, image, sources, opening));
-    size_t frames = hv_client_frames(client);
+    size_t frames = hvc_frames(client);
     check(frames == static_cast<size_t>(image.GetNumCodestreams()), "frame count differs");
     const uint8_t *initial_xml;
     size_t initial_xml_size;
-    check(hv_client_xml(client, 0, &initial_xml, &initial_xml_size) == 0, hv_client_error(client));
-    check(hv_client_status(client, frames, &options, &view) == -1, "invalid frame accepted");
-    for (hv_client_options invalid : {hv_client_options{-1, 0, 0, 0},
-                                      hv_client_options{0, 1, 0, 0},
-                                      hv_client_options{1, 1, 1, 0},
-                                      hv_client_options{0, 0, 0, -1}})
-        check(hv_client_prepare(client, 0, &invalid, &view) == -1, "invalid options accepted");
+    check(hvc_xml(client, 0, &initial_xml, &initial_xml_size) == 0, hvc_error(client));
+    check(hvc_status(client, frames, &options, &view) == -1, "invalid frame accepted");
+    for (hvc_options invalid : {hvc_options{-1, 0, 0, 0},
+                                      hvc_options{0, 1, 0, 0},
+                                      hvc_options{1, 1, 1, 0},
+                                      hvc_options{0, 0, 0, -1}})
+        check(hvc_prepare(client, 0, &invalid, &view) == -1, "invalid options accepted");
 
     for (size_t frame = 0; frame < frames; frame++) {
         const jpip::CodingParameters &coding = *image.GetCodingParameters(static_cast<int>(frame));
         options = {INT_MAX, 0, 0, 1};
-        check(hv_client_prepare(client, frame, &options, &view) == 0, hv_client_error(client));
+        check(hvc_prepare(client, frame, &options, &view) == 0, hvc_error(client));
         if (frame) {
-            check(view.request == HV_CLIENT_HEADER && view.width == 0, "missing-header plan differs");
-            const uint8_t empty[] = {0, HV_EOR_WINDOW_DONE, 0};
-            check(hv_client_response(client, empty, sizeof empty) == -1, "absent header accepted");
-            submit(client, response(server, image, sources, request(frame, view)));
-            check(hv_client_prepare(client, frame, &options, &view) == 0, hv_client_error(client));
+            check(view.request == HVC_HEADER && view.width == 0, "missing-header plan differs");
+            const uint8_t empty[] = {0, HVC_EOR_WINDOW_DONE, 0};
+            check(hvc_response(client, empty, sizeof empty) == -1, "absent header accepted");
+            submit(client, response(server, image, sources, request(view)));
+            check(hvc_prepare(client, frame, &options, &view) == 0, hvc_error(client));
         }
-        check(view.request == HV_CLIENT_FRAME && view.reduce == coding.num_levels &&
+        check(view.request == HVC_FRAME && view.reduce == coding.num_levels &&
               view.width == static_cast<uint32_t>(((coding.size.x - 1) >> view.reduce) + 1),
               "lowest-resolution plan differs");
-        hv_client_view inspected;
-        check(hv_client_status(client, frame, &options, &inspected) == 0, hv_client_error(client));
-        check(hv_client_prepare(client, frame, &options, &inspected) == -1, "pending request overwritten");
-        const uint8_t limited[] = {0, HV_EOR_BYTE_LIMIT_REACHED, 0};
-        check(hv_client_response(client, limited, sizeof limited) == HV_EOR_BYTE_LIMIT_REACHED,
+        hvc_view inspected;
+        check(hvc_status(client, frame, &options, &inspected) == 0, hvc_error(client));
+        check(hvc_prepare(client, frame, &options, &inspected) == -1, "pending request overwritten");
+        const uint8_t limited[] = {0, HVC_EOR_BYTE_LIMIT_REACHED, 0};
+        check(hvc_response(client, limited, sizeof limited) == HVC_EOR_BYTE_LIMIT_REACHED,
               "limited response reason lost");
-        check(hv_client_prepare(client, frame, &options, &view) == 0 && !view.ready,
+        check(hvc_prepare(client, frame, &options, &view) == 0 && !view.ready,
               "limited response confirmed or prevented retry");
-        const uint8_t empty[] = {0, HV_EOR_WINDOW_DONE, 0};
-        check(hv_client_response(client, empty, sizeof empty) == -1, "missing precincts confirmed");
-        check(hv_client_status(client, frame, &options, &inspected) == 0 && !inspected.ready,
+        const uint8_t empty[] = {0, HVC_EOR_WINDOW_DONE, 0};
+        check(hvc_response(client, empty, sizeof empty) == -1, "missing precincts confirmed");
+        check(hvc_status(client, frame, &options, &inspected) == 0 && !inspected.ready,
               "rejected response changed readiness");
 
         // Metadata restoration must neither mutate the source nor finish its
@@ -138,65 +143,65 @@ static void verify(const char *path, bool jpx) {
         restore.AddStream(static_cast<int>(frames), static_cast<int>(frames));
         restore.layers = 0;
         Bytes replay = response(replacement, image, sources, restore);
-        check(hv_client_restore_response(client, limited, sizeof limited) == -1,
+        check(hvc_restore_response(client, limited, sizeof limited) == -1,
               "limited restoration accepted");
-        check(hv_client_restore_response(client, replay.data(), replay.size()) >= 0,
-              hv_client_error(client));
-        hv_jpp_reader reader;
-        hv_jpp_message message;
-        hv_jpp_begin(&reader, replay.data(), replay.size());
-        while (hv_jpp_next(&reader, &message) == HV_JPP_MESSAGE)
+        check(hvc_restore_response(client, replay.data(), replay.size()) >= 0,
+              hvc_error(client));
+        hvc_jpp_reader reader;
+        hvc_jpp_message message;
+        hvc_jpp_begin(&reader, replay.data(), replay.size());
+        while (hvc_jpp_next(&reader, &message) == HVC_JPP_MESSAGE)
             if (message.length) {
                 replay[static_cast<size_t>(message.data - replay.data())] ^= 1;
-                check(hv_client_restore_response(client, replay.data(), replay.size()) == -1,
+                check(hvc_restore_response(client, replay.data(), replay.size()) == -1,
                       "different metadata accepted");
                 break;
             }
-        submit(client, response(server, image, sources, request(frame, view)));
-        check(hv_client_prepare(client, frame, &options, &view) == 0 && view.ready &&
-              view.layers >= 1 && view.request == HV_CLIENT_READY, "preview not confirmed");
+        submit(client, response(server, image, sources, request(view)));
+        check(hvc_prepare(client, frame, &options, &view) == 0 && view.ready &&
+              view.layers >= 1 && view.request == HVC_READY, "preview not confirmed");
         Bytes preview = reconstruct(client, frame);
         check(!preview.empty(), "preview reconstruction failed");
 
         // Odd dimensions, viewport fit, independent axes, and large layer
         // requests use this frame's own header rather than another frame's.
         options = {0, static_cast<double>(coding.size.x), static_cast<double>(coding.size.y), INT_MAX};
-        check(hv_client_prepare(client, frame, &options, &view) == 0 && view.reduce == 0 &&
+        check(hvc_prepare(client, frame, &options, &view) == 0 && view.reduce == 0 &&
               view.width == static_cast<uint32_t>(coding.size.x) &&
               view.height == static_cast<uint32_t>(coding.size.y) &&
               view.requested_layers == coding.num_layers, "full-size fit differs");
-        if (!view.ready) submit(client, response(server, image, sources, request(frame, view)));
-        check(hv_client_status(client, frame, &options, &view) == 0 && view.ready &&
+        if (!view.ready) submit(client, response(server, image, sources, request(view)));
+        check(hvc_status(client, frame, &options, &view) == 0 && view.ready &&
               view.layers == coding.num_layers, "full quality not ready");
         Bytes full = reconstruct(client, frame);
         if (coding.num_levels) {
             int width = ((coding.size.x - 1) >> coding.num_levels) + 1;
             int height = ((coding.size.y - 1) >> coding.num_levels) + 1;
             options = {0, static_cast<double>(width), static_cast<double>(height), 0};
-            check(hv_client_status(client, frame, &options, &view) == 0 &&
+            check(hvc_status(client, frame, &options, &view) == 0 &&
                   view.reduce == coding.num_levels, "exact lowest-resolution fit differs");
             options.fit_width += 1;
             options.fit_height += 1;
-            check(hv_client_status(client, frame, &options, &view) == 0 &&
+            check(hvc_status(client, frame, &options, &view) == 0 &&
                   view.reduce < coding.num_levels, "fit above boundary stayed too coarse");
         }
         options = {0, 1, 100000, 1};
-        check(hv_client_status(client, frame, &options, &view) == 0 && view.reduce == coding.num_levels &&
+        check(hvc_status(client, frame, &options, &view) == 0 && view.reduce == coding.num_levels &&
               view.ready && view.layers == coding.num_layers, "narrow fit or quality retention differs");
 
         if (frames == 1) {
             const jpip::Source *original = sources.GetSource(image.GetPathName(static_cast<int>(frame)));
             hv_box box;
             size_t offset = 0;
-            check(hv_check_jp2(original->Data(), original->GetSize(), &box, &offset) == nullptr,
+            check(hv_served_jp2(original->Data(), original->GetSize(), &box, &offset) == nullptr,
                   "original container invalid");
-            hv_image decoded, reference;
+            hvc_image decoded, reference;
             char error[256];
-            int decoded_result = hv_image_decode(full.data(), full.size(), 0, HV_IMAGE_SAMPLES,
+            int decoded_result = hvc_openjpeg_decode(full.data(), full.size(), 0, HVC_IMAGE_SAMPLES,
                                                  &decoded, error, sizeof error);
             check(decoded_result == 0, error);
-            int reference_result = hv_image_decode(original->Data() + box.payload, box.end - box.payload, 0,
-                                                   HV_IMAGE_SAMPLES, &reference, error, sizeof error);
+            int reference_result = hvc_openjpeg_decode(original->Data() + box.payload, box.end - box.payload, 0,
+                                                   HVC_IMAGE_SAMPLES, &reference, error, sizeof error);
             check(reference_result == 0, error);
             size_t size = static_cast<size_t>(decoded.width) * decoded.height * decoded.components;
             check(decoded.width == reference.width && decoded.height == reference.height &&
@@ -209,20 +214,283 @@ static void verify(const char *path, bool jpx) {
     }
     size_t cursor = 0;
     char model[128];
-    do { check(hv_client_model(client, &cursor, model, sizeof model) >= 0, hv_client_error(client)); }
+    do { check(hvc_model(client, &cursor, model, sizeof model) >= 0, hvc_error(client)); }
     while (model[0]);
     const uint8_t *xml;
     size_t size;
-    check(hv_client_xml(client, 0, &xml, &size) == 0, hv_client_error(client));
+    check(hvc_xml(client, 0, &xml, &size) == 0, hvc_error(client));
     check(xml == initial_xml && size == initial_xml_size, "borrowed XML changed during refinement");
     int channels;
-    check(hv_client_palette(client, 0, &channels, nullptr, 0) >= 0, hv_client_error(client));
-    hv_client_destroy(client);
-    hv_client_destroy(nullptr);
+    check(hvc_palette(client, 0, &channels, nullptr, 0) >= 0, hvc_error(client));
+    hvc_destroy(client);
+    hvc_destroy(nullptr);
 }
 
-int main() {
+
+// Identical decoder adapter and inspector for both kinds of input.
+struct Input {
+    hvc_input *source;
+    size_t position = 0;
+    explicit Input(hvc *client, size_t frame) : source(hvc_input_open(client, frame)) {
+        check(source != nullptr, hvc_error(client));
+    }
+    ~Input() { hvc_input_close(source); }
+    static OPJ_SIZE_T read(void *out, OPJ_SIZE_T count, void *context) {
+        Input &input = *static_cast<Input *>(context);
+        size_t n = hvc_input_read(input.source, input.position, static_cast<uint8_t *>(out), count);
+        if (!n || n == SIZE_MAX) return static_cast<OPJ_SIZE_T>(-1);
+        input.position += n;
+        return n;
+    }
+    static OPJ_BOOL seek(OPJ_OFF_T offset, void *context) {
+        Input &input = *static_cast<Input *>(context);
+        if (offset < 0 || static_cast<uint64_t>(offset) > hvc_input_size(input.source)) return OPJ_FALSE;
+        input.position = static_cast<size_t>(offset);
+        return OPJ_TRUE;
+    }
+    static OPJ_OFF_T skip(OPJ_OFF_T count, void *context) {
+        Input &input = *static_cast<Input *>(context);
+        if (count < 0) return -1;
+        size_t n = std::min(static_cast<size_t>(count), hvc_input_size(input.source) - input.position);
+        input.position += n;
+        return static_cast<OPJ_OFF_T>(n);
+    }
+};
+
+static int inspect(hvc *client, size_t frame, void *context, hvc_info *info,
+                   char *error, size_t error_size) {
+    ++*static_cast<int *>(context);
+    Input input(client, frame);
+    opj_stream_t *stream = opj_stream_create(4096, OPJ_TRUE);
+    opj_codec_t *codec = opj_create_decompress(OPJ_CODEC_J2K);
+    check(stream && codec, "decoder allocation");
+    opj_stream_set_user_data(stream, &input, nullptr);
+    opj_stream_set_user_data_length(stream, hvc_input_size(input.source));
+    opj_stream_set_read_function(stream, Input::read);
+    opj_stream_set_seek_function(stream, Input::seek);
+    opj_stream_set_skip_function(stream, Input::skip);
+    opj_dparameters_t parameters;
+    opj_set_default_decoder_parameters(&parameters);
+    opj_image_t *image = nullptr;
+    check(opj_setup_decoder(codec, &parameters) && opj_read_header(stream, codec, &image), "decoder header");
+    opj_codestream_info_v2_t *coding = opj_get_cstr_info(codec);
+    check(coding && coding->tw == 1 && coding->th == 1, "single tile fixture");
+    info->components = static_cast<int>(image->numcomps);
+    info->resolutions = coding->m_default_tile_info.tccp_info[0].numresolutions;
+    info->layers = coding->m_default_tile_info.numlayers;
+    hv_render render;
+    int result = hvc_render_read(client, frame, image->numcomps, &render);
+    if (result) std::snprintf(error, error_size, "%s", hvc_error(client));
+    // The fixtures have matching zero-origin component grids. Decode every
+    // reduction below to independently verify these header-derived dimensions.
+    for (int level = 0; level < info->resolutions; level++) {
+        uint64_t scale = uint64_t{1} << level;
+        info->width[level] = static_cast<uint32_t>((image->x1 + scale - 1) / scale - (image->x0 + scale - 1) / scale);
+        info->height[level] = static_cast<uint32_t>((image->y1 + scale - 1) / scale - (image->y0 + scale - 1) / scale);
+    }
+    opj_destroy_cstr_info(&coding);
+    opj_image_destroy(image);
+    opj_destroy_codec(codec);
+    opj_stream_destroy(stream);
+    return result;
+}
+
+static void u32(Bytes &bytes, uint32_t value) {
+    for (int i = 3; i >= 0; i--) bytes.push_back(static_cast<uint8_t>(value >> (8*i)));
+}
+static void box(Bytes &bytes, const char *type, const Bytes &payload) {
+    u32(bytes, static_cast<uint32_t>(8 + payload.size()));
+    bytes.insert(bytes.end(), type, type + 4);
+    bytes.insert(bytes.end(), payload.begin(), payload.end());
+}
+static Bytes fixture(int layers, bool palette_mapping = true) {
+    Sources sources;
+    const jpip::Source *original = sources.GetSource(IMAGE);
+    check(original != nullptr, "fixture input");
+    hv_boxes boxes;
+    hv_box child;
+    const char *reason;
+    size_t at;
+    Bytes headers, codestream;
+    hv_boxes_file(&boxes, original->Data(), original->GetSize());
+    while (hv_boxes_next(&boxes, &child, &reason, &at) == 1) {
+        if (child.type == HV_BOX_JP2H) headers.assign(original->Data()+child.payload, original->Data()+child.end);
+        if (child.type == HV_BOX_JP2C) codestream.assign(original->Data()+child.payload, original->Data()+child.end);
+    }
+    check(!headers.empty() && !codestream.empty(), "fixture source boxes");
+    Bytes bytes;
+    box(bytes, "jP  ", {13,10,135,10});
+    box(bytes, "ftyp", {'j','p','x',' ',0,0,0,0,'j','p','x',' '});
+    box(bytes, "jp2h", headers);
+    for (int cs = 0; cs < 2; cs++) {
+        Bytes stream_header, palette = {1,0,3,7,7,7};
+        for (int entry = 0; entry < 256; entry++) {
+            palette.push_back(static_cast<uint8_t>(entry + cs));
+            palette.push_back(static_cast<uint8_t>(255-entry));
+            palette.push_back(static_cast<uint8_t>(entry/2 + cs));
+        }
+        if (palette_mapping) {
+            box(stream_header, "pclr", palette);
+            box(stream_header, "cmap", {0,0,1,0, 0,0,1,1, 0,0,1,2});
+        }
+        box(bytes, "jpch", stream_header);
+    }
+    for (int layer = 0; layer < layers; layer++) {
+        Bytes header;
+        box(header, "creg", {0,1,0,1,0,static_cast<uint8_t>(1-layer),1,1,0,0});
+        // Reverse channel order; do not confuse channel order with CS order.
+        if (palette_mapping)
+            box(header, "cdef", {0,3, 0,0,0,0,0,3, 0,1,0,0,0,2, 0,2,0,0,0,1});
+        box(bytes, "jplh", header);
+    }
+    for (int cs = 0; cs < 2; cs++) {
+        box(bytes, "jp2c", codestream);
+        Bytes association;
+        box(association, "nlst", {1,0,0,static_cast<uint8_t>(cs)});
+        box(association, "xml ", {static_cast<uint8_t>('A'+cs)});
+        box(bytes, "asoc", association);
+    }
+    return bytes;
+}
+
+static Bytes read_input(const hvc_input *input) {
+    Bytes bytes(hvc_input_size(input));
+    // Deliberately cross headers and packets with small reads, then seek back.
+    for (size_t at = 0; at < bytes.size(); at += 37)
+        check(hvc_input_read(input, at, bytes.data()+at, std::min(size_t{37}, bytes.size()-at)) ==
+              std::min(size_t{37}, bytes.size()-at), "ranged decoder input");
+    uint8_t prefix[4];
+    check(hvc_input_read(input, 0, prefix, 4) == 4 && std::memcmp(prefix, bytes.data(), 4) == 0, "seek backwards");
+    check(hvc_input_read(input, bytes.size(), prefix, 4) == 0 &&
+          hvc_input_read(input, bytes.size()+1, prefix, 4) == SIZE_MAX &&
+          hvc_input_read(input, 0, nullptr, 1) == SIZE_MAX, "input bounds");
+    return bytes;
+}
+
+static void equivalent(const char *path, bool jpx) {
+    Sources sources;
+    jpip::ImageIndex image(path);
+    const jpip::Source *file = sources.GetSource(path);
+    check(file && image.Open(*file, sources, jpx), image.GetError());
+    char error[256];
+    int local_inspections = 0, remote_inspections = 0;
+    hvc *local = hvc_open_local(path, inspect, &local_inspections, error, sizeof error);
+    hvc *remote = hvc_create(inspect, &remote_inspections);
+    check(local && remote, "cross-source open");
+    jpip::DataBinServer server;
+    jpip::ResponseRequest opening;
+    opening.AddStream(image.GetNumCodestreams(), image.GetNumCodestreams());
+    opening.layers = 0;
+    submit(remote, response(server, image, sources, opening));
+    size_t frames = hvc_frames(local);
+    check(frames == hvc_frames(remote) && frames > 0 &&
+          hvc_codestreams(local) == hvc_codestreams(remote), "local/remote identity counts");
+    for (size_t frame = 0; frame < frames; frame++) {
+        hv_render a, b;
+        check(hvc_render_read(local, frame, 3, &a) == 0, hvc_error(local));
+        check(hvc_render_read(remote, frame, 3, &b) == 0, hvc_error(remote));
+        check(a.codestream == b.codestream && a.channel_count == b.channel_count &&
+              a.colour_space == b.colour_space, "presentation identity");
+        for (size_t channel = 0; channel < a.channel_count; channel++)
+            check(a.channel[channel].component == b.channel[channel].component &&
+                  a.channel[channel].palette_column == b.channel[channel].palette_column, "channel instructions");
+        check(a.palette.entry_count == b.palette.entry_count &&
+              a.palette.column_count == b.palette.column_count, "palette dimensions");
+        for (size_t entry = 0; entry < a.palette.entry_count; entry++)
+            for (size_t column = 0; column < a.palette.column_count; column++) {
+                hv_palette_sample x, y;
+                check(!hv_palette_read(&a.palette, entry, column, &x) && !hv_palette_read(&b.palette, entry, column, &y) &&
+                      x.value == y.value && x.bits == y.bits && x.is_signed == y.is_signed, "exact palette samples");
+            }
+        const uint8_t *xml_a, *xml_b;
+        size_t size_a, size_b;
+        check(hvc_xml(local, frame, &xml_a, &size_a) == 0 && hvc_xml(remote, frame, &xml_b, &size_b) == 0 &&
+              size_a == size_b && (!size_a || std::memcmp(xml_a, xml_b, size_a) == 0), "layer XML identity");
+        hvc_view before, view;
+        check(hvc_prepare(remote, frame, nullptr, &view) == 0 && view.request == HVC_HEADER &&
+              view.codestream == a.codestream && remote_inspections == static_cast<int>(frame), "mapped header request");
+        submit(remote, response(server, image, sources, request(view)));
+        check(hvc_status(local, frame, nullptr, &before) == 0, hvc_error(local));
+        check(hvc_status(remote, frame, nullptr, &view) == 0, hvc_error(remote));
+        check(before.width == view.width && before.height == view.height &&
+              before.source.resolutions == view.source.resolutions, "common decoder geometry");
+        Input snapshot(remote, frame);
+        Bytes original_snapshot = read_input(snapshot.source);
+        check(hvc_prepare(remote, frame, nullptr, &view) == 0 && view.request == HVC_FRAME, "mapped data request");
+        submit(remote, response(server, image, sources, request(view)));
+        check(read_input(snapshot.source) == original_snapshot, "open input mutated by refinement");
+        Input local_input(local, frame), remote_input(remote, frame);
+        Bytes left = read_input(local_input.source), right = read_input(remote_input.source);
+        for (int reduce = 0; reduce < before.source.resolutions; reduce++) {
+            hvc_options options = {reduce,0,0,0};
+            check(hvc_status(local,frame,&options,&before)==0 && hvc_status(remote,frame,&options,&view)==0 &&
+                  before.width == view.width && before.height == view.height && view.ready, "selected geometry");
+            hvc_image x, y;
+            check(hvc_openjpeg_decode(left.data(),left.size(),reduce,HVC_IMAGE_SAMPLES,&x,error,sizeof error)==0,error);
+            check(hvc_openjpeg_decode(right.data(),right.size(),reduce,HVC_IMAGE_SAMPLES,&y,error,sizeof error)==0,error);
+            size_t count = static_cast<size_t>(x.width)*x.height*x.components;
+            check(x.width==view.width && x.height==view.height && x.width==y.width && x.height==y.height &&
+                  x.components==y.components && std::memcmp(x.pixels,y.pixels,count)==0, "decoded pixels/geometry");
+            free(x.pixels); free(y.pixels);
+        }
+        check(local_inspections == static_cast<int>(frame+1) && remote_inspections == local_inspections, "cached inspection count");
+    }
+    hvc_destroy(local); hvc_destroy(remote);
+}
+
+static int mismatched_inspect(hvc *client, size_t frame, void *context, hvc_info *info,
+                               char *error, size_t error_size) {
+    int result = inspect(client, frame, context, info, error, error_size);
+    if (*static_cast<int *>(context) == 1) info->width[0]++;
+    return result;
+}
+
+static void inspection_retry() {
+    Sources sources;
+    jpip::ImageIndex image(IMAGE);
+    const jpip::Source *file = sources.GetSource(IMAGE);
+    check(file && image.Open(*file, sources, false), image.GetError());
+    jpip::DataBinServer server;
+    jpip::ResponseRequest opening;
+    opening.AddStream(0,0); opening.layers = 0;
+    int calls = 0;
+    hvc *client = hvc_create(mismatched_inspect, &calls);
+    check(client != nullptr, "inspection retry allocation");
+    submit(client, response(server,image,sources,opening));
+    hvc_view view;
+    check(hvc_status(client,0,nullptr,&view) == -1 && calls == 1 &&
+          std::strstr(hvc_error(client), "decoder geometry"), "mismatched JPIP geometry rejected");
+    check(hvc_status(client,0,nullptr,&view) == 0 && calls == 2, "rejected geometry was not cached");
+    check(hvc_status(client,0,nullptr,&view) == 0 && calls == 2, "valid retry cached");
+    hvc_destroy(client);
+}
+
+static void cross_source() {
+    equivalent(IMAGE, false);
+    for (int layers : {1,2}) {
+        Bytes bytes = fixture(layers);
+        char path[] = "/tmp/hvc-equivalent-XXXXXX";
+        int fd = mkstemp(path);
+        check(fd >= 0 && write(fd,bytes.data(),bytes.size()) == static_cast<ssize_t>(bytes.size()) && close(fd)==0, "write JPX fixture");
+        equivalent(path, true);
+        check(unlink(path)==0, "remove JPX fixture");
+    }
+}
+
+int main(int argc, char **argv) {
+    if (argc == 3 && std::string(argv[1]) == "--write-fixtures") {
+        for (int layers : {1,2}) {
+            Bytes bytes = fixture(layers, false);
+            std::string path = std::string(argv[2]) + (layers == 1 ? "/one-layer.jpx" : "/swapped.jpx");
+            std::ofstream output(path, std::ios::binary);
+            output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+            check(static_cast<bool>(output), "write WASM layer fixture");
+        }
+        return 0;
+    }
     verify(IMAGE, false);
     verify(MOVIE, true);
+    cross_source();
+    inspection_retry();
     return 0;
 }

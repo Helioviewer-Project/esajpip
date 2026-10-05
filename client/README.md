@@ -11,7 +11,7 @@ smaller, makes no request.
 | JavaScript module | A web application | [JavaScript](#javascript) |
 | C library | A native program that makes its own HTTP requests | [C](#c) |
 | Demonstration page | Seeing it work against your server | [Quick start](#quick-start) |
-| `hv_jpp2j2k` | Turning responses saved with curl into a `.j2k` file | [hv_jpp2j2k](#hv_jpp2j2k) |
+| `hvc_jpp2j2k` | Turning responses saved with curl into a `.j2k` file | [hvc_jpp2j2k](#hvc_jpp2j2k) |
 
 The C library is the client. The JavaScript module is the same code built for
 WebAssembly, with the HTTP exchange and a Web Worker around it.
@@ -205,7 +205,7 @@ and does not convert color spaces such as sYCC to RGB. Three decoded components
 are returned in their existing order and displayed as RGB. Use grayscale,
 RGB, or supported palette images whose samples already have that meaning.
 The server can accept files outside this display subset. The native
-`hv_reconstruct` API preserves the codestream's sample precision and components;
+`hvc_reconstruct` API preserves the codestream's sample precision and components;
 a host using another decoder must handle the file's color interpretation itself.
 
 ### XML
@@ -394,7 +394,8 @@ which compiles the extended source list also used by the WASM module.
 
 ### Source API
 
-Use `hv_client.h` for one source. It owns the data-bin cache, metadata and
+Use `hvc.h` for one source; it exposes no cache or reconstruction implementation
+headers. The client owns the data-bin cache, metadata and
 pending frame request. The same API drives the WebAssembly client.
 
 ```text
@@ -405,8 +406,8 @@ Host opens channel and submits the initial response
 Read frame count, XML and palette
     ↓
 Prepare frame with viewport fit or reduction, and quality
-    ├─ HEADER → host requests stream=frame,layers=0
-    ├─ FRAME  → host requests stream=frame,fsiz=width,height,closest,layers=k
+    ├─ HEADER → host requests stream=view.codestream,layers=0
+    ├─ FRAME  → host requests stream=view.codestream,fsiz=width,height,closest,layers=k
     │               ↓
     │          Submit response, then prepare again
     └─ READY  → reconstruct codestream → host decodes and displays
@@ -414,23 +415,23 @@ Prepare frame with viewport fit or reduction, and quality
 Host closes channel; destroy source
 ```
 
-`hv_client_options` initialized to zero selects full resolution and quality.
+`hvc_options` initialized to zero selects full resolution and quality.
 Set both `fit_width` and `fit_height` to the physical viewport dimensions to
 select a resolution for an aspect-ratio-preserving fit, or set `reduce` to
 remove highest resolution levels. `INT_MAX` selects the lowest resolution.
 Do not combine a fit with a nonzero reduction. `layers=0` means all source
 layers; positive values are clamped to the frame's layer count.
 
-`hv_client_status` inspects readiness without preparing a request.
-`hv_client_prepare` also remembers the exact request to confirm after its
-response. A missing header produces `HV_CLIENT_HEADER`; its geometry is zero.
-Once the header is cached, `HV_CLIENT_FRAME` supplies exact dimensions and
-`requested_layers`. `HV_CLIENT_READY` needs no request. `view.source` describes
+`hvc_status` inspects readiness without preparing a request.
+`hvc_prepare` also remembers the exact request to confirm after its
+response. A missing header produces `HVC_HEADER`; its geometry is zero.
+Once the header is cached, `HVC_FRAME` supplies exact dimensions and
+`requested_layers`. `HVC_READY` needs no request. `view.source` describes
 the original components and geometry; `view.layers` is the minimum cached
 quality across the selected resolution levels.
 
 The host retains HTTP, channel routing, scheduling and decoding. Submit the
-opening response with `hv_client_response`, then use `hv_client_frames` to
+opening response with `hvc_response`, then use `hvc_frames` to
 read the frame count. Keep one request outstanding per source, serialize all
 calls, and do not add `len` or a region to prepared requests. After each
 response, prepare again until the requested frame is ready. This handles
@@ -438,46 +439,47 @@ heterogeneous movies using each frame's own header. Successful completed
 responses confirm whole-packet layer boundaries automatically.
 
 ```c
-hv_client *source = hv_client_create();
+hvc *source = hvc_create(inspect, decoder_context);
 if (source == NULL)
     return fail("out of memory");
 
 /* The host supplies the initial response body. */
-if (hv_client_response(source, body, body_size) < 0 || !hv_client_frames(source))
+if (hvc_response(source, body, body_size) < 0 || !hvc_frames(source))
     goto failed;
 
-hv_client_options options = {0};
+hvc_options options = {0};
 options.fit_width = viewport_width;
 options.fit_height = viewport_height;
 options.layers = 1;
-hv_client_view view;
+hvc_view view;
 for (;;) {
-    if (hv_client_prepare(source, frame, &options, &view) != 0)
+    if (hvc_prepare(source, frame, &options, &view) != 0)
         goto failed;
-    if (view.request == HV_CLIENT_READY)
+    if (view.request == HVC_READY)
         break;
     /* Host sends HEADER or FRAME fields described above, obtains body/size. */
-    if (hv_client_response(source, body, body_size) < 0)
+    if (hvc_response(source, body, body_size) < 0)
         goto failed;
 }
-size_t size = hv_client_reconstruct(source, frame, NULL, 0);
-/* Allocate size bytes, reconstruct into them, then pass them to the decoder.
- * The host owns that buffer; the source does not allocate a decoded image. */
-/* ... */
-hv_client_destroy(source);
+hvc_input *input = hvc_input_open(source, frame);
+if (!input)
+    goto failed;
+/* Decode with hvc_input_size and hvc_input_read, then close the decoder. */
+hvc_input_close(input);
+hvc_destroy(source);
 return 0;
 
 failed:
-/* Report hv_client_error(source), close the host's channel, then destroy. */
-hv_client_destroy(source);
+/* Report hvc_error(source), close the host's channel, then destroy. */
+hvc_destroy(source);
 return -1;
 ```
 
-For channel recovery, keep the source. `hv_client_model` writes retained-bin
+For channel recovery, keep the source. `hvc_model` writes retained-bin
 declarations in bounded batches; start its cursor at zero and stop at an empty
-batch. Select no codestreams (`stream` equal to the frame count, `layers=0`).
+batch. Select no codestreams (`stream` equal to `hvc_codestreams(source)`, `layers=0`).
 The first batch opens a replacement channel on the original target; later
-batches use its `cid`. Submit these responses with `hv_client_restore_response`,
+batches use its `cid`. Submit these responses with `hvc_restore_response`,
 which checks repeated metadata and requires a normal EOR. Then retry the
 original pending request. Restoration retains geometry, quality and metadata
 pointers and does not complete the pending frame request. Use it only after a
@@ -488,10 +490,10 @@ confirming quality; the host can prepare another request. A rejected response
 may have applied valid preceding messages. Its pending
 request remains available for retry, but protocol errors require closing the
 channel. Destroying the source releases its metadata and cache in the correct
-order. The XML returned by `hv_client_xml` remains valid until destruction;
-`hv_client_palette` copies into a host buffer. `hv_client_reconstruct` preserves
+order. The XML returned by `hvc_xml` remains valid until destruction;
+`hvc_palette` copies into a host buffer. `hvc_codestream` preserves
 sample precision and uses the same size-query/caller-buffer convention as
-`hv_reconstruct`.
+`hvc_reconstruct`.
 
 ### Requests
 
@@ -512,9 +514,9 @@ GET /<path>?cid=<cid>&cclose=<cid>
   whatever it asks for.
 - A frame's size and resolution levels are known once its main header has
   arrived. Before that, request `stream=<frame>&layers=0`, then use
-  `hv_reconstruct_status` to size the pixel request.
+  `hvc_reconstruct_status` to size the pixel request.
 - Do not use `len` for pixel requests. For a whole-frame request limited by
-  `layers`, apply its entire response and call `hv_reconstruct_confirm` only
+  `layers`, apply its entire response and call `hvc_reconstruct_confirm` only
   after `WINDOW_DONE` or `IMAGE_DONE`, with its exact reduction and clamped
   layer count. This records the whole-packet prefixes for reconstruction.
   An unconfirmed partial precinct is refused. `layers=0` is
@@ -527,18 +529,19 @@ GET /<path>?cid=<cid>&cclose=<cid>
 
 | Call | Header | Result |
 | --- | --- | --- |
-| `hv_cache_begin`, `hv_cache_release` | `hv_cache.h` | The store of one source |
-| `hv_jpp_begin`, `hv_jpp_next`, `hv_jpp_reason` | `hv_jpp.h` | The messages of a response body, and why the response ended |
-| `hv_cache_apply` | `hv_cache.h` | A message added to the store |
-| `hv_cache_model` | `hv_cache.h` | Retained bins declared in bounded batches for a replacement channel |
-| `hv_cache_match_metadata` | `hv_cache.h` | Repeated metadata checked against complete retained bins during restoration |
-| `hv_reconstruct_confirm` | `hv_reconstruct.h` | Whole-packet prefixes recorded after a completed layer-limited window |
-| `hv_metadata_open`, `hv_metadata_close` | `hv_metadata.h` | An index of the metadata; its `count` is the number of frames |
-| `hv_metadata_xml` | `hv_metadata.h` | A frame's XML, in place in the store |
-| `hv_metadata_palette` | `hv_metadata.h` | A frame's color table, copied out |
-| `hv_reconstruct_status` | `hv_reconstruct.h` | A frame's size, components and resolution levels, and how many levels are cached |
-| `hv_reconstruct` | `hv_reconstruct.h` | A frame as a JPEG 2000 codestream |
-| `hv_image_decode` | `hv_image.h` | OpenJPEG decoding in `esajpip_client_wasm` |
+| `hvc_cache_begin`, `hvc_cache_release` | `hvc_cache.h` | The store of one source |
+| `hvc_jpp_begin`, `hvc_jpp_next`, `hvc_jpp_reason` | `hvc_jpp.h` | The messages of a response body, and why the response ended |
+| `hvc_cache_apply` | `hvc_cache.h` | A message added to the store |
+| `hvc_cache_model` | `hvc_cache.h` | Retained bins declared in bounded batches for a replacement channel |
+| `hvc_cache_match_metadata` | `hvc_cache.h` | Repeated metadata checked against complete retained bins during restoration |
+| `hvc_reconstruct_confirm` | `hvc_reconstruct.h` | Whole-packet prefixes recorded after a completed layer-limited window |
+| `hvc_metadata_open` | `hvc_metadata.h` | An index of the metadata bins; its `count` is the number of frames |
+| `hv_metadata_close` | `jpeg2000/hv_metadata.h` | Releases the metadata index |
+| `hv_metadata_xml` | `jpeg2000/hv_metadata.h` | A frame's XML, in place in the store |
+| `hv_metadata_palette` | `jpeg2000/hv_metadata.h` | A frame's color table, copied out |
+| `hvc_reconstruct_status` | `hvc_reconstruct.h` | A frame's size, components and resolution levels, and how many levels are cached |
+| `hvc_reconstruct` | `hvc_reconstruct.h` | A frame as a JPEG 2000 codestream |
+| `hvc_openjpeg_decode` | `hvc_openjpeg.h` | OpenJPEG decoding in `esajpip_client_wasm` |
 
 The low-level APIs remain available for programs that need direct message or
 data-bin access. Each header documents its calls' results. Calls that take `error` and
@@ -546,36 +549,36 @@ data-bin access. Each header documents its calls' results. Calls that take `erro
 
 ### Low-level notes
 
-- **`hv_status`.** `complete` counts cached resolution levels from the lowest,
+- **`hvc_frame_status`.** `complete` counts cached resolution levels from the lowest,
   so the lowest usable `reduce` is `resolutions - complete`, and 0 means
   nothing can be decoded yet. All fields are 0 until the frame's main header
   has arrived. The first call prepares the geometry and reconstruction
   header; later calls reuse them and look the precinct bins up. It reads no
   packet and decodes nothing.
-- **`hv_reconstruct`.** Called with no buffer, it returns the size; called
+- **`hvc_reconstruct`.** Called with no buffer, it returns the size; called
   with one, it writes. The codestream has empty packets above the cached
   levels or quality layers, so any decoder reads it. For full-quality requests,
   leave out `resolutions - complete` levels. For confirmed previews, use the
   reduction requested. Unknown partial precincts are refused; confirmed
   prefixes stay usable if a later refinement appends unfinished packets.
-- **`hv_image_decode`.** `HV_IMAGE_SAMPLES` scales samples to 8 bits.
-  `HV_IMAGE_INDICES` keeps them as they are, for a frame with a color table;
+- **`hvc_openjpeg_decode`.** `HVC_IMAGE_SAMPLES` scales samples to 8 bits.
+  `HVC_IMAGE_INDICES` keeps them as they are, for a frame with a color table;
   it accepts one unsigned component of at most 8 bits. See [What the pixels
   are](#what-the-pixels-are).
-- **`hv_metadata`.** Start with `{0}`. `hv_metadata_open` fails while the
+- **`hv_metadata`.** Start with `{0}`. `hvc_metadata_open` fails while the
   metadata is incomplete, which it is not after a whole first response. The
   index points into the store: XML pointers stay valid until
-  `hv_cache_release`, and the index must be closed before the store is
+  `hvc_cache_release`, and the index must be closed before the store is
   released.
 - **Color tables.** `HV_PALETTE_MAX` bytes hold any table. A call with
   capacity 0 returns `entries` and sets `channels` without writing.
-- **Errors in a response.** When `hv_jpp_next` or `hv_cache_apply` fails, the
+- **Errors in a response.** When `hvc_jpp_next` or `hvc_cache_apply` fails, the
   store no longer matches the server's record of the channel. Close the
   channel. What is cached still decodes.
 - **Threads.** A store has no locking: use it from one thread at a time.
 - **Pixels.** `image.pixels` is allocated with `malloc`; the caller frees it.
 
-`hv_wasm.c` and `js/jpip_channel.mjs` together are such a program, and the
+`hvc_wasm.c` and `js/jpip_channel.mjs` together are such a program, and the
 shortest complete example.
 
 ## Limits
@@ -593,10 +596,10 @@ shortest complete example.
 - **Lossy images.** Pixels from the WebAssembly module and from a native build
   can differ by 1, as the two round the floating-point wavelet differently.
 
-## hv_jpp2j2k
+## hvc_jpp2j2k
 
 ```
-hv_jpp2j2k [-c codestream] -o file.j2k response [response ...]
+hvc_jpp2j2k [-c codestream] -o file.j2k response [response ...]
 ```
 
 Writes a frame as a `.j2k` file from the response bodies of one channel, in
@@ -606,13 +609,13 @@ the order received. With `image.jp2` (4096x4096 here) on the server:
 # The whole image at 1024x1024, on a new channel.
 curl -s -D headers.txt -o r1.jpp \
   'http://localhost:8900/image.jp2?cnew=http&type=jpp-stream&stream=0&fsiz=1024,1024,closest'
-build/client/hv_jpp2j2k -o frame1024.j2k r1.jpp
+build/client/hvc_jpp2j2k -o frame1024.j2k r1.jpp
 opj_decompress -i frame1024.j2k -o frame1024.pgm -r 2
 
 # Then at full size on the same channel: only what is missing is sent.
 cid=$(sed -n 's/^JPIP-cnew: cid=\([0-9a-f]*\).*/\1/p' headers.txt)
 curl -s -o r2.jpp "http://localhost:8900/jpip?cid=$cid&stream=0&fsiz=4096,4096,closest"
-build/client/hv_jpp2j2k -o frame4096.j2k r1.jpp r2.jpp
+build/client/hvc_jpp2j2k -o frame4096.j2k r1.jpp r2.jpp
 opj_decompress -i frame4096.j2k -o frame4096.pgm
 curl -s "http://localhost:8900/jpip?cid=$cid&cclose=$cid"
 ```
@@ -625,11 +628,50 @@ For a frame of a JPX, `-c` names it:
 ```sh
 curl -s -o f3.jpp \
   'http://localhost:8900/movie.jpx?cnew=http&type=jpp-stream&stream=3&fsiz=1024,1024,closest'
-build/client/hv_jpp2j2k -c 3 -o frame3.j2k f3.jpp
+build/client/hvc_jpp2j2k -c 3 -o frame3.j2k f3.jpp
 ```
 
 The tool prints the number of messages of each response and why it ended. It
 exits with 0 on success, 1 on an error and 2 on a usage error.
+
+## Local and JPIP decoder access
+
+`hvc_open_local(path, inspect, context, error, capacity)` and
+`hvc_create(inspect, context)` use the same frame and decoder interfaces.
+Include `hvc.h` for sources and requests, and `hvc_decode.h` for decoder input
+and presentation. The core library has no decoder dependency.
+
+A frame is a JPX layer in file order, or JP2's single implicit layer. The library
+resolves its registered codestream for bytes and palettes. XML considers the
+layer and its registered codestreams in box order, with file-level fallback.
+`hvc_view.codestream` supplies the JPIP request ID independently of the frame
+number. Restoration uses `hvc_codestreams`, independently of the layer count.
+Multiple-codestream composition is explicitly unsupported for decoding.
+
+The inspector receives the same `hvc *` and frame index for either source.
+It opens decoder input, calls `hvc_render_read` with the decoder's output
+component count, and checks that its decoder supports those channel instructions.
+It returns exact dimensions at each reduction and the usable resolution/quality
+counts. Successful inspection is cached per frame; failures can be retried.
+Remote inspection waits for the main header. Its geometry must agree with the
+restricted JPIP coding profile, which supplies request geometry and cache quality.
+Local `hvc_prepare` returns READY immediately, so the same request loop works
+for either source. A NULL inspector uses that profile for JPIP status; local status requires an
+inspector. Metadata and byte access need no inspector.
+
+`hvc_render_read` supplies the same channel instructions and exact palette
+samples for either source. Local headers are mapped; the JPIP adapter reads
+inline headers and validates codestream placeholders without modifying metadata.
+Presentation headers partitioned into separate data-bins remain unsupported.
+
+`hvc_input_open` returns an immutable native decoder input. Local reads use
+mapped extents, including fragmented codestreams. JPIP reconstructs once into
+owned native memory; subsequent reads and seeks never reconstruct again.
+Receiving more data does not change an open input. Close the decoder and input
+before destroying the client. Input reads can run independently of serialized
+client calls. A decoder using `hvc_input_read` needs no source-specific branch.
+`hvc_input_data` offers an optional contiguous view for WASM's OpenJPEG adapter.
+`hvc_codestream` remains a convenience for callers wanting their own byte copy.
 
 ## Tests
 
@@ -664,7 +706,7 @@ checks below.
 | `client_jpp_malformed` | Damaged messages, all refused |
 | `client_reconstruct` | Every codestream of the corpus, the transcoder's reference images and the merger's reference movie, served by the server's own code at each resolution: the written codestream, the cached levels, the decoded pixels, and the movie's frame count, XML and color tables |
 | `client_image` | Sample scaling at several precisions, and unchanged color table indices |
-| `client_source` | The higher-level native API: header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay and decoded pixel equality |
+| `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay and decoded pixel equality |
 
 The JavaScript is checked by a script that needs Node.js, the built module and
 a running server:
@@ -680,6 +722,14 @@ frame at every resolution and the others at their lowest, and prints for each
 the size, the bytes received, a checksum of the pixels, and the sizes of the
 XML and the color table. The checksums are for comparing runs, not checked
 against a reference.
+
+Layer mapping has a separate live WASM check. Generate the one-layer and
+swapped-layer JPX fixtures in the test server's image directory:
+
+```sh
+build/tests/client/test_client_source --write-fixtures /path/to/images
+node tests/client/check_layers.mjs build/client/web/esajpip_client.wasm http://localhost:8900
+```
 
 Recovery has a separate live check that starts and stops its own server with a
 short idle timeout:
@@ -702,13 +752,13 @@ quality layers. A large preview also exercises several cache-model batches.
 
 The server delivers a codestream as data-bins: one for the main header, and
 one per precinct holding that precinct's packets. The client keeps them in a
-hash table (`hv_cache.c`). To decode a frame it writes them back as a
-codestream (`hv_reconstruct.c`): the main header, one tile-part, and the
+hash table (`hvc_cache.c`). To decode a frame it writes them back as a
+codestream (`hvc_reconstruct.c`): the main header, one tile-part, and the
 precinct bins in the order of their identifiers, which is resolution,
 position, component (RPCL). A precinct with no data gets one empty packet per
 layer. No packet is parsed.
 
-The file's boxes arrive as metadata bins (`hv_metadata.c`): bin 0 holds the
+The file's boxes arrive as metadata bins (`hvc_metadata.c`): bin 0 holds the
 top-level boxes, with a placeholder for each codestream and, in a JPX, for
 each association box, whose contents are a bin of their own. A color table is
 the palette box (`pclr`) that the component mapping (`cmap`) applies, from the
@@ -717,15 +767,15 @@ JP2 Header box or, in a JPX, from the frame's own codestream header box
 
 | File | Responsibility |
 | --- | --- |
-| `hv_client.c` | Source ownership, response ingestion, frame request planning and automatic quality confirmation, shared by native callers and WASM |
-| `hv_jpp.c` | JPP-stream messages (T.808 A.2 and D.3) |
-| `hv_cache.c` | One source's data-bins, retained across channel replacement |
-| `hv_frame.c` | Geometry and reconstruction header prepared once per frame, owned by its main-header bin |
-| `hv_reconstruct.c` | One codestream of the store as a JPEG 2000 codestream; its cached resolution levels |
-| `hv_metadata.c` | Frame count, XML and color tables, from the metadata bins |
-| `hv_image.c` | Decoding to 8-bit pixels, with OpenJPEG |
-| `hv_jpp2j2k.c` | The command-line tool |
-| `hv_wasm.c` | The WebAssembly module's entry points |
+| `hvc.c` | Source ownership, response ingestion, frame request planning and automatic quality confirmation, shared by native callers and WASM |
+| `hvc_jpp.c` | JPP-stream messages (T.808 A.2 and D.3) |
+| `hvc_cache.c` | One source's data-bins, retained across channel replacement |
+| `hvc_frame.c` | Geometry and reconstruction header prepared once per frame, owned by its main-header bin |
+| `hvc_reconstruct.c` | One codestream of the store as a JPEG 2000 codestream; its cached resolution levels |
+| `hvc_metadata.c` | Metadata-bin lookup and JPIP placeholder resolution for the shared metadata reader |
+| `hvc_openjpeg.c` | Decoding to 8-bit pixels, with OpenJPEG |
+| `hvc_jpp2j2k.c` | Writes a selected codestream from saved JPP response bodies |
+| `hvc_wasm.c` | The WebAssembly module's entry points |
 | `js/jpip_source.mjs` | `JpipSource` |
 | `js/jpip_worker.mjs` | The Web Worker of a source |
 | `js/jpip_channel.mjs` | `JpipChannel`: the HTTP exchange around the module |

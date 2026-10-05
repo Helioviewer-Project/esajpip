@@ -1,5 +1,5 @@
 /* Pixel conversion on lossless codestreams with known sample values. */
-#include "hv_image.h"
+#include "hvc_openjpeg.h"
 #include "openjpeg.h"
 
 #include <stdio.h>
@@ -73,9 +73,9 @@ static void verify(unsigned bits, int signed_samples) {
     opj_destroy_codec(codec);
     opj_image_destroy(input);
 
-    hv_image image;
+    hvc_image image;
     char error[256];
-    check(hv_image_decode(out.data, out.size, 0, HV_IMAGE_SAMPLES, &image, error, sizeof error) == 0,
+    check(hvc_openjpeg_decode(out.data, out.size, 0, HVC_IMAGE_SAMPLES, &image, error, sizeof error) == 0,
           error);
     check(image.width == 16 && image.height == 16 && image.components == 1, "decoded dimensions");
     for (unsigned i = 0; i < 256; i++) {
@@ -85,7 +85,7 @@ static void verify(unsigned bits, int signed_samples) {
     }
     free(image.pixels);
 
-    int result = hv_image_decode(out.data, out.size, 0, HV_IMAGE_INDICES, &image, error, sizeof error);
+    int result = hvc_openjpeg_decode(out.data, out.size, 0, HVC_IMAGE_INDICES, &image, error, sizeof error);
     if (signed_samples || bits > 8) {
         check(result == -1 && image.pixels == NULL && strstr(error, "palette indices") != NULL,
               "unsupported palette index representation accepted");

@@ -257,7 +257,7 @@ and opaque-payload sizes. Depth-boundary regressions are constructed in
                                         tests/vectors/j2k/*.jp2, *.jpx, manifest.tsv
                                                           │
    tests/server/file_manager_test.cc ── OpenImage + GetPacket on each ▶ must match the label
-   tests/jpeg2000/test_profile.c ─ hv_check_jp2/jpx + HV_PROFILE ▶ must match the profile label
+   tests/jpeg2000/test_profile.c ─ hv_served_jp2/jpx + HV_READ_JPIP ▶ must match the profile label
    tests/jpeg2000/test_rewrite.c ─ hv_rewrite of each ────────────▶ must give the vector back
    harness/writers.c ─ hv_rewrite, hv_transcode, hv_merge ──▶ label.c: expected labels
 ```

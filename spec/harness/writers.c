@@ -6,7 +6,7 @@
  *
  * For every vector of the corpus's manifest:
  *   - hv_rewrite, where the reader reads it through (flags 0, or
- *     HV_ACCEPT_PLT_PADDING): where the vector is in the writer's form,
+ *     HV_READ_PADDED): where the vector is in the writer's form,
  *     the rewrite is the vector byte for byte (jpeg2000/test/test_rewrite.c
  *     checks that too); otherwise (hv_rewrite_result.uncomparable) it has
  *     labels no worse than the vector's, layer by layer, and is in the
@@ -101,7 +101,7 @@ static int check_rewrite(const char *name, const uint8_t *buf, size_t size, cf_k
     if (hv_rewrite(buf, size, 0, flags, &out, &r) != 0) {
         hv_out_free(&out);
         hv_out_init(&out);
-        flags = HV_ACCEPT_PLT_PADDING;
+        flags = HV_READ_PADDED;
         if (hv_rewrite(buf, size, 0, flags, &out, &r) != 0) {
             if (out.error != NULL)
                 fail(name, "rewrite: writer error", r.error);
@@ -134,7 +134,7 @@ static void check_transcode(const char *name, const uint8_t *buf, size_t size, L
     for (i = 0; i < sizeof precincts / sizeof *precincts; i++) {
         hv_out out;
         hv_out_init(&out);
-        if (hv_transcode_file(buf, size, precincts[i], precincts[i], &out, error,
+        if (hv_transcode_file(buf, size, precincts[i], precincts[i], HV_OUTPUT_JPIP, &out, error,
                               sizeof error) == 0) {
             transcoded++;
             snprintf(what, sizeof what, "transcode %d", 1 << precincts[i]);
@@ -242,7 +242,7 @@ static void check_merge(const char *name, const char *first_path, const uint8_t 
             fail(name, what, "no temporary file");
             return;
         }
-        if (hv_merge_buffers(in, 2, links, 1, f, error, sizeof error) != 0) {
+        if (hv_merge_buffers(in, 2, links, HV_OUTPUT_JPIP, f, error, sizeof error) != 0) {
             fclose(f);
             return;                     /* not an input hv_merge takes */
         }

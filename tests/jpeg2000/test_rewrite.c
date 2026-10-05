@@ -1,5 +1,5 @@
 /* test_rewrite: the writer against the corpus in tests/vectors/j2k. Every
- * vector the reader reads through (flags 0, or HV_ACCEPT_PLT_PADDING for
+ * vector the reader reads through (flags 0, or HV_READ_PADDED for
  * one with zero PLT entries) is written again with hv_writer from what
  * the reader decoded (hv_rewrite):
  *   - a vector in the writer's form comes out byte for byte;
@@ -55,7 +55,7 @@ static void check_vector(const char *dir, const char *name, int *same, int *own_
     if (hv_rewrite(buf, size, 0, flags, &out, &r) != 0) {
         hv_out_free(&out);
         hv_out_init(&out);
-        flags = HV_ACCEPT_PLT_PADDING;
+        flags = HV_READ_PADDED;
         if (hv_rewrite(buf, size, 0, flags, &out, &r) != 0) {
             if (out.error != NULL) {
                 snprintf(what, sizeof what, "writer error: %s at %zu", r.error, r.at);
@@ -104,6 +104,48 @@ done:
     free(buf);
 }
 
+/* Failure must preserve the caller's prefix and permit a retry. Deferred
+ * PLT cannot provide decoded lengths for canonical rewriting. */
+static void check_failure_contract(const char *dir) {
+    char path[8192];
+    size_t size = 0;
+    hv_out out;
+    hv_rewrite_result r;
+    static const uint8_t prefix[] = {1, 2, 3};
+    snprintf(path, sizeof path, "%s/jp2.jp2", dir);
+    uint8_t *buf = hv_load_file(path, SIZE_MAX, &size);
+    if (buf == NULL) { fail("rewrite contract", "cannot load fixture"); return; }
+    hv_out_init(&out);
+    if (hv_write_bytes(&out, prefix, sizeof prefix) != 0) {
+        fail("rewrite contract", "cannot write prefix");
+        goto done;
+    }
+    static const hv_read_mode incomplete[] = {HV_READ_JPIP_INDEX, HV_READ_PACKETS,
+                                              HV_READ_PACKETS_JPIP};
+    for (size_t i = 0; i < sizeof incomplete / sizeof *incomplete; i++)
+        if (hv_rewrite(buf, size, 0, incomplete[i], &out, &r) == 0 ||
+            r.error == NULL || strcmp(r.error, "rewrite requires validation mode") != 0 ||
+            out.size != sizeof prefix || memcmp(out.data, prefix, sizeof prefix) != 0)
+            fail("rewrite contract", "incomplete interpretation must fail before writing");
+    hv_out_rewind(&out, sizeof prefix);
+    if (hv_rewrite(buf, size - 1, 0, HV_READ_VALIDATE, &out, &r) == 0 ||
+        out.size != sizeof prefix || memcmp(out.data, prefix, sizeof prefix) != 0)
+        fail("rewrite contract", "failed rewrite changed prefix or left partial output");
+    hv_out_rewind(&out, sizeof prefix);
+    if (hv_rewrite(buf, size, 0, HV_READ_VALIDATE, &out, &r) != 0 || out.size != sizeof prefix + size ||
+        memcmp(out.data, prefix, sizeof prefix) != 0 ||
+        memcmp(out.data + sizeof prefix, buf, size) != 0)
+        fail("rewrite contract", "retry did not produce the canonical fixture");
+    hv_out_rewind(&out, 0);
+    out.error = "earlier write failed";
+    if (hv_rewrite(buf, 0, 0, HV_READ_VALIDATE, &out, &r) == 0 || r.error == NULL ||
+        strcmp(r.error, out.error) != 0 || out.size != 0)
+        fail("rewrite contract", "empty input hid an earlier write failure");
+done:
+    hv_out_free(&out);
+    free(buf);
+}
+
 int main(int argc, char **argv) {
     char path[8192], line[4096];
     FILE *manifest;
@@ -113,6 +155,7 @@ int main(int argc, char **argv) {
         fprintf(stderr, "usage: test_rewrite <vector directory>\n");
         return 2;
     }
+    check_failure_contract(argv[1]);
     snprintf(path, sizeof path, "%s/manifest.tsv", argv[1]);
     if ((manifest = fopen(path, "r")) == NULL) {
         printf("FAIL cannot read %s\n", path);

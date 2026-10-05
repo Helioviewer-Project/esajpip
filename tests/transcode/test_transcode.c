@@ -7,6 +7,7 @@
  * ':', every .jp2 file in them is transcoded too. */
 #define _POSIX_C_SOURCE 200809L
 
+#include "jpeg2000/hv_served.h"
 #include <dirent.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -149,9 +150,9 @@ static const char *read_error(const uint8_t *buf, size_t start, size_t end, unsi
 static void expect_served(const char *name, const uint8_t *buf, size_t size) {
     hv_box jp2c;
     size_t at;
-    const char *error = hv_check_jp2(buf, size, &jp2c, &at);
+    const char *error = hv_served_jp2(buf, size, &jp2c, &at);
     if (error == NULL)
-        error = read_error(buf, jp2c.payload, jp2c.end, HV_PROFILE);
+        error = read_error(buf, jp2c.payload, jp2c.end, HV_READ_JPIP);
     check(error == NULL, "%s: output outside the served profile: %s", name, error);
 }
 
@@ -169,15 +170,15 @@ static result transcode(const uint8_t *data, size_t size, int ppx, int ppy) {
     hv_out out;
     hv_out_init(&out);
     strcpy(r.error, "unset");
-    r.status = hv_transcode_codestream(data, 0, size, ppx, ppy, 0, &out, r.error, sizeof r.error);
+    r.status = hv_transcode_codestream(data, 0, size, ppx, ppy, HV_OUTPUT_JPEG2000, &out, r.error, sizeof r.error);
     if (r.status == 0)
         check(r.error[0] == 0, "an accepted transcode left the error \"%s\"", r.error);
     r.out.data = out.data;
     r.out.size = out.size;
     if (r.status != 0 && out.size != 0)
         check(0, "a failed transcode left %zu bytes of output", out.size);
-    if (r.status == 0 && read_error(out.data, 0, out.size, HV_PROFILE_HEADERS) == NULL) {
-        const char *error = read_error(out.data, 0, out.size, HV_PROFILE);
+    if (r.status == 0 && read_error(out.data, 0, out.size, HV_READ_PACKETS_JPIP) == NULL) {
+        const char *error = read_error(out.data, 0, out.size, HV_READ_JPIP);
         check(error == NULL, "an output outside the served profile: %s", error);
     }
     return r;
@@ -265,7 +266,7 @@ static void test_references(void) {
             result r;
             snprintf(expected, sizeof expected, "siz.zero-origin at %zu",
                      (size_t)(in_cs.data - input.data) + 2);         /* SIZ */
-            check(hv_transcode_file(input.data, input.size, 7, 7, &out, error,
+            check(hv_transcode_file(input.data, input.size, 7, 7, HV_OUTPUT_JPIP, &out, error,
                                     sizeof error) != 0 &&
                   strcmp(error, expected) == 0 && out.size == 0,
                   "%s: file accepted or rejected otherwise: %s", e->d_name, error);
@@ -286,7 +287,7 @@ static void test_references(void) {
             bytes_free(&ref);
             continue;
         }
-        if (hv_transcode_file(input.data, input.size, 7, 7, &out, error, sizeof error) != 0) {
+        if (hv_transcode_file(input.data, input.size, 7, 7, HV_OUTPUT_JPIP, &out, error, sizeof error) != 0) {
             check(0, "%s: rejected: %s", e->d_name, error);
             hv_out_free(&out);
             bytes_free(&input);
@@ -633,21 +634,17 @@ static void test_headers(void) {
     while (get16(rgb.data + sot) != HV_SOT)
         sot += 2 + get16(rgb.data + sot + 2);
 
-    /* Flags other than 0 and HV_PROFILE_HEADERS. */
+    /* Output profiles are choices, not reader flags. */
     {
-        static const unsigned flags[] = {HV_ACCEPT_PLT_PADDING, HV_PROFILE};
+        static const hv_output_profile profiles[] = {(hv_output_profile)-1, (hv_output_profile)2};
         char error[256];
         hv_out out;
-        size_t i;
-        for (i = 0; i < sizeof flags / sizeof *flags; i++) {
-            char expected[80];
-            snprintf(expected, sizeof expected,
-                     "flags 0x%X: only 0 and HV_PROFILE_HEADERS are supported", flags[i]);
+        for (size_t i = 0; i < sizeof profiles / sizeof *profiles; i++) {
             hv_out_init(&out);
-            check(hv_transcode_codestream(rgb.data, 0, rgb.size, 7, 7, flags[i], &out, error,
+            check(hv_transcode_codestream(rgb.data, 0, rgb.size, 7, 7, profiles[i], &out, error,
                                           sizeof error) != 0 &&
-                  strcmp(error, expected) == 0 && out.size == 0,
-                  "flags 0x%X: \"%s\", expected \"%s\"", flags[i], error, expected);
+                  strcmp(error, "invalid output profile") == 0 && out.size == 0,
+                  "invalid output profile: %s", error);
             hv_out_free(&out);
         }
     }
@@ -769,7 +766,7 @@ static void expect_file_error(const char *name, const bytes *file, const char *m
     hv_out out;
     char error[256];
     hv_out_init(&out);
-    check(hv_transcode_file(file->data, file->size, 7, 7, &out, error, sizeof error) != 0 &&
+    check(hv_transcode_file(file->data, file->size, 7, 7, HV_OUTPUT_JPIP, &out, error, sizeof error) != 0 &&
           strncmp(error, message, strlen(message)) == 0 && out.size == 0,
           "%s: \"%s\", expected \"%s\"", name, out.size ? "accepted" : error, message);
     hv_out_free(&out);
@@ -782,7 +779,7 @@ static void expect_file_output(const char *name, const bytes *file, const bytes 
     char error[256];
     result r = transcode(cs->data, cs->size, 7, 7);
     hv_out_init(&out);
-    if (hv_transcode_file(file->data, file->size, 7, 7, &out, error, sizeof error) != 0) {
+    if (hv_transcode_file(file->data, file->size, 7, 7, HV_OUTPUT_JPIP, &out, error, sizeof error) != 0) {
         check(0, "%s: rejected: %s", name, error);
     } else {
         bytes got = {out.data, out.size}, got_cs = box_payload(&got, HV_BOX_JP2C);
@@ -804,6 +801,53 @@ static void test_served_profile(void) {
     expect_file_output("minimal JP2", &f, &cs);
     bytes_free(&f);
 
+    /* Scale the reference grid and sampling together: the component grid
+     * and compressed samples stay identical. Raw output keeps that layout;
+     * the serving file target requires unit sampling. */
+    {
+        result baseline = transcode(cs.data, cs.size, 7, 7);
+        check(baseline.status == 0, "sampling baseline: %s", baseline.error);
+        b = bytes_copy(cs.data, cs.size);
+        if (baseline.status == 0) {
+            bytes expected = bytes_copy(baseline.out.data, baseline.out.size);
+            for (size_t axis = 0; axis < 2; axis++) {
+                unsigned scale = (unsigned)axis + 2;
+                size_t extent = 8 + 4 * axis, tile = 24 + 4 * axis;
+                put32(b.data + extent, get32(b.data + extent) * scale);
+                put32(b.data + tile, get32(b.data + tile) * scale);
+                b.data[43 + axis] = (uint8_t)scale;
+                put32(expected.data + extent, get32(expected.data + extent) * scale);
+                put32(expected.data + tile, get32(expected.data + tile) * scale);
+                expected.data[43 + axis] = (uint8_t)scale;
+            }
+            expect_output("raw component sampling", &b, &expected);
+            const char *message = read_error(expected.data, 0, expected.size, 0);
+            check(message == NULL, "subsampled raw output validation: %s",
+                  message ? message : "");
+            f = jp2_file(&b, "jp2 ");
+            expect_file_error("serving component sampling", &f, "siz.component-sampling at ");
+            hv_out general;
+            char error[256];
+            size_t at = 0;
+            hv_out_init(&general);
+            check(hv_transcode_file(f.data, f.size, 7, 7, HV_OUTPUT_JPEG2000,
+                                    &general, error, sizeof error) == 0,
+                  "general JP2 preserves component sampling: %s", error);
+            bytes container = {general.data, general.size};
+            bytes stream = box_payload(&container, HV_BOX_JP2C);
+            check(stream.size == expected.size &&
+                  memcmp(stream.data, expected.data, stream.size) == 0,
+                  "general file/raw profiles produce identical codestreams");
+            check(hv_check_jp2h(general.data, general.size, &at) == NULL,
+                  "general output has consistent JP2 headers");
+            hv_out_free(&general);
+            bytes_free(&f);
+            bytes_free(&expected);
+        }
+        bytes_free(&b);
+        bytes_free(&baseline.out);
+    }
+
     /* Not JP2 files. */
     expect_file_error("raw codestream", &cs, "file.signature at 0");
     f = jp2_file(&cs, "jpx ");
@@ -819,8 +863,104 @@ static void test_served_profile(void) {
     bytes_free(&file);
 }
 
+/* Packet layout preserves Rsiz. Declaration validation stays separate from
+ * transcode operation requirements, including unsupported coding markers. */
+/* File and raw operations share the output target, including nonzero origins. */
+static void test_file_profiles(void) {
+    bytes file, cs = fixture_codestream("input", "synthetic_rgb_129x129_origin129_CPRL.jp2", &file);
+    result raw = transcode(cs.data, cs.size, 7, 7);
+    hv_out out;
+    char error[256];
+    size_t at = 0;
+    hv_out_init(&out);
+    check(raw.status == 0, "origin raw transcode: %s", raw.error);
+    check(hv_transcode_file(file.data, file.size, 7, 7, HV_OUTPUT_JPEG2000,
+                            &out, error, sizeof error) == 0,
+          "general file origin transcode: %s", error);
+    bytes container = {out.data, out.size};
+    bytes stream = box_payload(&container, HV_BOX_JP2C);
+    check(raw.status == 0 && stream.size == raw.out.size &&
+          memcmp(stream.data, raw.out.data, stream.size) == 0,
+          "origin file/raw output codestream identity");
+    check(hv_check_jp2h(out.data, out.size, &at) == NULL,
+          "origin output header consistency");
+    size_t prefix = out.size;
+    check(hv_transcode_file(file.data, file.size, 7, 7, HV_OUTPUT_JPIP,
+                            &out, error, sizeof error) != 0 && out.size == prefix,
+          "JPIP rejects origin without changing prior output");
+    check(hv_transcode_file(file.data, file.size, 7, 7, (hv_output_profile)99,
+                            &out, error, sizeof error) != 0 && out.size == prefix &&
+          strcmp(error, "invalid output profile") == 0,
+          "invalid file profile preserves prior output");
+    hv_out_free(&out); bytes_free(&raw.out); bytes_free(&file);
+}
+
+static void test_declaration_policy(void) {
+    static const struct { unsigned value; const char *error; } declarations[] = {
+        {3, "siz.unsupported-profile"},
+        {0x4000, "siz.unsupported-capabilities"},
+        {0xffff, "siz.unsupported-capabilities"}
+    };
+    bytes file, cs = fixture_codestream("input", "solo_fsi174_127x129_RLCP_PLT.jp2", &file);
+    bytes wrapped = jp2_file(&cs, "jp2 ");
+    hv_out baseline;
+    char error[256];
+    hv_out_init(&baseline);
+    check(hv_transcode_file(wrapped.data, wrapped.size, 7, 7, HV_OUTPUT_JPIP, &baseline, error, sizeof error) == 0,
+          "Rsiz baseline: %s", error);
+    bytes_free(&wrapped);
+    for (size_t i = 0; i < sizeof declarations / sizeof *declarations; i++) {
+        bytes altered = bytes_copy(cs.data, cs.size);
+        hv_codestream reader;
+        hv_out output;
+        put16(altered.data + 6, declarations[i].value);
+        check(hv_codestream_open(&reader, altered.data, 0, altered.size, HV_READ_VALIDATE) != 0 &&
+              strcmp(reader.error, declarations[i].error) == 0,
+              "standard validator retains Rsiz 0x%04X rejection", declarations[i].value);
+        hv_codestream_close(&reader);
+        check(hv_codestream_open(&reader, altered.data, 0, altered.size, HV_READ_PACKETS) == 0,
+              "packet access admits Rsiz 0x%04X", declarations[i].value);
+        hv_codestream_close(&reader);
+        expect_reader_error("raw writer retains declaration support limit", &altered,
+                            declarations[i].error, 2);
+        if (declarations[i].value == 0x4000) {
+            static const uint8_t cap[] = {0xff,0x50,0,2};
+            size_t end_siz = 4 + get16(altered.data + 4);
+            bytes extension = bytes_copy(altered.data, end_siz);
+            append(&extension, cap, sizeof cap);
+            append(&extension, altered.data + end_siz, altered.size - end_siz);
+            hv_out unsupported;
+            hv_out_init(&unsupported);
+            check(hv_transcode_codestream(extension.data, 0, extension.size, 7, 7,
+                                          HV_OUTPUT_JPIP, &unsupported, error, sizeof error) != 0 &&
+                  strcmp(error, "unsupported main header marker 0xFF50") == 0 &&
+                  unsupported.size == 0,
+                  "serving writer still rejects CAP: %s", error);
+            hv_out_free(&unsupported); bytes_free(&extension);
+        }
+        wrapped = jp2_file(&altered, "jp2 ");
+        hv_out_init(&output);
+        check(hv_transcode_file(wrapped.data, wrapped.size, 7, 7, HV_OUTPUT_JPIP, &output, error, sizeof error) == 0,
+              "serving transcode preserves Rsiz 0x%04X: %s", declarations[i].value, error);
+        if (output.size != 0 && baseline.size != 0) {
+            bytes expected = bytes_copy(baseline.data, baseline.size);
+            bytes stream = box_payload(&expected, HV_BOX_JP2C);
+            size_t at;
+            put16(stream.data + 6, declarations[i].value);
+            check(output.size == expected.size && memcmp(output.data, expected.data, expected.size) == 0,
+                  "Rsiz 0x%04X changes only its original two bytes", declarations[i].value);
+            expect_served("preserved Rsiz", output.data, output.size);
+            check(hv_check_jp2h(output.data, output.size, &at) == NULL,
+                  "preserved Rsiz output header consistency");
+            bytes_free(&expected);
+        }
+        hv_out_free(&output); bytes_free(&wrapped); bytes_free(&altered);
+    }
+    hv_out_free(&baseline); bytes_free(&file);
+}
+
 /* The boxes around the codestream: copied as read and in order, LBox = 0
- * included; superboxes' children checked; XML boxes cut at a NUL. */
+ * included; JP2 box children checked; extension bodies opaque; XML cut at a NUL. */
 static void test_boxes(void) {
     /* A last superbox with LBox = 0 whose last child has LBox = 0 too. */
     static const uint8_t to_end[] = {0, 0, 0, 0, 'a', 's', 'o', 'c',
@@ -837,7 +977,7 @@ static void test_boxes(void) {
     append(&g, to_end, sizeof to_end);
     hv_out_init(&once);
     hv_out_init(&twice);
-    if (hv_transcode_file(g.data, g.size, 7, 7, &once, error, sizeof error) != 0) {
+    if (hv_transcode_file(g.data, g.size, 7, 7, HV_OUTPUT_JPIP, &once, error, sizeof error) != 0) {
         check(0, "LBox = 0 superbox: rejected: %s", error);
     } else {
         expect_served("LBox = 0 superbox", once.data, once.size);
@@ -845,7 +985,7 @@ static void test_boxes(void) {
               memcmp(once.data + once.size - sizeof to_end, to_end, sizeof to_end) == 0,
               "LBox = 0 superbox: not copied as read");
         error[0] = 0;
-        check(hv_transcode_file(once.data, once.size, 7, 7, &twice, error, sizeof error) == 0 &&
+        check(hv_transcode_file(once.data, once.size, 7, 7, HV_OUTPUT_JPIP, &twice, error, sizeof error) == 0 &&
               twice.size == once.size && memcmp(twice.data, once.data, once.size) == 0,
               "LBox = 0 superbox: output does not transcode to itself: %s", error);
     }
@@ -877,7 +1017,7 @@ static void test_boxes(void) {
         append(&g, nul_inside, sizeof nul_inside);
         append(&g, to_end_nul, sizeof to_end_nul);
         hv_out_init(&once);
-        if (hv_transcode_file(g.data, g.size, 7, 7, &once, error, sizeof error) != 0) {
+        if (hv_transcode_file(g.data, g.size, 7, 7, HV_OUTPUT_JPIP, &once, error, sizeof error) != 0) {
             check(0, "XML boxes: rejected: %s", error);
         } else {
             expect_served("XML boxes", once.data, once.size);
@@ -890,27 +1030,57 @@ static void test_boxes(void) {
         bytes_free(&g);
     }
 
-    /* Superboxes nested HV_BOX_DEPTH_MAX deep are copied; one more level
-     * is refused instead of recursing further. */
+    /* JPX-only boxes in this JP2 are opaque, including malformed child
+     * framing. The bounded bodies must survive unchanged. */
     {
-        int depth;
-        for (depth = HV_BOX_DEPTH_MAX; depth <= HV_BOX_DEPTH_MAX + 1; depth++) {
-            int k;
+        static const uint8_t extensions[][9] = {
+            {0,0,0,9,'a','s','o','c',1},
+            {0,0,0,9,'g','r','p',' ',1}
+        };
+        for (size_t i = 0; i < sizeof extensions / sizeof *extensions; i++) {
             g = bytes_copy(f.data, f.size);
-            for (k = 0; k < depth; k++) {
+            append(&g, extensions[i], sizeof extensions[i]);
+            hv_out_init(&once);
+            check(hv_transcode_file(g.data, g.size, 7, 7, HV_OUTPUT_JPIP, &once, error, sizeof error) == 0,
+                  "opaque extension %zu: rejected: %s", i, error);
+            if (once.size >= sizeof extensions[i]) {
+                size_t at;
+                expect_served("opaque extension", once.data, once.size);
+                check(hv_check_jp2h(once.data, once.size, &at) == NULL,
+                      "opaque extension: output JP2 headers valid");
+                check(memcmp(once.data + once.size - sizeof extensions[i], extensions[i],
+                             sizeof extensions[i]) == 0,
+                      "opaque extension %zu: bytes changed", i);
+            }
+            hv_out_free(&once);
+            /* Opaque bodies still require a bounded top-level extent. */
+            put32(g.data + f.size, sizeof extensions[i] + 1);
+            expect_file_error("extension overruns file", &g, "box overruns its container at ");
+            bytes_free(&g);
+        }
+    }
+    /* Apparent JPX nesting does not impose a recursion limit on opaque
+     * JP2 bytes. Both sides of the old limit are copied exactly. */
+    {
+        for (int depth = HV_BOX_DEPTH_MAX; depth <= HV_BOX_DEPTH_MAX + 1; depth++) {
+            g = bytes_copy(f.data, f.size);
+            for (int k = 0; k < depth; k++) {
                 uint8_t h[8] = {0, 0, 0, 0, 'a', 's', 'o', 'c'};
                 put32(h, (uint32_t)(8 * (depth - k)));
                 append(&g, h, sizeof h);
             }
             hv_out_init(&once);
-            error[0] = 0;
-            if (depth == HV_BOX_DEPTH_MAX)
-                check(hv_transcode_file(g.data, g.size, 7, 7, &once, error, sizeof error) == 0,
-                      "%d nested superboxes: rejected: %s", depth, error);
-            else
-                check(hv_transcode_file(g.data, g.size, 7, 7, &once, error, sizeof error) != 0 &&
-                          strncmp(error, "boxes nested deeper than", 24) == 0,
-                      "%d nested superboxes: \"%s\"", depth, error[0] ? error : "accepted");
+            check(hv_transcode_file(g.data, g.size, 7, 7, HV_OUTPUT_JPIP, &once, error, sizeof error) == 0,
+                  "%d apparent extension levels: rejected: %s", depth, error);
+            if (once.size >= 8 * (size_t)depth) {
+                size_t at;
+                expect_served("opaque nested extension", once.data, once.size);
+                check(hv_check_jp2h(once.data, once.size, &at) == NULL,
+                      "opaque nested extension: output JP2 headers valid");
+                check(memcmp(once.data + once.size - 8 * (size_t)depth,
+                             g.data + f.size, 8 * (size_t)depth) == 0,
+                      "%d apparent extension levels: bytes changed", depth);
+            }
             hv_out_free(&once);
             bytes_free(&g);
         }
@@ -1050,13 +1220,7 @@ static void test_packet_rules(void) {
     bytes_free(&b);
     b = bytes_copy(cs.data, cs.size);
     b.data[sop[5] + 3] = 5;
-    {
-        /* The reader checks the data at its tile-part (T.800 A.8.1). */
-        static const uint8_t sot_code[2] = {0xFF, 0x90};
-        size_t tile_part;
-        find_all(&cs, sot_code, 2, &tile_part, 1);
-        expect_reader_error("Lsop 5", &b, "sop.length", tile_part);
-    }
+    expect_error("Lsop 5", &b, "invalid SOP marker segment before packet 5");
     bytes_free(&b);
 
     /* A header byte after 0xFF with its top bit set. */
@@ -1291,7 +1455,7 @@ static void test_contribution_limit(void) {
     int zero_psot = 0, status;
 
     memset(&g, 0, sizeof g);
-    if (hv_codestream_open(&c, cs.data, 0, cs.size, HV_ACCEPT_PLT_PADDING) == 0)
+    if (hv_codestream_open(&c, cs.data, 0, cs.size, HV_READ_PADDED) == 0)
         while (hv_codestream_next(&c, &item) == 1 && item.kind != HV_END) {
             zero_psot |= item.kind == HV_TILE_PART && item.sot.psot == 0;
             if (item.kind == HV_TILE_DATA && nparts < 64) {
@@ -1381,7 +1545,7 @@ static bytes synthetic(uint32_t w, uint32_t h, unsigned levels, unsigned layers,
         if (pass == 1)
             break;
         memset(&g, 0, sizeof g);
-        if (hv_codestream_open(&c, b.data, 0, b.size, 0) == 0)
+        if (hv_codestream_open(&c, b.data, 0, b.size, HV_READ_VALIDATE) == 0)
             while (hv_codestream_next(&c, &item) == 1 && item.kind != HV_TILE_PART)
                 ;
         if (c.error == NULL && hv_geometry_init(&g, hv_codestream_siz(&c), hv_codestream_cod(&c),
@@ -1465,7 +1629,7 @@ static void test_layouts(void) {
         char error[256];
         hv_out_init(&out);
         out.error = "earlier error";
-        check(hv_transcode_codestream(same.data, 0, same.size, 7, 7, 0, &out, error,
+        check(hv_transcode_codestream(same.data, 0, same.size, 7, 7, HV_OUTPUT_JPEG2000, &out, error,
                                       sizeof error) != 0 &&
               strcmp(error, "earlier error") == 0 && out.size == 0,
               "after a failed write: \"%s\"", error);
@@ -1505,14 +1669,12 @@ typedef struct {
     int action;
 } marker_case;
 
-/* The message for a rejected input at one level, the codestream's (flags
- * 0) or the file's (HV_PROFILE_HEADERS): the reader's, where the reader
- * rejects the input with those flags, otherwise the transcoder's. */
-static void rejection(char *message, size_t size, const bytes *cs, unsigned flags,
+/* Rejected entries in this table are unsupported layout/coding markers.
+ * Its main-header entries except 0xFF70 also lie outside HV_READ_PACKETS_JPIP. */
+static void rejection(char *message, size_t size, unsigned flags,
                       const char *where, unsigned code) {
-    const char *error = read_error(cs->data, 0, cs->size, HV_ACCEPT_PLT_PADDING | flags);
-    if (error != NULL)
-        snprintf(message, size, "%s at ", error);
+    if (flags == HV_READ_PACKETS_JPIP && strcmp(where, "main header") == 0 && code != 0xFF70)
+        snprintf(message, size, "main.marker-code at ");
     else
         snprintf(message, size, "unsupported %s marker 0x%04X", where, code);
 }
@@ -1531,11 +1693,11 @@ static void expect_marker(const char *name, const bytes *cs, const marker_case *
         expect_file_output(name, &file, cs);
     } else {
         result r = transcode(cs->data, cs->size, 7, 7);
-        rejection(message, sizeof message, cs, 0, where, code);
+        rejection(message, sizeof message, 0, where, code);
         check(r.status != 0 && strncmp(r.error, message, strlen(message)) == 0,
               "%s: \"%s\", expected \"%s\"", name, r.status ? r.error : "accepted", message);
         bytes_free(&r.out);
-        rejection(message, sizeof message, cs, HV_PROFILE_HEADERS, where, code);
+        rejection(message, sizeof message, HV_READ_PACKETS_JPIP, where, code);
         expect_file_error(name, &file, message);
     }
     bytes_free(&file);
@@ -1548,7 +1710,7 @@ static void expect_marker(const char *name, const bytes *cs, const marker_case *
 static void test_markers(void) {
     /* TLM and PLM describe the fixture's tile-part (below). */
     static marker_case main_cases[] = {
-        {"QCC missing values", {0xFF, 0x5D, 0x00, 0x05, 0x00, 0x40, 0x40}, 7, REJECTED},
+        {"QCC missing values", {0xFF, 0x5D, 0x00, 0x05, 0x00, 0x40, 0x40}, 7, COPIED},
         {"RGN", {0xFF, 0x5E, 0x00, 0x05, 0x00, 0x00, 0x07}, 7, COPIED},
         {"CRG", {0xFF, 0x63, 0x00, 0x06, 0x00, 0x00, 0x00, 0x00}, 8, COPIED},
         {"COM", {0xFF, 0x64, 0x00, 0x05, 0x00, 0x01, 'x'}, 7, COPIED},
@@ -1560,6 +1722,11 @@ static void test_markers(void) {
         {"0xFF30", {0xFF, 0x30}, 2, REJECTED},
         {"0xFF3F", {0xFF, 0x3F}, 2, REJECTED},
         {"0xFF70", {0xFF, 0x70, 0x00, 0x04, 0x00, 0x00}, 6, REJECTED},
+        {"RGN reserved style", {0xFF, 0x5E, 0x00, 0x05, 0x00, 0x01, 0x07}, 7, COPIED},
+        {"CRG short body", {0xFF, 0x63, 0x00, 0x03, 0x00}, 5, COPIED},
+        {"COM reserved Rcom", {0xFF, 0x64, 0x00, 0x05, 0xFF, 0xFF, 'x'}, 7, COPIED},
+        {"TLM short body", {0xFF, 0x55, 0x00, 0x03, 0x00}, 5, DROPPED},
+        {"PLM short body", {0xFF, 0x57, 0x00, 0x03, 0x00}, 5, DROPPED},
         {"QCC", {0xFF, 0x5D}, 0, COPIED},
     };
     static marker_case tile_cases[] = {
@@ -1569,6 +1736,9 @@ static void test_markers(void) {
         {"POC", {0xFF, 0x5F, 0x00, 0x03, 0x00}, 5, REJECTED},
         {"0xFF30", {0xFF, 0x30}, 2, REJECTED},
         {"0xFF70", {0xFF, 0x70, 0x00, 0x04, 0x00, 0x00}, 6, REJECTED},
+        {"COM reserved Rcom", {0xFF, 0x64, 0x00, 0x05, 0xFF, 0xFF, 'x'}, 7, DROPPED},
+        {"PLT empty body", {0xFF, 0x58, 0x00, 0x02}, 4, DROPPED},
+        {"PLT unterminated entry", {0xFF, 0x58, 0x00, 0x04, 0x00, 0x80}, 6, DROPPED},
         {"QCD complete", {0xFF, 0x5C}, 0, REJECTED},
     };
     bytes file, cs = fixture_codestream("input", "solo_fsi174_127x129_RLCP_PLT.jp2", &file);
@@ -1628,7 +1798,7 @@ static void test_markers(void) {
                              : bytes_copy(plain.out.data, plain.out.size);
         snprintf(name, sizeof name, "%s in the main header", m->name);
         if (i == 0) {
-            const char *error = read_error(in.data, 0, in.size, HV_ACCEPT_PLT_PADDING);
+            const char *error = read_error(in.data, 0, in.size, HV_READ_PADDED);
             check(error != NULL && strcmp(error, "codestream.quantization-coverage") == 0,
                   "short main QCC: expected missing quantization entries");
         }
@@ -1644,18 +1814,54 @@ static void test_markers(void) {
             put32(in.data + sot + 6, psot + (uint32_t)m->size);
         snprintf(name, sizeof name, "%s in the tile-part header", m->name);
         if (i == 1) {
-            /* The streaming transcoder rejects QCD before reaching SOD,
-             * where the reader detects the missing entries. The file API
-             * performs that complete reader check first. Test both errors. */
+            /* Explicit validation still diagnoses the body, whereas both
+             * transcode APIs reject the unsupported coding override. */
             bytes invalid_file = jp2_file(&in, "jp2 ");
-            const char *error = read_error(in.data, 0, in.size, HV_ACCEPT_PLT_PADDING);
+            const char *error = read_error(in.data, 0, in.size, HV_READ_PADDED);
             check(error != NULL && strcmp(error, "codestream.quantization-coverage") == 0,
                   "short tile QCD: expected missing quantization entries");
             expect_error(name, &in, "unsupported tile-part marker 0xFF5C");
-            expect_file_error(name, &invalid_file, "codestream.quantization-coverage at ");
+            expect_file_error(name, &invalid_file, "unsupported tile-part marker 0xFF5C");
             bytes_free(&invalid_file);
         } else
             expect_marker(name, &in, m, "tile-part", &plain.out);
+        bytes_free(&in);
+    }
+    /* Copying and dropping never bypass segment bounds, in either API. */
+    {
+        uint8_t marker[] = {0xFF, 0x64, 0xFF, 0xFF};
+        size_t k;
+        for (k = 0; k < 3; k++) {
+            size_t pos = k == 2 ? sot + 12 : sot;
+            marker[1] = k == 0 ? 0x64 : k == 1 ? 0x55 : 0x58; /* COM, TLM, PLT */
+            bytes in = concat3(cs.data, pos, marker, sizeof marker, cs.data + pos, cs.size - pos);
+            if (k == 2 && psot != 0) put32(in.data + sot + 6, psot + sizeof marker);
+            expect_reader_error("opaque segment overrun", &in, "marker segment overruns its header", pos);
+            bytes wrapped = jp2_file(&in, "jp2 ");
+            expect_file_error("opaque segment overrun", &wrapped, "marker segment overruns its header at ");
+            bytes_free(&wrapped);
+            bytes_free(&in);
+        }
+    }
+
+    /* The required QCD is copied, including an unrecognized quantization
+     * style. Compare the entire result with the same byte changed in the
+     * reference output; explicit semantic validation still rejects it. */
+    {
+        size_t in_qcd = 2, out_qcd = 2;
+        bytes in = bytes_copy(cs.data, cs.size);
+        bytes expected = bytes_copy(plain.out.data, plain.out.size);
+        while (get16(in.data + in_qcd) != HV_QCD) in_qcd += 2 + get16(in.data + in_qcd + 2);
+        while (get16(expected.data + out_qcd) != HV_QCD) out_qcd += 2 + get16(expected.data + out_qcd + 2);
+        in.data[in_qcd + 4] = (in.data[in_qcd + 4] & 0xE0) | 3;
+        expected.data[out_qcd + 4] = in.data[in_qcd + 4];
+        const char *error = read_error(in.data, 0, in.size, 0);
+        check(error != NULL && strcmp(error, "qcd.style") == 0, "explicit QCD validation retained");
+        expect_output("opaque QCD style", &in, &expected);
+        bytes wrapped = jp2_file(&in, "jp2 ");
+        expect_file_output("opaque QCD style", &wrapped, &in);
+        bytes_free(&wrapped);
+        bytes_free(&expected);
         bytes_free(&in);
     }
     bytes_free(&plain.out);
@@ -1687,7 +1893,7 @@ static void test_archive(const char *dirs) {
             file = read_file(path);
             hv_out_init(&out);
             files++;
-            if (hv_transcode_file(file.data, file.size, 7, 7, &out, error, sizeof error) != 0) {
+            if (hv_transcode_file(file.data, file.size, 7, 7, HV_OUTPUT_JPIP, &out, error, sizeof error) != 0) {
                 check(0, "%s: rejected: %s", path, error);
             } else {
                 bytes result_file = {out.data, out.size};
@@ -1713,6 +1919,8 @@ int main(void) {
         {"tile-parts and packets", test_tile_parts},
         {"main headers", test_headers},
         {"served profile", test_served_profile},
+        {"file output profiles", test_file_profiles},
+        {"declaration policy", test_declaration_policy},
         {"boxes", test_boxes},
         {"corrupted tile data", test_corruption},
         {"SOP, EPH and bit stuffing", test_packet_rules},

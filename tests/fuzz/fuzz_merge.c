@@ -5,11 +5,12 @@
  *
  * Each input is merged four times: embedded and linked, each in default and
  * in validation mode. Every accepted merge must have a valid container and
- * header boxes (hv_check_jpx, hv_check_jpx_headers). An embedded one holds
- * the inputs' codestreams, which pass HV_PROFILE in validation mode. A
+ * header boxes (hv_served_jpx, hv_check_jpx_headers). An embedded one holds
+ * the inputs' codestreams, discovered by hv_read_jp2; in validation mode
+ * the input containers pass hv_served_jp2 and codestreams pass HV_READ_JPIP. A
  * linked one holds one link per input, in order, that resolves
- * (hv_link_path) to that input's file and names exactly its codestream; in
- * validation mode the linked file passes hv_check_link.
+ * (hv_served_path) to that input's file and names exactly its codestream; in
+ * validation mode the linked file passes hv_served_link.
  *
  * The linked JPX file records the inputs' paths, so the two inputs are
  * written to files in a directory of their own, made once and removed at
@@ -22,6 +23,7 @@
 #ifdef __APPLE__
 #define _DARWIN_C_SOURCE 1
 #endif
+#include "jpeg2000/hv_served.h"
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -88,24 +90,24 @@ static int write_input(const char *path, const uint8_t *buf, size_t size) {
 }
 
 /* A linked merge: link i names input i's file and exactly its codestream. */
-static void check_links(const hv_jpx *j, const hv_merge_input *in, int validate) {
+static void check_links(const hv_served_sources *j, const hv_merge_input *in, int validate) {
     char path[PATH_MAX + 16], *real, *expected;
     hv_box jp2c;
     size_t i, at;
     if (j->links == NULL || j->count != 2)
         abort();
     for (i = 0; i < 2; i++) {
-        if (hv_link_path(&j->links[i], NULL, path, sizeof path) != NULL ||
+        if (hv_served_path(&j->links[i], NULL, path, sizeof path) != NULL ||
             (real = realpath(path, NULL)) == NULL)
             abort();
         if ((expected = realpath(in[i].path, NULL)) == NULL || strcmp(real, expected) != 0)
             abort();
         free(expected);
         free(real);
-        if (hv_check_jp2(in[i].buf, in[i].size, &jp2c, &at) != NULL ||
+        if (hv_served_jp2(in[i].buf, in[i].size, &jp2c, &at) != NULL ||
             j->links[i].offset != jp2c.payload || j->links[i].length != jp2c.end - jp2c.payload)
             abort();
-        if (validate && hv_check_link(in[i].buf, in[i].size, &j->links[i], &at) != NULL)
+        if (validate && hv_served_link(in[i].buf, in[i].size, &j->links[i], &at) != NULL)
             abort();
     }
 }
@@ -117,7 +119,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     uint8_t *jpx;
     size_t n, at, i;
     int links, validate;
-    hv_jpx j;
+    hv_served_sources j;
 
     if (size < 4)
         return 0;
@@ -144,10 +146,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                 perror("fuzz_merge: create output file");
                 abort();
             }
-            if (hv_merge_buffers(in, 2, links, validate, f, error, sizeof error) == 0) {
+            if (hv_merge_buffers(in, 2, links, validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, f, error, sizeof error) == 0) {
                 if ((jpx = read_back(f, &n)) == NULL ||
                     hv_check_jpx_headers(jpx, n, &at) != NULL ||
-                    hv_check_jpx(jpx, n, &j, &at) != NULL)
+                    hv_served_jpx(jpx, n, &j, &at) != NULL)
                     abort();
                 if (links) {
                     check_links(&j, in, validate);
@@ -157,18 +159,21 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                     for (i = 0; i < j.count; i++) {
                         hv_box source;
                         size_t length = j.jp2c[i].end - j.jp2c[i].payload;
-                        if (hv_check_jp2(in[i].buf, in[i].size, &source, &at) != NULL ||
+                        const char *rule = validate
+                            ? hv_served_jp2(in[i].buf, in[i].size, &source, &at)
+                            : hv_read_jp2(in[i].buf, in[i].size, &source, &at);
+                        if (rule != NULL ||
                             source.end - source.payload != length ||
                             memcmp(jpx + j.jp2c[i].payload, in[i].buf + source.payload,
                                    length) != 0)
                             abort();
                         if (validate && hv_codestream_check(jpx, j.jp2c[i].payload,
-                                                            j.jp2c[i].end, HV_PROFILE,
+                                                            j.jp2c[i].end, HV_READ_JPIP,
                                                             &at) != NULL)
                             abort();
                     }
                 }
-                hv_jpx_free(&j);
+                hv_served_sources_free(&j);
                 free(jpx);
             }
             if (ferror(f)) {

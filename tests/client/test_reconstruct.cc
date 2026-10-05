@@ -1,12 +1,12 @@
-// hv_reconstruct: each codestream is served by jpip::DataBinServer, read by
-// hv_jpp into an hv_cache and written back, at each of its resolutions. The
+// hvc_reconstruct: each codestream is served by jpip::DataBinServer, read by
+// hvc_jpp into an hvc_cache and written back, at each of its resolutions. The
 // result must be the file's main header (without TLM and PLM, progression
 // RPCL), one tile-part, and the file's own packets in resolution, position,
 // component, layer order, with an empty packet in place of each one above
 // the requested resolution. For the images, it must also decode to the
 // pixels the file's own codestream decodes to at that resolution. The
 // resolutions delivered, and no more, must be complete in the store
-// (hv_reconstruct_status).
+// (hvc_reconstruct_status).
 //
 // The codestreams: every file of the corpus the server accepts (one
 // precinct each); the transcoder's reference images, which have many
@@ -17,6 +17,7 @@
 // Last, a movie on one channel: its frame count and each frame's XML and
 // color table from the metadata bins (hv_metadata), and every frame from
 // the one store; and color tables of made-up header boxes.
+#include "jpeg2000/hv_served.h"
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
@@ -28,12 +29,12 @@
 #include <string>
 #include <vector>
 
-#include "hv_cache.h"
-#include "hv_frame.h"
-#include "hv_image.h"
-#include "hv_jpp.h"
-#include "hv_metadata.h"
-#include "hv_reconstruct.h"
+#include "hvc_cache.h"
+#include "hvc_frame.h"
+#include "hvc_openjpeg.h"
+#include "hvc_jpp.h"
+#include "hvc_metadata.h"
+#include "hvc_reconstruct.h"
 #include "jpeg2000/hv_reader.h"
 #include "jpip/index/image_index.h"
 #include "jpip/response/databin_server.h"
@@ -62,7 +63,7 @@ struct Sources : jpip::SourceProvider {
 // The response to one request of a channel, through the client's parser,
 // into the store.
 static int deliver(jpip::DataBinServer &server, jpip::ImageIndex &image, Sources &sources,
-                   const jpip::ResponseRequest &request, hv_cache *cache, const std::string &name) {
+                   const jpip::ResponseRequest &request, hvc_cache *cache, const std::string &name) {
     std::string error;
     check(server.SetRequest(image, request, &error), name + ": " + error);
     Bytes response;
@@ -73,35 +74,35 @@ static int deliver(jpip::DataBinServer &server, jpip::ImageIndex &image, Sources
         check(server.GenerateChunk(sources, chunk, &length, &last), name + ": " + server.GetError());
         response.insert(response.end(), chunk, chunk + length);
     }
-    hv_jpp_reader reader;
-    hv_jpp_message message;
-    hv_jpp_begin(&reader, response.data(), response.size());
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
+    hvc_jpp_begin(&reader, response.data(), response.size());
     int status;
-    while ((status = hv_jpp_next(&reader, &message)) == HV_JPP_MESSAGE)
-        check(hv_cache_apply(cache, &message), name + ": " + hv_cache_error(cache));
-    check(status == HV_JPP_EOR, name + ": " + hv_jpp_error(&reader));
-    return hv_jpp_reason(&reader);
+    while ((status = hvc_jpp_next(&reader, &message)) == HVC_JPP_MESSAGE)
+        check(hvc_cache_apply(cache, &message), name + ": " + hvc_cache_error(cache));
+    check(status == HVC_JPP_EOR, name + ": " + hvc_jpp_error(&reader));
+    return hvc_jpp_reason(&reader);
 }
 
 // The codestream written from the store.
-static Bytes reconstruct(const hv_cache &cache, int stream, const std::string &name) {
+static Bytes reconstruct(const hvc_cache &cache, int stream, const std::string &name) {
     char error[256] = "";
-    size_t size = hv_reconstruct(&cache, stream, NULL, 0, error, sizeof error);
+    size_t size = hvc_reconstruct(&cache, stream, NULL, 0, error, sizeof error);
     check(size != 0, name + ": " + error);
     Bytes out(size + 1, 0xAA);
-    check(hv_reconstruct(&cache, stream, out.data(), size - 1, error, sizeof error) == size,
+    check(hvc_reconstruct(&cache, stream, out.data(), size - 1, error, sizeof error) == size,
           name + ": size changed with a short buffer");
-    check(hv_reconstruct(&cache, stream, out.data(), size, error, sizeof error) == size &&
+    check(hvc_reconstruct(&cache, stream, out.data(), size, error, sizeof error) == size &&
           out[size] == 0xAA, name + ": wrote other than its size");
     out.pop_back();
     return out;
 }
 
 // A codestream of the store.
-static hv_status status(const hv_cache &cache, int stream, const std::string &name) {
-    hv_status found;
+static hvc_frame_status status(const hvc_cache &cache, int stream, const std::string &name) {
+    hvc_frame_status found;
     char error[256] = "";
-    check(hv_reconstruct_status(&cache, stream, &found, error, sizeof error) == 0, name + ": " + error);
+    check(hvc_reconstruct_status(&cache, stream, &found, error, sizeof error) == 0, name + ": " + error);
     return found;
 }
 
@@ -156,8 +157,8 @@ static void verify_quality(jpip::ImageIndex &image, Sources &sources, int stream
                            const std::string &name, bool decoded) {
     const jpip::CodingParameters &p = *image.GetCodingParameters(stream);
     jpip::DataBinServer server;
-    hv_cache cache;
-    hv_cache_begin(&cache);
+    hvc_cache cache;
+    hvc_cache_begin(&cache);
     std::vector<int> quality(p.num_levels + 1, 0);
     char error[256] = "";
     for (int resolutions : {1, p.num_levels + 1}) {
@@ -165,13 +166,13 @@ static void verify_quality(jpip::ImageIndex &image, Sources &sources, int stream
             jpip::ResponseRequest request = whole(stream, p, resolutions);
             request.layers = layers;
             int reason = deliver(server, image, sources, request, &cache, name);
-            check(reason == HV_EOR_WINDOW_DONE || reason == HV_EOR_IMAGE_DONE,
+            check(reason == HVC_EOR_WINDOW_DONE || reason == HVC_EOR_IMAGE_DONE,
                   name + ": quality window did not complete");
             int reduce = p.num_levels + 1 - resolutions;
-            check(hv_reconstruct_confirm(&cache, stream, reduce, layers, error, sizeof error) == 0,
+            check(hvc_reconstruct_confirm(&cache, stream, reduce, layers, error, sizeof error) == 0,
                   name + ": " + error);
             for (int r = 0; r < resolutions; r++) quality[r] = std::max(quality[r], layers);
-            hv_status has = status(cache, stream, name);
+            hvc_frame_status has = status(cache, stream, name);
             check(has.layers == p.num_layers &&
                   std::equal(quality.begin(), quality.end(), has.quality),
                   name + ": quality status differs");
@@ -183,48 +184,48 @@ static void verify_quality(jpip::ImageIndex &image, Sources &sources, int stream
                   expected(image, sources, stream, p.num_levels + 1, name, quality),
                   name + ": progressive packets or empty padding differ");
             if (decoded) {
-                hv_image pixels;
-                check(hv_image_decode(preview.data(), preview.size(), reduce, HV_IMAGE_SAMPLES,
+                hvc_image pixels;
+                check(hvc_openjpeg_decode(preview.data(), preview.size(), reduce, HVC_IMAGE_SAMPLES,
                                       &pixels, error, sizeof error) == 0,
                       name + ": progressive decode: " + error);
                 free(pixels.pixels);
             }
-            size_t bytes = hv_cache_total_bytes(&cache);
+            size_t bytes = hvc_cache_total_bytes(&cache);
             deliver(server, image, sources, request, &cache, name);
-            check(hv_cache_total_bytes(&cache) == bytes, name + ": repeated quality resent bytes");
-            check(hv_reconstruct_confirm(&cache, stream, reduce, 1, error, sizeof error) == 0 &&
+            check(hvc_cache_total_bytes(&cache) == bytes, name + ": repeated quality resent bytes");
+            check(hvc_reconstruct_confirm(&cache, stream, reduce, 1, error, sizeof error) == 0 &&
                   std::equal(quality.begin(), quality.end(), status(cache, stream, name).quality),
                   name + ": confirmation reduced cached quality");
             for (const auto &invalid : std::vector<std::pair<int, int>>{
                     {-1, layers}, {p.num_levels + 1, layers}, {reduce, 0}, {reduce, p.num_layers + 1}})
-                check(hv_reconstruct_confirm(&cache, stream, invalid.first, invalid.second,
+                check(hvc_reconstruct_confirm(&cache, stream, invalid.first, invalid.second,
                                             error, sizeof error) == -1 &&
                       std::equal(quality.begin(), quality.end(), status(cache, stream, name).quality),
                       name + ": invalid confirmation changed quality");
         }
     }
-    hv_cache_release(&cache);
+    hvc_cache_release(&cache);
 
     if (p.num_layers > 1) {
         jpip::DataBinServer partial_server;
-        hv_cache_begin(&cache);
+        hvc_cache_begin(&cache);
         jpip::ResponseRequest request = whole(stream, p, p.num_levels + 1);
         request.layers = 1;
         deliver(partial_server, image, sources, request, &cache, name);
-        check(hv_reconstruct_confirm(&cache, stream, 0, 1, error, sizeof error) == 0, error);
+        check(hvc_reconstruct_confirm(&cache, stream, 0, 1, error, sizeof error) == 0, error);
         Bytes preview = reconstruct(cache, stream, name);
-        const hv_bin *bin = hv_cache_find(&cache, HV_BIN_PRECINCT, stream, 0);
+        const hvc_bin *bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, stream, 0);
         const uint8_t unfinished[] = {0xAB};
-        hv_jpp_message message = {HV_BIN_PRECINCT, static_cast<uint64_t>(stream), 0,
+        hvc_jpp_message message = {HVC_BIN_PRECINCT, static_cast<uint64_t>(stream), 0,
                                  bin->length, sizeof unfinished, 0, unfinished};
-        check(hv_cache_apply(&cache, &message), hv_cache_error(&cache));
+        check(hvc_cache_apply(&cache, &message), hvc_cache_error(&cache));
         check(reconstruct(cache, stream, name) == preview,
               name + ": unconfirmed refinement changed the preview");
-        check(hv_reconstruct_confirm(&cache, stream, 0, p.num_layers, error, sizeof error) == -1,
+        check(hvc_reconstruct_confirm(&cache, stream, 0, p.num_layers, error, sizeof error) == -1,
               name + ": full quality confirmed incomplete bins");
         check(reconstruct(cache, stream, name) == preview,
               name + ": rejected confirmation changed the preview");
-        hv_cache_release(&cache);
+        hvc_cache_release(&cache);
     }
 }
 
@@ -243,13 +244,13 @@ struct Totals {
 
 // A codestream decoded without its `reduce` highest resolutions.
 struct Pixels {
-    hv_image image;
+    hvc_image image;
     Bytes bytes;
 };
 static Pixels decode(const uint8_t *codestream, size_t size, int reduce, const std::string &name) {
     Pixels pixels;
     char error[256] = "";
-    check(hv_image_decode(codestream, size, reduce, HV_IMAGE_SAMPLES, &pixels.image, error, sizeof error) == 0,
+    check(hvc_openjpeg_decode(codestream, size, reduce, HVC_IMAGE_SAMPLES, &pixels.image, error, sizeof error) == 0,
           name + ": " + error);
     size_t count = static_cast<size_t>(pixels.image.width) * pixels.image.height * pixels.image.components;
     pixels.bytes.assign(pixels.image.pixels, pixels.image.pixels + count);
@@ -275,43 +276,43 @@ static void verify(const std::string &path, bool jpx, bool standard, bool decode
             totals->precincts += static_cast<size_t>(resolution.num_precincts.x) *
                                  resolution.num_precincts.y * p.num_components;
         jpip::DataBinServer server;
-        hv_cache cache;
-        hv_cache_begin(&cache);
+        hvc_cache cache;
+        hvc_cache_begin(&cache);
         check(status(cache, stream, name).resolutions == 0, name + ": an empty store has a codestream");
         jpip::ResponseRequest header_request = whole(stream, p, 1);
         header_request.layers = 0;
         deliver(server, image, sources, header_request, &cache, name);
-        hv_status header_status = status(cache, stream, name);
+        hvc_frame_status header_status = status(cache, stream, name);
         check(header_status.width == static_cast<uint32_t>(p.size.x) &&
               header_status.height == static_cast<uint32_t>(p.size.y) &&
               header_status.resolutions == p.num_levels + 1 && header_status.complete == 0,
               name + ": header-only response has wrong geometry or contains precinct data");
-        const hv_frame *prepared = hv_cache_find(&cache, HV_BIN_MAIN_HEADER, stream, 0)->frame;
+        const hvc_frame *prepared = hvc_cache_find(&cache, HVC_BIN_MAIN_HEADER, stream, 0)->frame;
         check(prepared != NULL, name + ": frame information was not prepared");
         char confirmation_error[256] = "";
-        check(hv_reconstruct_confirm(&cache, stream, p.num_levels, 1,
+        check(hvc_reconstruct_confirm(&cache, stream, p.num_levels, 1,
                                     confirmation_error, sizeof confirmation_error) == -1 &&
               status(cache, stream, name).quality[0] == 0,
               name + ": confirmation accepted missing precincts");
         for (int resolutions = 1; resolutions <= p.num_levels + 1; ++resolutions) {
             int reason = deliver(server, image, sources, whole(stream, p, resolutions), &cache, name);
-            check(reason == HV_EOR_WINDOW_DONE || reason == HV_EOR_IMAGE_DONE,
+            check(reason == HVC_EOR_WINDOW_DONE || reason == HVC_EOR_IMAGE_DONE,
                   name + ": response did not complete");
-            hv_status has = status(cache, stream, name);
+            hvc_frame_status has = status(cache, stream, name);
             check(has.complete == resolutions && has.resolutions == p.num_levels + 1 &&
                   has.width == static_cast<uint32_t>(p.size.x) &&
                   has.height == static_cast<uint32_t>(p.size.y) && has.components == p.num_components,
                   name + ": codestream " + std::to_string(stream) + " is not complete at " +
                   std::to_string(resolutions) + " resolutions");
             Bytes out = reconstruct(cache, stream, name);
-            check(hv_cache_find(&cache, HV_BIN_MAIN_HEADER, stream, 0)->frame == prepared,
+            check(hvc_cache_find(&cache, HVC_BIN_MAIN_HEADER, stream, 0)->frame == prepared,
                   name + ": frame information was rebuilt after receiving more data");
             check(out == expected(image, sources, stream, resolutions, name),
                   name + ": codestream " + std::to_string(stream) + " differs with " +
                   std::to_string(resolutions) + " resolutions");
             // The reader accepts it as T.800, unless the file itself is not.
             size_t at = 0;
-            const char *error = hv_codestream_check(out.data(), 0, out.size(), 0, &at);
+            const char *error = hv_codestream_check(out.data(), 0, out.size(), HV_READ_VALIDATE, &at);
             check(error == NULL || !standard,
                   name + ": written codestream is invalid: " + (error ? error : ""));
             if (decoded) {
@@ -336,7 +337,7 @@ static void verify(const std::string &path, bool jpx, bool standard, bool decode
             ++totals->written;
             totals->reduced += resolutions <= p.num_levels;
         }
-        hv_cache_release(&cache);
+        hvc_cache_release(&cache);
         verify_quality(image, sources, stream, name, decoded);
     }
 }
@@ -367,26 +368,26 @@ static Bytes operator+(Bytes a, const Bytes &b) {
 struct Palette { int entries, channels; Bytes table; std::string error; };
 
 static Palette palette(const Bytes &boxes, size_t capacity = HV_PALETTE_MAX) {
-    hv_cache cache;
-    hv_cache_begin(&cache);
-    hv_jpp_message message = {};
-    message.bin_class = HV_BIN_META_DATA;
+    hvc_cache cache;
+    hvc_cache_begin(&cache);
+    hvc_jpp_message message = {};
+    message.bin_class = HVC_BIN_META_DATA;
     const Bytes framed = boxes + box("phld", {0, 0, 0, 4});
     message.length = framed.size();
     message.last_byte = 1;
     message.data = framed.data();
-    check(hv_cache_apply(&cache, &message), "made-up metadata bin refused");
+    check(hvc_cache_apply(&cache, &message), "made-up metadata bin refused");
     Palette found = {0, 0, Bytes(capacity, 0xEE), ""};
     char error[256] = "";
     hv_metadata metadata = {};
-    check(hv_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
+    check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
     found.entries = hv_metadata_palette(&metadata, 0, &found.channels, found.table.data(), capacity,
                                         error, sizeof error);
     found.error = error;
     if (found.entries > 0 && capacity >= static_cast<size_t>(found.entries) * found.channels)
         found.table.resize(static_cast<size_t>(found.entries) * found.channels);
     hv_metadata_close(&metadata);
-    hv_cache_release(&cache);
+    hvc_cache_release(&cache);
     return found;
 }
 
@@ -519,13 +520,13 @@ int main() {
         check(table + 3 * 256 <= file->Data() + file->GetSize(), name + ": fixture has no color table");
 
         jpip::DataBinServer server;
-        hv_cache cache;
-        hv_cache_begin(&cache);
+        hvc_cache cache;
+        hvc_cache_begin(&cache);
         char error[256] = "";
         const uint8_t *found = NULL;
         size_t size = 0;
         hv_metadata metadata = {};
-        check(hv_metadata_open(&cache, &metadata, error, sizeof error) == -1 &&
+        check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == -1 &&
               std::string(error) == "metadata data-bin 0 is missing", "empty store: " + std::string(error));
         check(hv_metadata_xml(&metadata, 0, &found, &size, error, sizeof error) == -1 && found == NULL,
               "empty store gave XML");
@@ -533,8 +534,8 @@ int main() {
             const jpip::CodingParameters &p = *image.GetCodingParameters(frame);
             deliver(server, image, sources, whole(frame, p, p.num_levels + 1), &cache, name);
             if (frame == 0)
-                check(hv_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
-            check(metadata.count == frames,
+                check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
+            check(metadata.codestream_count == frames,
                   name + ": frame count: " + error);
             check(reconstruct(cache, frame, name) == expected(image, sources, frame, p.num_levels + 1, name),
                   name + ": frame " + std::to_string(frame) + " differs");
@@ -545,9 +546,9 @@ int main() {
                   found != NULL && Bytes(found, found + size) == xml[frame],
                   name + ": XML of frame " + std::to_string(frame) + " differs: " + error);
             // Nothing more arrives for a frame the channel has whole.
-            size_t before = hv_cache_total_bytes(&cache);
+            size_t before = hvc_cache_total_bytes(&cache);
             deliver(server, image, sources, whole(frame, p, 1), &cache, name);
-            check(hv_cache_total_bytes(&cache) == before, name + ": a frame was sent twice");
+            check(hvc_cache_total_bytes(&cache) == before, name + ": a frame was sent twice");
             check(reconstruct(cache, frame, name) == expected(image, sources, frame, p.num_levels + 1, name),
                   name + ": frame " + std::to_string(frame) + " differs when shown again");
         }
@@ -567,21 +568,21 @@ int main() {
                       name + ": color table for frame " + std::to_string(frame) + ": " + error);
         }
         hv_metadata_close(&metadata);
-        hv_cache_release(&cache);
+        hvc_cache_release(&cache);
 
         // The metadata arriving in limited responses: nothing is read from
         // a bin that is not whole.
         jpip::DataBinServer slow;
-        hv_cache_begin(&cache);
+        hvc_cache_begin(&cache);
         jpip::ResponseRequest request = whole(0, *image.GetCodingParameters(0), 1);
         request.has.len = true;
         request.length_response = 400;
         size_t partial_file = 0, partial_frame = 0;
         for (int responses = 0; responses < 1000; ++responses) {
             deliver(slow, image, sources, request, &cache, name);
-            if (hv_metadata_open(&cache, &metadata, error, sizeof error) != 0) {
+            if (hvc_metadata_open(&cache, &metadata, error, sizeof error) != 0) {
                 std::string why = error;
-                check(metadata.count == 0 && metadata.frames == NULL,
+                check(metadata.codestream_count == 0 && metadata.frames == NULL,
                       "failed metadata index retained entries");
                 if (why == "metadata data-bin 0 is incomplete") {
                     ++partial_file;
@@ -601,7 +602,7 @@ int main() {
         check(partial_file > 0 && partial_frame > 0 && found != NULL &&
               Bytes(found, found + size) == xml[frames - 1], name + ": XML from limited responses");
         hv_metadata_close(&metadata);
-        hv_cache_release(&cache);
+        hvc_cache_release(&cache);
     }
 
     // A JP2 file: one codestream, described by its top-level xml box.
@@ -621,14 +622,14 @@ int main() {
             at += size;
         }
         jpip::DataBinServer server;
-        hv_cache cache;
-        hv_cache_begin(&cache);
+        hvc_cache cache;
+        hvc_cache_begin(&cache);
         deliver(server, image, sources, whole(0, *image.GetCodingParameters(0), 1), &cache, name);
         char error[256] = "";
         const uint8_t *found = NULL;
         size_t size = 0;
         hv_metadata metadata = {};
-        check(hv_metadata_open(&cache, &metadata, error, sizeof error) == 0 && metadata.count == 1,
+        check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0 && metadata.codestream_count == 1,
               name + ": frame count: " + error);
         check(!xml.empty() && hv_metadata_xml(&metadata, 0, &found, &size, error, sizeof error) == 0 &&
               found != NULL && Bytes(found, found + size) == xml, name + ": XML differs: " + error);
@@ -636,7 +637,7 @@ int main() {
         check(hv_metadata_palette(&metadata, 0, &channels, NULL, 0, error, sizeof error) == 0 && channels == 0,
               name + ": a color table: " + error);
         hv_metadata_close(&metadata);
-        hv_cache_release(&cache);
+        hvc_cache_release(&cache);
     }
 
     // Color tables of made-up header boxes: columns of 4 bits, 16 bits and
@@ -679,7 +680,7 @@ int main() {
         check(file != NULL, "missing " + name);
         hv_box jp2c;
         size_t at = 0;
-        check(hv_check_jp2(file->Data(), file->GetSize(), &jp2c, &at) == NULL, name + ": not a JP2 file");
+        check(hv_served_jp2(file->Data(), file->GetSize(), &jp2c, &at) == NULL, name + ": not a JP2 file");
         const uint8_t *codestream = file->Data() + jp2c.payload;
         size_t size = jp2c.end - jp2c.payload;
         Pixels full = decode(codestream, size, 0, name);
@@ -694,11 +695,11 @@ int main() {
         Pixels lowest = decode(codestream, size, 99, name);
         check(lowest.image.width == 33 && lowest.image.height == 33 && lowest.image.full_width == 129,
               name + ": lowest resolution has other dimensions");
-        hv_image none;
+        hvc_image none;
         char error[256] = "";
-        check(hv_image_decode(codestream, size / 2, 0, HV_IMAGE_SAMPLES, &none, error, sizeof error) == -1 &&
+        check(hvc_openjpeg_decode(codestream, size / 2, 0, HVC_IMAGE_SAMPLES, &none, error, sizeof error) == -1 &&
               none.pixels == NULL && error[0] != 0, name + ": decoded a truncated codestream");
-        check(hv_image_decode(codestream + 2, size - 2, 0, HV_IMAGE_SAMPLES, &none, error, sizeof error) == -1 &&
+        check(hvc_openjpeg_decode(codestream + 2, size - 2, 0, HVC_IMAGE_SAMPLES, &none, error, sizeof error) == -1 &&
               none.pixels == NULL && error[0] != 0, name + ": decoded a codestream without SOC");
     }
 
@@ -711,10 +712,10 @@ int main() {
         check(image.Open(*sources.GetSource(path), sources, false), image.GetError());
         const jpip::CodingParameters &p = *image.GetCodingParameters(0);
         jpip::DataBinServer server;
-        hv_cache cache;
-        hv_cache_begin(&cache);
+        hvc_cache cache;
+        hvc_cache_begin(&cache);
         char error[256] = "";
-        check(hv_reconstruct(&cache, 0, NULL, 0, error, sizeof error) == 0 &&
+        check(hvc_reconstruct(&cache, 0, NULL, 0, error, sizeof error) == 0 &&
               std::string(error) == "main header data-bin is missing", "empty store: " + std::string(error));
         jpip::ResponseRequest request = whole(0, p, p.num_levels + 1);
         request.has.len = true;
@@ -723,11 +724,11 @@ int main() {
         int reason;
         do {
             reason = deliver(server, image, sources, request, &cache, name);
-            if (reason == HV_EOR_WINDOW_DONE)
+            if (reason == HVC_EOR_WINDOW_DONE)
                 break;
-            check(reason == HV_EOR_BYTE_LIMIT_REACHED, "limited response ended otherwise");
+            check(reason == HVC_EOR_BYTE_LIMIT_REACHED, "limited response ended otherwise");
             check(status(cache, 0, name).complete <= p.num_levels, "a cut window is complete");
-            if (hv_reconstruct(&cache, 0, NULL, 0, error, sizeof error) != 0) {
+            if (hvc_reconstruct(&cache, 0, NULL, 0, error, sizeof error) != 0) {
                 check(reconstruct(cache, 0, name) == expected(image, sources, 0, 0, name),
                       "a store without precinct data is not the empty image");
                 ++empty_image;
@@ -740,7 +741,7 @@ int main() {
                 ++partial_precinct;
             }
         } while (partial_header + partial_precinct + empty_image < 1000);
-        check(reason == HV_EOR_WINDOW_DONE && partial_header > 0 && partial_precinct > 0,
+        check(reason == HVC_EOR_WINDOW_DONE && partial_header > 0 && partial_precinct > 0,
               "limited responses did not cover the partial bins");
         check(reconstruct(cache, 0, name) == expected(image, sources, 0, p.num_levels + 1, name),
               "codestream differs after limited responses");
@@ -748,38 +749,38 @@ int main() {
               "the window is not complete after limited responses");
 
         // A tile header with marker segments, which the server never sends.
-        const hv_bin *header = hv_cache_find(&cache, HV_BIN_MAIN_HEADER, 0, 0);
+        const hvc_bin *header = hvc_cache_find(&cache, HVC_BIN_MAIN_HEADER, 0, 0);
         const uint8_t segment[] = {0xFF, 0x64, 0, 2};
-        hv_jpp_message messages[] = {
-            {HV_BIN_MAIN_HEADER, 0, 0, 0, header->length, 1, header->data},
-            {HV_BIN_TILE_HEADER, 0, 0, 0, sizeof segment, 1, segment}};
-        hv_cache other;
-        hv_cache_begin(&other);
-        check(hv_cache_apply(&other, &messages[0]) && hv_cache_apply(&other, &messages[1]),
-              hv_cache_error(&other));
-        check(hv_reconstruct(&other, 0, NULL, 0, error, sizeof error) == 0 &&
+        hvc_jpp_message messages[] = {
+            {HVC_BIN_MAIN_HEADER, 0, 0, 0, header->length, 1, header->data},
+            {HVC_BIN_TILE_HEADER, 0, 0, 0, sizeof segment, 1, segment}};
+        hvc_cache other;
+        hvc_cache_begin(&other);
+        check(hvc_cache_apply(&other, &messages[0]) && hvc_cache_apply(&other, &messages[1]),
+              hvc_cache_error(&other));
+        check(hvc_reconstruct(&other, 0, NULL, 0, error, sizeof error) == 0 &&
               std::string(error) == "tile header data-bin is not empty",
               "tile header: " + std::string(error));
-        hv_cache_release(&other);
+        hvc_cache_release(&other);
 
         // A main header that declares more packets than the server serves.
         Bytes huge(header->data, header->data + header->length);
         for (size_t at : {8, 12, 24, 28})          // Xsiz, Ysiz, XTsiz, YTsiz
             for (int i = 0; i < 4; ++i) huge[at + i] = i == 0 ? 0x7F : 0xFF;
         messages[0].data = huge.data();
-        hv_cache_begin(&other);
-        check(hv_cache_apply(&other, &messages[0]), hv_cache_error(&other));
-        check(hv_reconstruct(&other, 0, NULL, 0, error, sizeof error) == 0 &&
+        hvc_cache_begin(&other);
+        check(hvc_cache_apply(&other, &messages[0]), hvc_cache_error(&other));
+        check(hvc_reconstruct(&other, 0, NULL, 0, error, sizeof error) == 0 &&
               std::string(error) == "main header: more than 2,147,483,647 packets",
               "huge image: " + std::string(error));
-        hv_status none;
-        check(hv_reconstruct_status(&other, 0, &none, error, sizeof error) == -1 &&
+        hvc_frame_status none;
+        check(hvc_reconstruct_status(&other, 0, &none, error, sizeof error) == -1 &&
               std::string(error) == "main header: more than 2,147,483,647 packets" && none.complete == 0,
               "huge image status: " + std::string(error));
-        check(hv_cache_find(&other, HV_BIN_MAIN_HEADER, 0, 0)->frame == NULL,
+        check(hvc_cache_find(&other, HVC_BIN_MAIN_HEADER, 0, 0)->frame == NULL,
               "failed preparation was cached");
-        hv_cache_release(&other);
-        hv_cache_release(&cache);
+        hvc_cache_release(&other);
+        hvc_cache_release(&cache);
     }
     return 0;
 }

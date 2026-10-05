@@ -109,7 +109,7 @@ static int write_failed(transcode *t, const hv_out *out) {
 }
 
 /* What the transcoder does with each marker of the input's headers, with
- * any hv_transcode_codestream flags: the one place that decides it.
+ * any hv_transcode_codestream profile: the one place that decides it.
  *
  * Main header: SIZ, QCD, QCC, RGN, CRG and COM are copied, as they
  * describe the image, the code-blocks or nothing the transcoder changes;
@@ -119,7 +119,7 @@ static int write_failed(transcode *t, const hv_out *out) {
  * code T.800 does not define (Table A.2: 0xFF70, or an extension of
  * T.801) may describe the packets, and 0xFF30 to 0xFF3F, which have no
  * segment (A.1.3), are outside the served profile's main header, which
- * the file-level transcode requires (HV_PROFILE_HEADERS: its reader
+ * the JPIP output target requires (HV_READ_PACKETS_JPIP: its reader
  * rejects these codes itself, as main.marker-code, before they get here).
  *
  * Tile-part headers: PLT and COM are dropped with the headers, which the
@@ -146,12 +146,20 @@ static marker_action tile_marker(uint16_t code) {
  * its other markers copied, dropped or rejected (main_marker); those of
  * the tile-part headers are dropped or rejected (tile_marker). The
  * tile-parts' data is recorded where it is. The input's PLT is not used,
- * so its padding is accepted. */
+ * so its body stays opaque. */
 static int read_codestream(transcode *t, size_t start, size_t end, int ppx, int ppy,
-                           unsigned flags, hv_out *out) {
+                           hv_output_profile profile, hv_out *out) {
     hv_item item;
-    int status = hv_codestream_open(&t->cs, t->buf, start, end, HV_ACCEPT_PLT_PADDING | flags);
+    int status = hv_codestream_open(&t->cs, t->buf, start, end,
+                                    profile == HV_OUTPUT_JPIP ? HV_READ_PACKETS_JPIP : HV_READ_PACKETS);
 
+    /* General output retains the declaration; only the serving target permits
+     * declarations whose profile requirements are not implemented here. */
+    if (status == 0 && profile == HV_OUTPUT_JPEG2000) {
+        const char *rule = hv_rule_rsiz(hv_codestream_siz(&t->cs)->fixed->rsiz);
+        if (rule != NULL)
+            return hv_fail(t->error, t->error_size, "%s at %zu", rule, start + 2);
+    }
     if (status == 0 && hv_write_marker(out, HV_SOC) != 0)
         return write_failed(t, out);
     while (status == 0 && (status = hv_codestream_next(&t->cs, &item)) == 1) {
@@ -275,7 +283,7 @@ static int write_tile(transcode *t, int ppx, int ppy, hv_out *out) {
 }
 
 int hv_transcode_codestream(const uint8_t *buf, size_t start, size_t end, int ppx, int ppy,
-                            unsigned flags, hv_out *out, char *error, size_t error_size) {
+                            hv_output_profile profile, hv_out *out, char *error, size_t error_size) {
     size_t out_start = out->size;
     transcode t;
     int status;
@@ -287,13 +295,13 @@ int hv_transcode_codestream(const uint8_t *buf, size_t start, size_t end, int pp
     error[0] = 0;
     if (out->error != NULL)                     /* an earlier write failed */
         return write_failed(&t, out);
-    if (flags != 0 && flags != HV_PROFILE_HEADERS)
+    if (profile != HV_OUTPUT_JPEG2000 && profile != HV_OUTPUT_JPIP)
         status = hv_fail(t.error, t.error_size,
-                         "flags 0x%X: only 0 and HV_PROFILE_HEADERS are supported", flags);
+                         "invalid output profile");
     else if (ppx < 1 || ppx > 15 || ppy < 1 || ppy > 15)
         status = hv_fail(t.error, t.error_size,
                          "precinct dimensions must be powers of 2 from 2 to 32,768");
-    else if ((status = read_codestream(&t, start, end, ppx, ppy, flags, out)) == 0 &&
+    else if ((status = read_codestream(&t, start, end, ppx, ppy, profile, out)) == 0 &&
              (status = read_packets(&t)) == 0)
         status = write_tile(&t, ppx, ppy, out);
     if (status != 0)

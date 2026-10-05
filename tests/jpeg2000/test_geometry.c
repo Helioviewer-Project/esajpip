@@ -546,7 +546,7 @@ static int init(const SizFixed *s, const Component *comp, size_t ncomps, const C
     return status;
 }
 
-static void check_edges(void) {
+static void check_edges(unsigned rsiz) {
     static const hv_geometry_limits roomy = {1u << 20, UINT64_MAX, NULL};
     SizFixed s;
     Component comp[3];
@@ -562,6 +562,7 @@ static void check_edges(void) {
     memset(comp, 0, sizeof comp);
     memset(&cod, 0, sizeof cod);
     memset(&zero, 0, sizeof zero);
+    s.rsiz = rsiz;
     s.xsiz = 20;
     s.ysiz = 17;
     s.xosiz = 3;
@@ -736,7 +737,11 @@ static void check_edges(void) {
 
 int main(void) {
     unsigned long n;
-    check_edges();
+    /* Declaration policy does not change layout, bounds or failure cleanup. */
+    check_edges(0);
+    check_edges(3);
+    check_edges(0x4000);
+    check_edges(0xffff);
     for (n = 0; n < 10000; n++)
         random_case(n, n % 10 == 9);
     printf("%lu cases, %lu packets compared, %d failures\n", cases_run, packets_compared,

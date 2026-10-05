@@ -7,7 +7,7 @@
  * truncation, single-byte corruption and extension. Structural errors must be rejected; payload changes remain opaque to the
  * parser. Each case checks the property it changes.
  */
-#include "hv_jpp.h"
+#include "hvc_jpp.h"
 
 #include <cstdio>
 #include <cstring>
@@ -20,12 +20,12 @@ static int failures;
 
 /* Runs the reader over a body and reports whether it was rejected. */
 static bool Rejected(const char *body, size_t size) {
-    hv_jpp_reader reader;
-    hv_jpp_message message;
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
     int status;
-    hv_jpp_begin(&reader, (const uint8_t *) body, size);
-    while ((status = hv_jpp_next(&reader, &message)) == HV_JPP_MESSAGE) {}
-    return status == HV_JPP_ERROR;
+    hvc_jpp_begin(&reader, (const uint8_t *) body, size);
+    while ((status = hvc_jpp_next(&reader, &message)) == HVC_JPP_MESSAGE) {}
+    return status == HVC_JPP_ERROR;
 }
 
 static void Check(bool condition, const char *message) {
@@ -61,14 +61,14 @@ static ptrdiff_t BuildResponse(char *buffer, size_t capacity) {
 static void TestValidBaseline(void) {
     char buffer[4096];
     ptrdiff_t size = BuildResponse(buffer, sizeof buffer);
-    hv_jpp_reader reader;
-    hv_jpp_message message;
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
     int status;
     int count = 0;
 
-    hv_jpp_begin(&reader, (const uint8_t *) buffer, (size_t) size);
-    while ((status = hv_jpp_next(&reader, &message)) == HV_JPP_MESSAGE) count++;
-    Check(status == HV_JPP_EOR, "baseline response ends with an EOR");
+    hvc_jpp_begin(&reader, (const uint8_t *) buffer, (size_t) size);
+    while ((status = hvc_jpp_next(&reader, &message)) == HVC_JPP_MESSAGE) count++;
+    Check(status == HVC_JPP_EOR, "baseline response ends with an EOR");
     /* The writer coalesces the second precinct message into the first where the
      * ranges allow it, so the count is checked only for being the expected
      * number of data-bins rather than of messages. */
@@ -112,28 +112,28 @@ static void TestExtensionsRejected(void) {
 static void TestPayloadChanges(void) {
     char buffer[4096], changed[4096];
     ptrdiff_t size = BuildResponse(buffer, sizeof buffer);
-    hv_jpp_reader reader;
-    hv_jpp_message message;
-    hv_jpp_begin(&reader, (const uint8_t *)buffer, (size_t)size);
-    while (hv_jpp_next(&reader, &message) == HV_JPP_MESSAGE) {
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
+    hvc_jpp_begin(&reader, (const uint8_t *)buffer, (size_t)size);
+    while (hvc_jpp_next(&reader, &message) == HVC_JPP_MESSAGE) {
         for (size_t i = 0; i < message.length; i++) {
             std::memcpy(changed, buffer, (size_t)size);
             size_t at = (size_t)(message.data - (const uint8_t *)buffer) + i;
             changed[at] ^= 0x7F;
-            hv_jpp_reader original, modified;
-            hv_jpp_message a, b;
-            hv_jpp_begin(&original, (const uint8_t *)buffer, (size_t)size);
-            hv_jpp_begin(&modified, (const uint8_t *)changed, (size_t)size);
+            hvc_jpp_reader original, modified;
+            hvc_jpp_message a, b;
+            hvc_jpp_begin(&original, (const uint8_t *)buffer, (size_t)size);
+            hvc_jpp_begin(&modified, (const uint8_t *)changed, (size_t)size);
             int status;
-            while ((status = hv_jpp_next(&original, &a)) == HV_JPP_MESSAGE) {
-                Check(hv_jpp_next(&modified, &b) == HV_JPP_MESSAGE &&
+            while ((status = hvc_jpp_next(&original, &a)) == HVC_JPP_MESSAGE) {
+                Check(hvc_jpp_next(&modified, &b) == HVC_JPP_MESSAGE &&
                       a.bin_class == b.bin_class && a.codestream == b.codestream &&
                       a.bin_id == b.bin_id && a.offset == b.offset &&
                       a.length == b.length && a.last_byte == b.last_byte,
                       "payload change preserves message structure");
             }
-            Check(status == HV_JPP_EOR && hv_jpp_next(&modified, &b) == HV_JPP_EOR &&
-                  hv_jpp_reason(&original) == hv_jpp_reason(&modified),
+            Check(status == HVC_JPP_EOR && hvc_jpp_next(&modified, &b) == HVC_JPP_EOR &&
+                  hvc_jpp_reason(&original) == hvc_jpp_reason(&modified),
                   "payload change preserves response completion");
         }
     }
@@ -166,6 +166,15 @@ static void TestExtendedClassRejected(void) {
     }
 }
 
+static void TestUnsupportedClassRejected(void) {
+    // Class 2^32 + 8 used to wrap to metadata class 8 on conversion to int.
+    const uint8_t wrapped[] = {0x50, 0x90, 0x80, 0x80, 0x80, 0x08,
+                               0, 1, 'x', 0, HVC_EOR_WINDOW_DONE, 0};
+    Check(Rejected((const char *)wrapped, sizeof wrapped), "class wrapping to metadata rejected");
+    const uint8_t unknown[] = {0x50, 10, 0, 1, 'x', 0, HVC_EOR_WINDOW_DONE, 0};
+    Check(Rejected((const char *)unknown, sizeof unknown), "unknown even class rejected");
+}
+
 /* A Bin-ID larger than T.808 allows must be refused rather than accepted as a
  * very large identifier that would silently address the wrong bin. */
 static void TestOversizedBinIdRejected(void) {
@@ -187,10 +196,10 @@ static void TestOversizedBinIdRejected(void) {
 static void TestOverlongLengthRejected(void) {
     char buffer[4096];
     ptrdiff_t size = BuildResponse(buffer, sizeof buffer);
-    hv_jpp_reader reader;
-    hv_jpp_message message;
-    hv_jpp_begin(&reader, (const uint8_t *)buffer, (size_t)size);
-    if (hv_jpp_next(&reader, &message) != HV_JPP_MESSAGE || message.length != 12) {
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
+    hvc_jpp_begin(&reader, (const uint8_t *)buffer, (size_t)size);
+    if (hvc_jpp_next(&reader, &message) != HVC_JPP_MESSAGE || message.length != 12) {
         Check(false, "length test has its expected first message");
         return;
     }
@@ -219,6 +228,7 @@ int main(void) {
     TestEveryTruncation();
     TestExtensionsRejected();
     TestExtendedClassRejected();
+    TestUnsupportedClassRejected();
     TestOversizedBinIdRejected();
     TestOverlongLengthRejected();
     TestEmptyRejected();

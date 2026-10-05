@@ -12,7 +12,7 @@
 #endif
 #endif
 
-#include "hv_client.h"
+#include "hvc.h"
 #include "jpip/index/image_index.h"
 #include "jpip/response/databin_server.h"
 
@@ -132,9 +132,9 @@ inline Context &context(unsigned selector) {
 }
 
 struct Client {
-    hv_client *value = hv_client_create();
+    hvc *value = hvc_create(NULL, NULL);
     Client() { require(value != nullptr, "client allocation failed"); }
-    ~Client() { hv_client_destroy(value); }
+    ~Client() { hvc_destroy(value); }
     Client(const Client &) = delete;
     Client &operator=(const Client &) = delete;
 };

@@ -3,7 +3,7 @@
  *
  * Served profile. The reader and the model's harness share the rules
  * (jpeg2000/hv_rules.c), so the reader's profile checks (hv_check_served:
- * hv_check_jp2 or hv_check_jpx, then every codestream with HV_PROFILE,
+ * hv_served_jp2 or hv_served_jpx, then every codestream with HV_READ_JPIP,
  * embedded or in the linked files) must accept a vector exactly when the
  * manifest labels it profile-valid, and (e) reject it by the rule the
  * manifest's profile_reason names, where it names one (not `decode`).
@@ -29,10 +29,8 @@
  * Codestreams. (f) hv_codestream_check without flags (the standard
  * layer) accepts every jp2c of a standard-valid vector, and rejects one
  * by the manifest's reason when that is a codestream rule
- * (codestream_rule). (g) Where the reader rejects the main header of an
- * embedded jp2c (flags 0, up to its first SOT), the header checks, which
- * read it for SIZ and COD, fail too: with its error, or with an error of
- * the boxes they read first.
+ * (codestream_rule). Header checks interpret SIZ, JP2 MCT and framing only;
+ * rejection of an opaque body by (f) need not reject its header boxes.
  *
  * The corpus is checked with the vector directory as the root that linked
  * files must lie in (hv_check_served).
@@ -65,13 +63,13 @@ static void check(int ok, const char *what, const char *detail) {
     }
 }
 
-/* NULL if the JP2 file passes hv_check_jp2 and its codestream reads
+/* NULL if the JP2 file passes hv_served_jp2 and its codestream reads
  * through with `flags`, otherwise the error and its offset. */
 static const char *profile_error(const uint8_t *buf, size_t size, unsigned flags) {
     static char message[256];
     hv_box jp2c;
     size_t at = 0;
-    const char *error = hv_check_jp2(buf, size, &jp2c, &at);
+    const char *error = hv_served_jp2(buf, size, &jp2c, &at);
     if (error == NULL)
         error = hv_codestream_check(buf, jp2c.payload, jp2c.end, flags, &at);
     if (error == NULL)
@@ -114,34 +112,9 @@ static const char *standard_codestreams(const uint8_t *buf, size_t size, size_t 
     hv_boxes_file(&it, buf, size);
     while ((status = hv_boxes_next(&it, &box, &error, at)) == 1)
         if (box.type == HV_BOX_JP2C &&
-            (error = hv_codestream_check(buf, box.payload, box.end, 0, at)) != NULL)
+            (error = hv_codestream_check(buf, box.payload, box.end, HV_READ_VALIDATE, at)) != NULL)
             return error;
     return status < 0 ? error : NULL;
-}
-
-/* The reader's error in the main header of the first top-level jp2c whose
- * main header it rejects (flags 0, up to the first tile-part), or NULL. */
-static const char *main_header_error(const uint8_t *buf, size_t size, size_t *at) {
-    hv_boxes it;
-    hv_box box;
-    const char *error = NULL, *message;
-    hv_boxes_file(&it, buf, size);
-    while (error == NULL && hv_boxes_next(&it, &box, &message, at) == 1) {
-        hv_codestream cs;
-        hv_item item;
-        int status = -1;
-        if (box.type != HV_BOX_JP2C)
-            continue;
-        if (hv_codestream_open(&cs, buf, box.payload, box.end, 0) == 0)
-            while ((status = hv_codestream_next(&cs, &item)) == 1 && item.kind == HV_SEGMENT)
-                ;
-        if (status < 0) {
-            error = cs.error;
-            *at = cs.error_at;
-        }
-        hv_codestream_close(&cs);
-    }
-    return error;
 }
 
 /* A rule of the codestream (T.800 Annex A), by its name. */
@@ -216,9 +189,9 @@ static void check_deferred(const uint8_t *buf, size_t size, const char *name) {
         size_t eager_at = 0, deferred_at = 0, tile_at = 0;
         int status;
         if (box.type != HV_BOX_JP2C) continue;
-        eager = hv_codestream_check(buf, box.payload, box.end, HV_PROFILE, &eager_at);
-        hv_plt_init(&plt, HV_PROFILE);
-        status = hv_codestream_open(&cs, buf, box.payload, box.end, HV_PROFILE | HV_DEFER_PLT);
+        eager = hv_codestream_check(buf, box.payload, box.end, HV_READ_JPIP, &eager_at);
+        hv_plt_init(&plt, HV_PLT_PROFILE);
+        status = hv_codestream_open(&cs, buf, box.payload, box.end, HV_READ_JPIP_INDEX);
         while (status == 0 && (status = hv_codestream_next(&cs, &item)) == 1) {
             if (item.kind == HV_TILE_PART) tile_at = item.start;
             if (item.plt != NULL) {
@@ -316,17 +289,6 @@ static void check_corpus(const char *dir) {
                 check(standard != NULL && strcmp(standard, field[4]) == 0,
                       "(f) codestream rule name at the standard layer", detail);
         }
-        /* (g): a main header the reader rejects fails the header checks. */
-        {
-            size_t at = 0, header_at = 0;
-            const char *main = main_header_error(buf, size, &at);
-            const char *header = hv_check_headers(buf, size, &header_at);
-            snprintf(detail, sizeof detail, "%s: main header %s at %zu, header checks %s at %zu",
-                     field[0], main ? main : "valid", at, header ? header : "valid", header_at);
-            if (main != NULL)
-                check(header != NULL, "(g) header checks fail on a rejected main header",
-                      detail);
-        }
         valid += expected;
 
         if (nrows == cap) {
@@ -371,7 +333,7 @@ static void check_corpus(const char *dir) {
 }
 
 /* The reader's names at the standard layer (flags 0) and for hv_transcode's
- * input (HV_ACCEPT_PLT_PADDING), where the manifest's reason is `decode`
+ * input (HV_READ_PADDED), where the manifest's reason is `decode`
  * or the profile's: misplaced codes, and PLT padding per tile-part. */
 static void check_standard_names(const char *dir) {
     static const struct {
@@ -381,7 +343,7 @@ static void check_standard_names(const char *dir) {
     } cases[] = {
         {"jp2-main-ppt.jp2", 0, "main.marker-code"},
         {"jp2-tile-tlm.jp2", 0, "tile.marker-code"},
-        {"jp2-precincts-rule-plt.padding-position-43.jp2", HV_ACCEPT_PLT_PADDING,
+        {"jp2-precincts-rule-plt.padding-position-43.jp2", HV_READ_PADDED,
          "plt.padding-position"},
     };
     size_t i, size;
@@ -397,12 +359,12 @@ static void check_standard_names(const char *dir) {
     }
 }
 
-/* HV_PROFILE_HEADERS: the main header only. */
+/* HV_READ_PACKETS_JPIP: the main header only. */
 static void check_headers_scope(const char *dir) {
     static const struct {
         const char *name;
-        const char *error;      /* expected with HV_PROFILE_HEADERS; NULL: accepted */
-        const char *profile;    /* expected with HV_PROFILE; NULL: any error */
+        const char *error;      /* expected with HV_READ_PACKETS_JPIP; NULL: accepted */
+        const char *profile;    /* expected with HV_READ_JPIP; NULL: any error */
     } cases[] = {
         /* The corpus labels SOP `decode` (Cod-Profile): the reader names
          * the rule. */
@@ -421,21 +383,21 @@ static void check_headers_scope(const char *dir) {
         const char *error;
         if (buf == NULL)
             continue;
-        error = profile_error(buf, size, HV_PROFILE_HEADERS);
+        error = profile_error(buf, size, HV_READ_PACKETS_JPIP);
         if (cases[i].error == NULL)
             check(error == NULL, cases[i].name, error);
         else
             check(error != NULL && strncmp(error, cases[i].error, strlen(cases[i].error)) == 0,
                   cases[i].name, error ? error : "accepted");
-        error = profile_error(buf, size, HV_PROFILE);
+        error = profile_error(buf, size, HV_READ_JPIP);
         check(error != NULL && (cases[i].profile == NULL ||
                                 strncmp(error, cases[i].profile, strlen(cases[i].profile)) == 0),
-              cases[i].name, error ? error : "accepted with HV_PROFILE");
+              cases[i].name, error ? error : "accepted with HV_READ_JPIP");
         free(buf);
     }
 }
 
-/* hv_check_jp2 on inputs that are not JP2 files. */
+/* hv_served_jp2 on inputs that are not JP2 files. */
 static void check_file_rules(const char *dir) {
     size_t size, at, cs;
     hv_box jp2c;
@@ -443,19 +405,19 @@ static void check_file_rules(const char *dir) {
     const char *error;
     if (buf == NULL)
         return;
-    check(hv_check_jp2(buf, size, &jp2c, &at) == NULL, "jp2.jp2", NULL);
+    check(hv_served_jp2(buf, size, &jp2c, &at) == NULL, "jp2.jp2", NULL);
     /* The size rule is checked before the buffer is read. */
-    error = hv_check_jp2(buf, (size_t)INT_MAX + 1, &jp2c, &at);
+    error = hv_served_jp2(buf, (size_t)INT_MAX + 1, &jp2c, &at);
     check(error != NULL && strcmp(error, "file.size-limit") == 0, "INT_MAX + 1 bytes", error);
     /* The raw codestream of jp2.jp2. */
-    hv_check_jp2(buf, size, &jp2c, &at);
+    hv_served_jp2(buf, size, &jp2c, &at);
     cs = jp2c.payload;
-    error = hv_check_jp2(buf + cs, jp2c.end - cs, &jp2c, &at);
+    error = hv_served_jp2(buf + cs, jp2c.end - cs, &jp2c, &at);
     check(error != NULL && strcmp(error, "file.signature") == 0, "raw codestream", error);
     free(buf);
 }
 
-/* hv_check_jpx's rule names where a later check could claim the file. */
+/* hv_served_jpx's rule names where a later check could claim the file. */
 static void check_jpx_rules(const char *dir) {
     static const struct {
         const char *name, *error;
@@ -467,14 +429,14 @@ static void check_jpx_rules(const char *dir) {
     for (i = 0; i < sizeof cases / sizeof *cases; i++) {
         uint8_t *buf = vector(dir, cases[i].name, &size);
         const char *error;
-        hv_jpx jpx;
+        hv_served_sources jpx;
         if (buf == NULL)
             continue;
-        error = hv_check_jpx(buf, size, &jpx, &at);
+        error = hv_served_jpx(buf, size, &jpx, &at);
         check(error != NULL && strcmp(error, cases[i].error) == 0, cases[i].name,
               error ? error : "accepted");
         if (error == NULL)
-            hv_jpx_free(&jpx);
+            hv_served_sources_free(&jpx);
         free(buf);
     }
 }
@@ -510,7 +472,7 @@ static void check_offsets(const char *dir) {
     size_t size, at = 0, i;
     uint8_t *buf;
     const char *error;
-    hv_jpx jpx;
+    hv_served_sources jpx;
 
     /* A second COD or QCD in the main header (COD QCD COD, or COD QCD
      * QCD): at that segment, which follows the first QCD, not at the SOT. */
@@ -521,8 +483,8 @@ static void check_offsets(const char *dir) {
         size_t qcd_end = 0;
         if ((buf = vector(dir, second[i][0], &size)) == NULL)
             continue;
-        if (hv_check_jp2(buf, size, &jp2c, &at) != NULL ||
-            hv_codestream_open(&cs, buf, jp2c.payload, jp2c.end, 0) != 0) {
+        if (hv_served_jp2(buf, size, &jp2c, &at) != NULL ||
+            hv_codestream_open(&cs, buf, jp2c.payload, jp2c.end, HV_READ_VALIDATE) != 0) {
             check(0, second[i][0], "does not open");
             free(buf);
             continue;
@@ -545,11 +507,11 @@ static void check_offsets(const char *dir) {
     }
     /* A fragment's DR: at its flst box. */
     if ((buf = vector(dir, "jpx-linked-rule-flst.dr-range-3.jpx", &size)) != NULL) {
-        error = hv_check_jpx(buf, size, &jpx, &at);
+        error = hv_served_jpx(buf, size, &jpx, &at);
         check(error != NULL && strcmp(error, "flst.dr-range") == 0 &&
               box_at(buf, size, HV_BOX_FTBL, HV_BOX_FLST, at), "flst.dr-range at flst", error);
         if (error == NULL)
-            hv_jpx_free(&jpx);
+            hv_served_sources_free(&jpx);
         free(buf);
     }
 }
@@ -597,18 +559,18 @@ static void check_codestream_lifetime(const char *dir) {
     int status, sot_ok = 1, siz_ok = 0, plt_ok = 1;
 
     /* start after end: refused, and nothing to read. */
-    check(hv_codestream_open(&cs, (const uint8_t *)"", 1, 0, 0) != 0 && cs.error != NULL &&
+    check(hv_codestream_open(&cs, (const uint8_t *)"", 1, 0, HV_READ_VALIDATE) != 0 && cs.error != NULL &&
           hv_codestream_siz(&cs) == NULL && hv_codestream_next(&cs, &item) < 0,
           "codestream start after end", cs.error);
     hv_codestream_close(&cs);
     if (buf == NULL)
         return;
-    if (hv_check_jp2(buf, size, &jp2c, &at) != NULL) {
-        check(0, "jp2.jp2", "hv_check_jp2");
+    if (hv_served_jp2(buf, size, &jp2c, &at) != NULL) {
+        check(0, "jp2.jp2", "hv_served_jp2");
         free(buf);
         return;
     }
-    check(hv_codestream_open(&cs, buf, jp2c.payload, jp2c.end, HV_PROFILE) == 0 &&
+    check(hv_codestream_open(&cs, buf, jp2c.payload, jp2c.end, HV_READ_JPIP) == 0 &&
           hv_codestream_siz(&cs) != NULL && hv_codestream_cod(&cs) == NULL &&
           hv_codestream_qcd(&cs) == NULL, "accessors after open", cs.error);
     while ((status = hv_codestream_next(&cs, &item)) == 1) {
@@ -652,18 +614,19 @@ static void check_opaque_main(const char *dir) {
     hv_codestream cs;
     hv_item item;
     if (buf == NULL) return;
-    if (hv_check_jp2(buf, size, &box, &at) != NULL) {
+    if (hv_served_jp2(buf, size, &box, &at) != NULL) {
         check(0, "opaque bodies base", NULL);
         free(buf);
         return;
     }
-    hv_codestream_open(&cs, buf, box.payload, box.end, 0);
+    hv_codestream_open(&cs, buf, box.payload, box.end, HV_READ_VALIDATE);
     while (hv_codestream_next(&cs, &item) == 1)
         if (item.code == HV_QCD) { qstart = item.start; qend = item.end; }
     hv_codestream_close(&cs);
     check(qend > qstart + 4, "opaque QCD base", NULL);
     if (qend > qstart + 4) {
-        unsigned flags[] = {0, HV_PROFILE_HEADERS, HV_PROFILE, HV_PROFILE | HV_DEFER_PLT};
+        hv_read_mode modes[] = {HV_READ_VALIDATE, HV_READ_PADDED, HV_READ_PACKETS,
+                                HV_READ_PACKETS_JPIP, HV_READ_JPIP, HV_READ_JPIP_INDEX};
         size_t i;
         /* Remove the QCD body; insert COM with no registration or text. */
         size_t n = box.end - box.payload - (qend - qstart - 4) + 4;
@@ -673,9 +636,9 @@ static void check_opaque_main(const char *dir) {
         data[q + 2] = 0; data[q + 3] = 2;
         memcpy(data + q + 4, "\xff\x64\x00\x02", 4);
         memcpy(data + q + 8, buf + qend, box.end - qend);
-        for (i = 0; i < sizeof flags / sizeof *flags; i++) {
+        for (i = 0; i < sizeof modes / sizeof *modes; i++) {
             int status, opaque = 1, seen = 0;
-            hv_codestream_open(&cs, data, 0, n, flags[i]);
+            hv_codestream_open(&cs, data, 0, n, modes[i]);
             while ((status = hv_codestream_next(&cs, &item)) == 1)
                 if (item.code == HV_QCD || item.code == HV_COM) {
                     seen++;
@@ -686,21 +649,21 @@ static void check_opaque_main(const char *dir) {
                   hv_codestream_qcd(&cs) == NULL, "opaque QCD/COM scope", cs.error);
             hv_codestream_close(&cs);
         }
-        /* Restore QCD so standard and header-only modes reach invalid COM. */
+        /* Restore QCD so both validation modes reach invalid COM. */
         n = box.end - box.payload + 4;
         memcpy(data, buf + box.payload, q);
         memcpy(data + q, "\xff\x64\x00\x02", 4);
         memcpy(data + q + 4, buf + qstart, box.end - qstart);
         for (i = 0; i < 2; i++) {
             int status;
-            hv_codestream_open(&cs, data, 0, n, flags[i]);
+            hv_codestream_open(&cs, data, 0, n, modes[i]);
             while ((status = hv_codestream_next(&cs, &item)) == 1) ;
             check(status < 0 && cs.error != NULL && strcmp(cs.error, "invalid COM") == 0,
-                  "COM remains validated outside served profile", cs.error);
+                  "COM remains interpreted by validation modes", cs.error);
             hv_codestream_close(&cs);
         }
         data[q + 3] = 1;
-        hv_codestream_open(&cs, data, 0, n, HV_PROFILE);
+        hv_codestream_open(&cs, data, 0, n, HV_READ_JPIP);
         while (hv_codestream_next(&cs, &item) == 1) ;
         check(cs.error != NULL, "opaque COM rejects invalid segment length", NULL);
         hv_codestream_close(&cs);
@@ -757,7 +720,7 @@ static void check_link_paths(void) {
         {"file://", "url.length"},
         {"http://a.jp2", "url.file-scheme"},
     };
-    hv_link link = {0};
+    hv_served_source link = {0};
     char out[64];
     const char *error;
     size_t i;
@@ -765,25 +728,25 @@ static void check_link_paths(void) {
     for (i = 0; i < sizeof valid / sizeof *valid; i++) {
         link.loc = (const uint8_t *)valid[i].loc;
         link.loc_size = strlen(valid[i].loc);
-        check(hv_link_path(&link, "d/x.jpx", out, sizeof out) == NULL &&
+        check(hv_served_path(&link, "d/x.jpx", out, sizeof out) == NULL &&
               strcmp(out, valid[i].expected) == 0, "link path", valid[i].loc);
     }
     link.loc = (const uint8_t *)valid[1].loc;
     link.loc_size = strlen(valid[1].loc);
-    check(hv_link_path(&link, NULL, out, sizeof out) == NULL && strcmp(out, "a b.jp2") == 0,
+    check(hv_served_path(&link, NULL, out, sizeof out) == NULL && strcmp(out, "a b.jp2") == 0,
           "link path without a JPX path", valid[1].loc);
     for (i = 0; i < sizeof invalid / sizeof *invalid; i++) {
         link.loc = (const uint8_t *)invalid[i].loc;
         link.loc_size = strlen(invalid[i].loc);
         memset(out, 'X', sizeof out);
-        error = hv_link_path(&link, "d/x.jpx", out, sizeof out);
+        error = hv_served_path(&link, "d/x.jpx", out, sizeof out);
         check(error != NULL && strcmp(error, invalid[i].error) == 0 && out[0] == 0,
               "invalid link path", invalid[i].loc);
     }
     link.loc = (const uint8_t *)valid[1].loc;
     link.loc_size = strlen(valid[1].loc);
     memset(out, 'X', sizeof out);
-    check(hv_link_path(&link, "d/x.jpx", out, 4) != NULL && out[0] == 0,
+    check(hv_served_path(&link, "d/x.jpx", out, 4) != NULL && out[0] == 0,
           "link path too long", valid[1].loc);
 }
 
@@ -1038,8 +1001,8 @@ static void check_geometry(const char *dir) {
 
     if ((buf = vector(dir, "jp2-precincts.jp2", &size)) == NULL)
         return;
-    if (hv_check_jp2(buf, size, &jp2c, &at) != NULL ||
-        hv_codestream_open(&cs, buf, jp2c.payload, jp2c.end, 0) != 0) {
+    if (hv_served_jp2(buf, size, &jp2c, &at) != NULL ||
+        hv_codestream_open(&cs, buf, jp2c.payload, jp2c.end, HV_READ_VALIDATE) != 0) {
         check(0, "jp2-precincts.jp2 opens", cs.error);
         free(buf);
         return;

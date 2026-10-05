@@ -2,6 +2,7 @@
  * failing case has an accepted control and asserts the specific rule.
  * These public-rule tests complement the reader's whole-file corpus. */
 #include "jpeg2000/hv_rules.h"
+#include "jpeg2000/hv_writer.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -523,7 +524,40 @@ static void tile_grid_limits(void) {
     rule(hv_rule_siz(&siz, NULL, 0), NULL, "largest coordinates in one tile");
 }
 
+/* Bound fixed container-information fields before reading their counts. */
+static void container_information_lengths(void) {
+    for (int kind = 0; kind < 2; kind++) {
+        size_t required = kind ? 20 : 8;
+        uint8_t fields[21] = {0};
+        fields[3] = 1;                 /* M or Ncs. */
+        if (kind) fields[11] = 1;       /* One compositing layer, no threads. */
+        for (size_t length = required - 1; length <= required + 1; length++) {
+            hv_out out;
+            hv_box box = {0};
+            size_t start, at = 0;
+            int ipr = 0;
+            hv_out_init(&out);
+            int status = hv_begin_box(&out, kind ? HV_BOX_JCLX : HV_BOX_J2CX, 0, &start);
+            if (status == 0) status = hv_write_box_header(&out, kind ? HV_BOX_JLXI : HV_BOX_J2CI, length);
+            if (status == 0) status = hv_write_bytes(&out, fields, length);
+            if (status == 0) status = hv_write_box_header(&out, kind ? HV_BOX_JPLH : HV_BOX_JP2C, 0);
+            if (status == 0) status = hv_end_box(&out, start);
+            check(status == 0, "container information fixture");
+            if (status == 0) {
+                box.type = kind ? HV_BOX_JCLX : HV_BOX_J2CX;
+                box.payload = 8; box.end = out.size;
+                const char *error = hv_rule_box_placed(out.data, &box, 0, &ipr, &at);
+                rule(error, length == required ? NULL : kind ? "jlxi.length" : "j2ci.length",
+                     "container information length");
+                if (error) check(at == 8, "container information error offset");
+            }
+            hv_out_free(&out);
+        }
+    }
+}
+
 int main(void) {
+    container_information_lengths();
     siz_boundaries();
     rsiz_boundaries();
     tile_grid_limits();

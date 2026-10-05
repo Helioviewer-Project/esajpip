@@ -6,14 +6,15 @@
  *
  *   -v  print every box and codestream item
  *   -p  accept trailing zero PLT entries of each tile-part
- *       (HV_ACCEPT_PLT_PADDING), as deployed files carry them; not with -P,
+ *       (HV_READ_PADDED), as deployed files carry them; not with -P,
  *       whose profile accepts them after the last packet only
  *   -P  check the served profile (hv_check_served): the file rules, and
- *       HV_PROFILE for every codestream, embedded or in a linked file
+ *       HV_READ_JPIP for every codestream, embedded or in a linked file
  *   -H  check the box structure and the header boxes at the standard layer
  *       (hv_check_headers: hv_check_jpx_headers for the ftyp brand 'jpx ',
  *       hv_check_jp2h for any other), as the tools do for the files they
- *       write
+ *       write; alone, -H leaves codestream bodies opaque (-P or -w adds
+ *       codestream validation)
  *   -R  (-R dir, with -P) linked files must lie inside the directory dir
  *   -w  rewrite the whole file with hv_writer from what the reader decoded
  *       (hv_rewrite), and compare it with the input
@@ -37,7 +38,8 @@
 
 static int verbose, rewrite, profile, headers;
 static const char *root;
-static unsigned flags;
+static hv_read_mode mode;
+static int padding;
 
 static void fourcc(uint32_t t, char out[5]) {
     int i;
@@ -59,7 +61,7 @@ typedef struct {
 static int walk_codestream(const uint8_t *buf, size_t start, size_t end, walk_result *r) {
     hv_codestream cs;
     hv_item item;
-    int status = hv_codestream_open(&cs, buf, start, end, flags);
+    int status = hv_codestream_open(&cs, buf, start, end, mode);
 
     while (status == 0 && (status = hv_codestream_next(&cs, &item)) == 1) {
         static const char *kinds[] = {"segment", "tile-part", "tile-segment", "data", "end"};
@@ -84,7 +86,9 @@ static int walk_codestream(const uint8_t *buf, size_t start, size_t end, walk_re
     return status < 0 ? -1 : 0;
 }
 
-static int walk_boxes(const uint8_t *buf, hv_boxes *it, int depth, walk_result *r) {
+/* header_kind: 0 for codestream inspection, 1 for JP2 headers, 2 for JPX. */
+static int walk_boxes(const uint8_t *buf, hv_boxes *it, int depth, int header_kind,
+                      walk_result *r) {
     hv_box box;
     int status;
     char name[5];
@@ -97,9 +101,12 @@ static int walk_boxes(const uint8_t *buf, hv_boxes *it, int depth, walk_result *
                    box.to_end ? " to end" : "");
         }
         if (box.type == HV_BOX_JP2C) {
-            if (walk_codestream(buf, box.payload, box.end, r) != 0)
+            if (header_kind) r->codestreams++;
+            else if (walk_codestream(buf, box.payload, box.end, r) != 0)
                 return -1;
-        } else if (hv_is_superbox(box.type)) {
+        } else if (hv_is_superbox(box.type) &&
+                   (header_kind != 1 || box.type == HV_BOX_JP2H ||
+                    box.type == HV_BOX_RES || box.type == HV_BOX_UINF)) {
             hv_boxes children;
             if (depth + 1 > HV_BOX_DEPTH_MAX) {       /* depth 0 is the top level */
                 snprintf(r->message, sizeof r->message, "superboxes nested deeper than %d",
@@ -109,7 +116,7 @@ static int walk_boxes(const uint8_t *buf, hv_boxes *it, int depth, walk_result *
                 return -1;
             }
             hv_boxes_children(&children, buf, &box);
-            if (walk_boxes(buf, &children, depth + 1, r) != 0)
+            if (walk_boxes(buf, &children, depth + 1, header_kind, r) != 0)
                 return -1;
         }
     }
@@ -161,10 +168,16 @@ static int walk_file(const char *path) {
         status = walk_codestream(buf, 0, size, &r);
     } else {
         hv_boxes it;
+        int header_kind = 0;
+        if (headers && !profile && !rewrite) {
+            hv_ftyp type;
+            r.error = hv_container_open(buf, size, &it, &type, &r.at);
+            if (r.error == NULL) header_kind = hv_ftyp_is_jpx(&type) ? 2 : 1;
+        }
         hv_boxes_file(&it, buf, size);
-        status = walk_boxes(buf, &it, 0, &r);
+        status = r.error ? -1 : walk_boxes(buf, &it, 0, header_kind, &r);
     }
-    if (status == 0 && rewrite && hv_rewrite(buf, size, raw, flags, &out, &rewritten) != 0) {
+    if (status == 0 && rewrite && hv_rewrite(buf, size, raw, mode, &out, &rewritten) != 0) {
         r.error = rewritten.error;
         r.at = rewritten.at;
         status = -1;
@@ -191,6 +204,8 @@ static int walk_file(const char *path) {
             printf(", %zu linked codestreams", linked);
         if (r.plt_padding != 0)
             printf(", %lu zero PLT entries", r.plt_padding);
+        if (headers && !profile && !rewrite)
+            printf("; headers only");
         if (rewrite && rewritten.uncomparable != NULL)
             printf("; rewrite not compared: %s", rewritten.uncomparable);
         else if (rewrite)
@@ -208,9 +223,8 @@ int main(int argc, char **argv) {
         if (argv[i][1] == 'v')
             verbose = 1;
         else if (argv[i][1] == 'p')
-            flags |= HV_ACCEPT_PLT_PADDING;
+            padding = 1;
         else if (argv[i][1] == 'P') {
-            flags |= HV_PROFILE;
             profile = 1;
         }
         else if (argv[i][1] == 'H')
@@ -222,11 +236,12 @@ int main(int argc, char **argv) {
         else
             break;
     }
-    if (i == argc || argv[i][0] == '-' || ((flags & HV_ACCEPT_PLT_PADDING) && profile) ||
+    if (i == argc || argv[i][0] == '-' || (padding && profile) ||
         (root != NULL && !profile)) {
         fprintf(stderr, "usage: hv_walk [-v] [-p] [-P [-R dir]] [-H] [-w] file...\n");
         return 2;
     }
+    mode = profile ? HV_READ_JPIP : padding ? HV_READ_PADDED : HV_READ_VALIDATE;
     for (; i < argc; i++)
         bad |= walk_file(argv[i]) != 0;
     return bad;

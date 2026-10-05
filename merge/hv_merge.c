@@ -407,7 +407,7 @@ static int merge(char **names, size_t n, const char *output, int links, int vali
         files.output = &out;
     if (hv_file_create(&f, output, HV_FILE_KEEP_MODE, error, error_size) != 0)
         return -1;
-    if (hv_merge_files(&inputs, n, links, validate, f.file, error, error_size) != 0) {
+    if (hv_merge_files(&inputs, n, links, validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, f.file, error, error_size) != 0) {
         hv_file_abort(&f);
         return -1;
     }

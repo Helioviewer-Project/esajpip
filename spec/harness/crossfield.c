@@ -449,7 +449,7 @@ const char *cf_check_jp2_profile(const Jp2File_Profile *file) {
     if (file->boxes.arr[1].payload.kind != Jp2Payload_Profile_ftyp_PRESENT)
         return "file.ftyp-second";
     if ((r = cf_ftyp(&file->boxes.arr[1].payload.u.ftyp, CF_JP2, CF_PROFILE)) != NULL) return r;
-    /* The count first, then the codestream, as the reader (hv_check_jp2,
+    /* The count first, then the codestream, as the reader (hv_served_jp2,
      * then hv_codestream_check). */
     for (i = 0; i < file->boxes.nCount; ++i)
         jp2c += file->boxes.arr[i].payload.kind == Jp2Payload_Profile_jp2c_PRESENT;

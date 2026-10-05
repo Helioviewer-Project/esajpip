@@ -20,6 +20,9 @@ endforeach()
 
 add_library(jpeg2000 STATIC
     hv_reader.c
+    hv_render.c
+    hv_metadata.c
+    hv_local.c
     hv_rules.c
     hv_writer.c
     hv_rewrite.c

@@ -4,6 +4,7 @@
  * model, and every input and link is checked with the reader's rules. */
 #define _XOPEN_SOURCE 700
 
+#include "jpeg2000/hv_served.h"
 #include "merge.h"
 
 #include <limits.h>
@@ -34,11 +35,10 @@ typedef struct {
     hv_merge_input in;
     hv_box jp2h, jp2c, xml;
     hv_box ihdr, bpcc, pclr, cmap, cdef, res;
-    hv_box cgrp;                    /* in jp2h: a JP2 reader ignores it */
     hv_box colr[MAX_COLR];
     int ncolr;
     int ipr;                        /* IPR boxes (jp2i), at the top level and in jp2h */
-    unsigned rsiz, nc;
+    unsigned rsiz, nc, ipr_flag;
     int opacity, premultiplied;     /* cdef Typ 1, Typ 2 */
 } source;
 
@@ -56,24 +56,16 @@ HV_DEFINE_DECODE(ColrHeader)
  * Inputs
  * ------------------------------------------------------------------------ */
 
-/* The Rsiz of a main header hv_read_jp2h accepted at the T.800 layer. */
-static unsigned codestream_rsiz(const uint8_t *buf, const hv_box *jp2c) {
-    hv_codestream cs;
-    unsigned rsiz = 0;
-    if (hv_codestream_open(&cs, buf, jp2c->payload, jp2c->end, 0) == 0)
-        rsiz = (unsigned)hv_codestream_siz(&cs)->fixed->rsiz;
-    hv_codestream_close(&cs);
-    return rsiz;
-}
-
 /* The box tree rules of a JPX file for `box` (none: type 0) of s's input,
  * copied as a child of `parent` (hv_rule_box_placed); 0, or -1 with the
- * error naming the input, the rule and `where`. */
+ * error naming the input, the rule and `where`. On success, *ipr counts
+ * IPR in this copied tree. */
 static int placed(const source *s, const hv_box *box, uint32_t parent, const char *where,
-                  char *error, size_t size) {
+                  int *ipr, char *error, size_t size) {
     const char *rule;
     size_t at;
-    if (box->type == 0 || (rule = hv_rule_box_placed(s->in.buf, box, parent, &at)) == NULL)
+    *ipr = 0;
+    if (box->type == 0 || (rule = hv_rule_box_placed(s->in.buf, box, parent, ipr, &at)) == NULL)
         return 0;
     return hv_fail(error, size, "%s: %s at %zu, in %s", s->in.path, rule, at, where);
 }
@@ -87,38 +79,48 @@ static hv_box *header_box(source *s, uint32_t type) {
     case HV_BOX_CMAP: return &s->cmap;
     case HV_BOX_CDEF: return &s->cdef;
     case HV_BOX_RES: return &s->res;
-    case HV_BOX_CGRP: return &s->cgrp;
     default: return NULL;
     }
 }
 
-static int read_source(const hv_merge_input *in, source *s, int validate, char *error, size_t size) {
+static int read_source(const hv_merge_input *in, source *s, int links, hv_output_profile profile, char *error, size_t size) {
     hv_boxes it;
     hv_box box;
     const char *message;
     size_t at;
-    int status;
+    int status, headers = 0;
     hv_header header;
+    SizFixed siz;
 
     memset(s, 0, sizeof *s);
     s->in = *in;
-    if ((message = hv_check_jp2(in->buf, in->size, &s->jp2c, &at)) != NULL ||
-        (validate && (message = hv_codestream_check(in->buf, s->jp2c.payload, s->jp2c.end,
-                                                  HV_PROFILE, &at)) != NULL) ||
-        (message = hv_read_jp2h(in->buf, in->size, &header, &at)) != NULL)
+    if (in->size > INT_MAX)
+        return hv_fail(error, size, "%s: file.size-limit at 0", in->path);
+    /* Linked inputs must remain readable by the server's hv_served_link. */
+    message = links || profile == HV_OUTPUT_JPIP ? hv_served_jp2(in->buf, in->size, &s->jp2c, &at)
+                               : hv_read_jp2(in->buf, in->size, &s->jp2c, &at);
+    if (message != NULL ||
+        (profile == HV_OUTPUT_JPIP && (message = hv_codestream_check(in->buf, s->jp2c.payload, s->jp2c.end,
+                                                  HV_READ_JPIP, &at)) != NULL))
         return hv_fail(error, size, "%s: %s at %zu", in->path, message, at);
     hv_boxes_file(&it, in->buf, in->size);
     while (hv_boxes_next(&it, &box, &message, &at) == 1) {
-        if (box.type == HV_BOX_JP2H && s->jp2h.type == 0)
-            s->jp2h = box;
-        else if (box.type == HV_BOX_XML && s->xml.type == 0)
+        if (box.type == HV_BOX_JP2H) {
+            if (headers++ == 0) s->jp2h = box;
+        } else if (box.type == HV_BOX_XML && s->xml.type == 0)
             s->xml = box;
         else if (box.type == HV_BOX_JP2I)
             s->ipr++;
     }
-    /* hv_read_jp2h: one jp2h, ihdr first and NC = Csiz (at most 16,384),
-     * at most one bpcc, pclr, cmap, cdef and res, each decoded by the
-     * model's types. */
+    if (headers != 1)
+        return hv_fail(error, size, "%s: jp2.one-jp2h at %zu", in->path, in->size);
+    if (s->jp2h.start > s->jp2c.start)
+        return hv_fail(error, size, "%s: jp2h.position at %zu", in->path, in->size);
+    message = hv_read_jp2h_boxes(in->buf, &s->jp2h, &s->jp2c, &header, &at);
+    if (message != NULL)
+        return hv_fail(error, size, "%s: %s at %zu", in->path, message, at);
+    /* Selected header: ihdr first and NC = Csiz (at most 16,384),
+     * at most one bpcc, pclr, cmap, cdef and res. */
     hv_boxes_children(&it, in->buf, &s->jp2h);
     while ((status = hv_boxes_next(&it, &box, &message, &at)) == 1) {
         hv_box *first = header_box(s, box.type);
@@ -134,8 +136,17 @@ static int read_source(const hv_merge_input *in, source *s, int validate, char *
     }
     if (status < 0)
         return hv_fail(error, size, "%s: %s at %zu", in->path, message, at);
-    s->rsiz = codestream_rsiz(in->buf, &s->jp2c);
+    message = hv_read_siz(in->buf + s->jp2c.payload, s->jp2c.end - s->jp2c.payload,
+                          &siz, NULL, 0, &at);
+    if (message != NULL)
+        return hv_fail(error, size, "%s: %s at %zu", in->path, message, s->jp2c.payload + at);
+    /* Reader Requirements below describe only these declarations. */
+    if (siz.rsiz > 2)
+        return hv_fail(error, size, "%s: unsupported Rsiz %u for merge Reader Requirements "
+                       "(supported: 0, 1, 2)", in->path, (unsigned)siz.rsiz);
+    s->rsiz = (unsigned)siz.rsiz;
     s->nc = (unsigned)header.image.nc;
+    s->ipr_flag = (unsigned)header.image.ipr;
     s->opacity = header.opacity;
     s->premultiplied = header.premultiplied;
     return 0;
@@ -476,9 +487,9 @@ static int write_headers(writer *w, const source *s, const source *first) {
  * (linked codestreams), each needed for both the Fully Understand and the
  * Display expressions: feature i sets mask bit i, FUAM and DCM all of
  * them. Rsiz 1 (Profile 0) needs no feature: 3, its own, is deprecated.
- * This merger validates inputs only with Rsiz 0, 1 or 2; the broader
- * T.800 profiles are unvalidated (siz.unsupported-profile), and Part 2
- * declarations in JP2 are rejected (jp2.rsiz), so feature 1 always holds.
+ * read_source admits only Rsiz 0, 1 or 2 for these Reader Requirements.
+ * Part 2 declarations in JP2 also fail header consistency (jp2.rsiz).
+ * No extension feature is emitted, so feature 1 always holds.
  * At most 7 features, so every mask is one byte (ML 1), and no vendor
  * features. 0, or -1 with
  * w->out.error set. */
@@ -588,7 +599,7 @@ static char *link_url(const char *path, char *error, size_t size) {
 
 /* Opens input i. The first pass validates and records its layout; the
  * second only reacquires the immutable bytes. On failure, close any mapping. */
-static int open_input(const hv_merge_inputs *inputs, size_t i, source *s, int again, int validate,
+static int open_input(const hv_merge_inputs *inputs, size_t i, source *s, int again, int links, hv_output_profile profile,
                       char *error, size_t error_size) {
     hv_merge_input in;
     memset(&in, 0, sizeof in);
@@ -596,7 +607,7 @@ static int open_input(const hv_merge_inputs *inputs, size_t i, source *s, int ag
         s->in.buf = NULL;
         return -1;
     }
-    if (!again && read_source(&in, s, validate, error, error_size) != 0) {
+    if (!again && read_source(&in, s, links, profile, error, error_size) != 0) {
         inputs->close(inputs->context, i, &in);
         s->in.buf = NULL;
         return -1;
@@ -612,8 +623,10 @@ static void close_input(const hv_merge_inputs *inputs, size_t i, source *s) {
     s->in.buf = NULL;
 }
 
-int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, int validate, FILE *file,
+int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, hv_output_profile profile, FILE *file,
                    char *error, size_t error_size) {
+    if (profile != HV_OUTPUT_JPEG2000 && profile != HV_OUTPUT_JPIP)
+        return hv_fail(error, error_size, "invalid output profile");
     writer w;
     source *s;
     char **urls = NULL;
@@ -641,7 +654,8 @@ int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, int valid
      * recorded; opened one at a time, besides the first, which every later
      * one is compared with and which stays open. */
     for (i = 0; i < n; i++) {
-        if (open_input(inputs, i, &s[i], 0, validate, error, error_size) != 0)
+        int copied_ipr;
+        if (open_input(inputs, i, &s[i], 0, links, profile, error, error_size) != 0)
             goto done;
         /* The boxes copied whole where the JPX file puts them (T.801
          * M.11): the first input's jp2h, which is the JPX file's (where
@@ -650,8 +664,14 @@ int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, int valid
          * does not define is skipped there (T.800 I.8) but may have a
          * place in a JPX file. */
         if (placed(&s[i], i == 0 ? &s[0].jp2h : &s[i].res, i == 0 ? 0 : HV_BOX_JPLH,
-                   i == 0 ? "the JPX file's jp2h" : "its jplh", error, error_size) != 0)
+                   i == 0 ? "the JPX file's jp2h" : "its jplh", &copied_ipr, error, error_size) != 0)
             goto done;
+        /* Direct IPR boxes are relocated; nested ones count only in a
+         * copied header tree. Dropped metadata cannot satisfy the flag. */
+        if ((s[i].ipr_flag != 0) != (s[i].ipr > 0 || copied_ipr > 0)) {
+            hv_fail(error, error_size, "%s: ihdr.ipr at %zu", s[i].in.path, s[i].jp2h.start);
+            goto done;
+        }
         /* The colours as the output holds them (write_headers). */
         if (i == 0 ? check_jpx_colrs(&s[0], HV_BOX_JP2H, error, error_size) != 0
                    : !same_colrs(&s[i], &s[0]) &&
@@ -691,7 +711,7 @@ int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, int valid
         goto done;
     for (i = 0; i < n; i++) {
         const hv_box *cs = &s[i].jp2c;
-        if (i > 0 && open_input(inputs, i, &s[i], 1, validate, error, error_size) != 0)
+        if (i > 0 && open_input(inputs, i, &s[i], 1, links, profile, error, error_size) != 0)
             goto done;
         if (write_headers(&w, &s[i], &s[0]) != 0)
             goto done;
@@ -749,9 +769,9 @@ static void buffer_close(void *context, size_t i, hv_merge_input *in) {
     (void)in;
 }
 
-int hv_merge_buffers(const hv_merge_input *inputs, size_t n, int links, int validate, FILE *file,
+int hv_merge_buffers(const hv_merge_input *inputs, size_t n, int links, hv_output_profile profile, FILE *file,
                      char *error, size_t error_size) {
     hv_merge_inputs from = {buffer_open, buffer_close, NULL};
     from.context = (void *)inputs;
-    return hv_merge_files(&from, n, links, validate, file, error, error_size);
+    return hv_merge_files(&from, n, links, profile, file, error, error_size);
 }

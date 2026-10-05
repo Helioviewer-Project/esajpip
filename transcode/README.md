@@ -32,8 +32,9 @@ group where the process may give them), so input and output may be the same
 file; an output that is a symbolic link is written where the link points,
 the file it names created if need be. On error nothing is written. Replacement is
 atomic, with no crash-durability guarantee.
-Superboxes nested more than `HV_BOX_DEPTH_MAX` (32) deep are refused. Exit
-status: 0, 1 on error, 2 on usage errors.
+The shared JP2 reader checks header, resolution and UUID-info box children.
+JPX-only extension boxes remain opaque in this JP2 file and are copied whole,
+without descending into their bodies. Exit status: 0, 1 on error, 2 on usage errors.
 
 A linked JPX file (`hv_merge -links`) records where each codestream is in
 its JP2 file. Transcoding such a file, in place or not, moves its
@@ -41,25 +42,34 @@ codestream: merge the JPX file again from the new files.
 
 ## Supported input
 
-The output is for the JPIP server, so the input must be a JP2 file within
+The command writes for the JPIP server, so its input must be a JP2 file within
 the served profile (`../JPIP_PROFILE.md`) except for its tile-parts,
 which are rewritten. The reader checks this with the rules shared with the
-model (`../jpeg2000/`): the file rules of `hv_check_jp2` (signature, file type
+model (`../jpeg2000/`): the file rules of `hv_served_jp2` (signature, file type
 with the `jp2 ` brand and compatibility entry, exactly one `jp2c`, at most
 `INT_MAX` bytes; JPX files and raw codestreams fail) and the main-header
-rules of `HV_PROFILE_HEADERS` (zero origins, unit sampling, one tile,
+rules of `HV_READ_PACKETS_JPIP` (zero origins, unit sampling, one tile,
 dimensions up to `INT32_MAX`, no COC, POC or PPM). The header boxes, which
-the output keeps as read, must pass `hv_check_jp2h` (T.800 I.5.3: one
-`jp2h` before the codestream, its boxes well formed and in order, and
-`ihdr` and `bpcc` agreeing with SIZ), after the main header: which must
-then be valid at the standard layer too, as the header boxes are checked
-against it. What else the profile asks for, the
-transcoder writes: the tile-parts and a COD without SOP. Errors from the
+the output keeps as read, are checked by `hv_read_jp2h` (T.800 I.5.3:
+one `jp2h` before the codestream, its boxes well formed and in order,
+and `ihdr` and `bpcc` agreeing with SIZ) against SIZ and COD MCT
+read from the main header. Packet processing separately checks the full COD. This checks header consistency
+without interpreting copied marker bodies. What else the profile asks
+for, the transcoder writes: the tile-parts and a COD without SOP. Errors from the
 reader name the rule where a shared one fails, and the offset in the file,
 as in `siz.zero-origin at 410`. The output is at most `INT_MAX` bytes and
-passes the whole profile (`HV_PROFILE`): the tests check every file they
+passes the whole profile (`HV_READ_JPIP`): the tests check every file they
 transcode, and the fuzz target every codestream whose main header is
 within the served profile.
+
+The file wrapper preserves Rsiz under the serving reader's policy. Geometry
+checks the decoded fields and tile/component layout without reapplying the
+standard validator's declaration limits. This does not validate the profile
+named by Rsiz; unsupported coding markers and styles still fail. The raw
+entry point with `HV_OUTPUT_JPEG2000` explicitly retains its previous declaration support
+limit through `hv_rule_rsiz`, before writing output. Rewriting progression and
+precincts does not establish conformance to unimplemented declared profiles.
+This output restriction belongs to transcode, rather than to the packet reader.
 
 Within that, as in hvJP2K: up to 255 tile-parts, as many as TPsot can number
 (Psot = 0 allowed on the last one), any progression order, only PLT and COM
@@ -67,10 +77,10 @@ in tile-part headers, and code-block styles without selective arithmetic
 coding bypass or termination on each coding pass. RGN, which hvJP2K rejects,
 is kept: it changes neither the packets nor their headers. The new precincts
 must keep the code-block partition. SOP and EPH markers are checked and not
-written; the input's PLT is checked as the reader does (Zplt order, lengths
-adding up to each tile-part's data, zero entries only after the last packet
-of a tile-part) but not used. One rule (`main_marker` and `tile_marker` in
-`transcode.c`) decides every marker, at the file and the codestream level
+written. Input PLT segments must have bounded framing, but their bodies
+are ignored. The transcoder reads the actual packet headers and data,
+then generates new PLT lengths for the output. One rule (`main_marker`
+and `tile_marker` in `transcode.c`) decides every marker, at the file and the codestream level
 alike: in the main header SIZ, QCD, QCC, RGN, CRG and COM are copied as
 read (COD is replaced), TLM and PLM dropped, and anything else rejected:
 COC, POC and PPM, a marker code
@@ -80,13 +90,39 @@ which may describe the packets the transcoder rewrites, and 0xFF30 to
 tile-part headers, PLT and COM are dropped with the headers, and anything
 else rejected.
 
-`hv_transcode_codestream`, the codestream level that the tests and the fuzz
-target also use, does not apply the profile unless given
-`HV_PROFILE_HEADERS` (its only other flag value is 0): it takes nonzero
-origins and sub-sampled components too, and keeps, drops and rejects the
-same markers, by the rule above. It reads the input with
-`HV_ACCEPT_PLT_PADDING`, zero PLT entries accepted at the end of each
-tile-part, as the input's PLT is not used.
+Both `hv_transcode_codestream` and `hv_transcode_file` take the same
+`hv_output_profile` as merge. `HV_OUTPUT_JPEG2000` supports the transcoder's
+general geometry, including nonzero origins and subsampled components.
+`HV_OUTPUT_JPIP` requires the serving geometry and container restrictions.
+The command-line tool selects `HV_OUTPUT_JPIP` as before.
+
+The transcoder chooses `HV_READ_PACKETS` or `HV_READ_PACKETS_JPIP` internally.
+Both check SIZ, COD, marker framing and tile-part boundaries, while copied or
+dropped bodies stay opaque. Input PLT numbering, lengths and padding are not
+interpreted because the packet reader derives lengths and writes fresh PLT.
+
+The remaining restrictions have these owners:
+
+| Requirement | Owner and reason |
+| --- | --- |
+| Bounded marker/tile framing, one main COD/QCD, tile-part sequencing | Packet reader: identifies the actual tile data and prevents ambiguous or out-of-bounds access. |
+| SIZ component/grid fields, COD layers/levels/order/precincts and code-block partition | Packet reader and geometry: calculate and traverse the input and output layouts. COD field ranges also keep the regenerated COD representable. |
+| One tile; no unsupported coding/packet-header overrides or extensions | Transcode algorithm: processes one tile using the main COD and inline packet headers. |
+| No BYPASS or TERMALL code-block style | Tier-2 support: the supported contribution segmentation depends on where coding passes terminate. |
+| New precincts leave nonempty code-block partitions unchanged | Output algorithm: reuses compressed code-block bytes without recompression. |
+| SOP/EPH correctness and complete bounded packet contributions | Tier-2 input: reads actual packets, independent of input PLT. The output regenerates headers without SOP/EPH. |
+| Memory, packet and resolution limits | Implementation bounds: control allocations for both layouts, packet lists and contribution state. |
+| Rsiz declaration support with `HV_OUTPUT_JPEG2000` | Raw output policy: retains the declaration while changing packet organization. |
+| Zero origins, unit sampling, serving coordinate range and allowed main-header markers | Serving output policy selected by `HV_OUTPUT_JPIP`; these are not general raw-transcode requirements. |
+| JP2 brand/compatibility, header consistency and copied JP2 tree bounds | File output policy: keeps a JP2 container for the server and preserves its header information. |
+| File input/output at most INT_MAX bytes | Current file implementation limit, separate from packet geometry. |
+
+General output accepts nonzero origins and component subsampling in both raw and JP2 file operations. The sampling
+regression scales a fixture's reference grid and sampling together, preserving
+its component grid and compressed bytes. Its raw result differs only in those
+SIZ fields; file transcode rejects the same input as `siz.component-sampling`.
+This establishes the input/output policy distinction for that layout, rather
+than promising support for additional coding features.
 
 Three bounds keep memory in check where a header can declare much more
 than its data holds: at most 65,536 component-resolutions (components
@@ -146,7 +182,7 @@ inside superboxes are copied as read with the superbox.
 | `transcode.h` / `.c` | `hv_transcode_codestream` (`transcode_codestream`): reads the codestream and writes its main header with the new COD, lays out the tile twice with `hv_geometry` (input and new precincts), checks the memory limits and the code-block partition, and writes the tile as one tile-part. |
 | `tier2.h` / `.c` | Packets (T.800 B.9, B.10) on an `hv_geometry` and its packet order. `hv_read_packets` decodes the headers in place, tile-part by tile-part, and records each code-block's contributions per layer; `hv_write_packets` encodes them, either for the lengths only (for the PLT) or into the output, copying the code-block bytes from the input. |
 | `test/` | `test_transcode.c` and `cli_test.sh` (below); `fixtures/`. |
-| `fuzz_transcode.c` | libFuzzer target for the codestream level: an accepted input's output must transcode to itself, and pass `HV_PROFILE` when its main header passes `HV_PROFILE_HEADERS`. |
+| `fuzz_transcode.c` | libFuzzer target for the codestream level: an accepted input's output must transcode to itself, and pass `HV_READ_JPIP` when its main header passes `HV_READ_PACKETS_JPIP`. |
 
 ## Build and test
 
@@ -185,7 +221,8 @@ aside: it is the input's, before its NUL), that each output is within the
 served profile and transcodes to itself (the origin-129 file is rejected,
 and only its codestream is compared); what the profile accepts and rejects;
 the boxes around the codestream (LBox = 0 on a superbox and its child, a
-malformed child, XML boxes cut before their first NUL or copied as read);
+malformed JP2 child, opaque JPX extension bodies and nesting, XML boxes cut
+before their first NUL or copied as read);
 tile-parts split every way T.800 allows and broken in the ways it does not;
 malformed main headers; 2,000 corrupted tiles, each rejected or giving a
 stable output; the SOP, EPH, bit-stuffing and code-block data rules; the

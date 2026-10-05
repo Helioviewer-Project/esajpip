@@ -1,3 +1,4 @@
+#include "jpeg2000/hv_served.h"
 #include "image_index.h"
 #include <climits>
 #include <cstring>
@@ -18,7 +19,7 @@ bool ImageIndex::ReadCodestream(const Source &source, size_t start, size_t end,
     hv_codestream cs;
     hv_item item;
     struct Close { hv_codestream *cs; ~Close() { hv_codestream_close(cs); } } close{&cs};
-    if (hv_codestream_open(&cs, source.Data(), start, end, HV_PROFILE | HV_DEFER_PLT) != 0)
+    if (hv_codestream_open(&cs, source.Data(), start, end, HV_READ_JPIP_INDEX) != 0)
         return Fail(cs.error, cs.error_at, path);
     codestreams.emplace_back(path);
     Codestream &stream = codestreams.back();
@@ -94,13 +95,13 @@ bool ImageIndex::Open(const Source &source, SourceProvider &sources, bool jpx) {
     const char *reason;
     if (!jpx) {
         hv_box box;
-        reason = hv_check_jp2(source.Data(), source.GetSize(), &box, &at);
+        reason = hv_served_jp2(source.Data(), source.GetSize(), &box, &at);
         if (reason != NULL) return Fail(reason, at);
         if (!ReadCodestream(source, box.payload, box.end, path_name)) return false;
     } else {
-        hv_jpx parsed = {};
-        struct Close { hv_jpx *p; ~Close() { hv_jpx_free(p); } } close{&parsed};
-        reason = hv_check_jpx(source.Data(), source.GetSize(), &parsed, &at);
+        hv_served_sources parsed = {};
+        struct Close { hv_served_sources *p; ~Close() { hv_served_sources_free(p); } } close{&parsed};
+        reason = hv_served_jpx(source.Data(), source.GetSize(), &parsed, &at);
         if (reason != NULL) return Fail(reason, at);
         codestreams.reserve(parsed.count);
         std::string path;
@@ -110,9 +111,9 @@ bool ImageIndex::Open(const Source &source, SourceProvider &sources, bool jpx) {
                     return false;
                 continue;
             }
-            const hv_link &link = parsed.links[i];
+            const hv_served_source &link = parsed.links[i];
             path.resize(path_name.size() + link.loc_size + 2);
-            reason = hv_link_path(&link, path_name.c_str(), &path[0], path.size());
+            reason = hv_served_path(&link, path_name.c_str(), &path[0], path.size());
             if (reason != NULL) return Fail(reason, 0);
             path.resize(std::strlen(path.c_str()));
             const Source *linked = sources.GetSource(path);
@@ -123,7 +124,7 @@ bool ImageIndex::Open(const Source &source, SourceProvider &sources, bool jpx) {
                 ~Release() { sources.ReleaseSource(path); }
             } release{sources, path};
             hv_box box;
-            reason = hv_check_jp2(linked->Data(), linked->GetSize(), &box, &at);
+            reason = hv_served_jp2(linked->Data(), linked->GetSize(), &box, &at);
             if (reason != NULL) return Fail(reason, at, path);
             if (link.offset != box.payload || link.length != box.end - box.payload)
                 return Fail("flst.source-extent", box.start, path);

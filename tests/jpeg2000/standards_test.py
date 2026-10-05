@@ -56,6 +56,9 @@ def read(name, data, reason=None, flags=()):
 
 
 base = (repo / 'tests/vectors/j2k/jp2.jp2').read_bytes()
+# Header inspection treats JPX-only bodies as opaque in a JP2 container.
+read('opaque-header-extension.jp2', base + box(b'asoc', b'x'), flags=('-H',))
+
 cs = payload(base, b'jp2c')
 sot = cs.index(b'\xff\x90')
 part = cs[sot:-2]

@@ -1,42 +1,52 @@
+#include "hvc_metadata.h"
+#include "hvc_reconstruct.h"
 #include <cstring>
 
 #include "client_support.h"
-#include "hv_frame.h"
+#include "hvc_frame.h"
 
 extern "C" int replay_client_response(const uint8_t *data, size_t size) {
     using namespace client_fuzz;
     if (size > 1024 * 1024) return 0;
     Client client;
-    hv_cache cache;
-    hv_cache_begin(&cache);
-    hv_jpp_reader reader;
-    hv_jpp_message message;
-    hv_jpp_begin(&reader, data, size);
+    hvc_cache cache;
+    hvc_cache_begin(&cache);
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
+    hvc_jpp_begin(&reader, data, size);
     int status;
     bool accepted = true;
-    while ((status = hv_jpp_next(&reader, &message)) == HV_JPP_MESSAGE)
-        if (!hv_cache_apply(&cache, &message)) { accepted = false; break; }
-    accepted = accepted && status == HV_JPP_EOR;
-    int reason = hv_client_response(client.value, data, size);
+    while ((status = hvc_jpp_next(&reader, &message)) == HVC_JPP_MESSAGE)
+        if (!hvc_cache_apply(&cache, &message)) { accepted = false; break; }
+    accepted = accepted && status == HVC_JPP_EOR;
+    int reason = hvc_response(client.value, data, size);
     require((reason >= 0) == accepted, "source ingestion differs from message ingestion");
-    if (accepted) require(reason == hv_jpp_reason(&reader), "source changed EOR reason");
+    if (accepted) require(reason == hvc_jpp_reason(&reader), "source changed EOR reason");
 
     hv_metadata metadata = {};
     char error[256];
-    bool indexed = hv_metadata_open(&cache, &metadata, error, sizeof error) == 0;
-    size_t frames = hv_client_frames(client.value);
-    require(frames == (indexed ? metadata.count : 0), "source metadata indexing differs");
-    for (size_t i = 0; indexed && i < metadata.count && i < 16; i++) {
+    bool indexed = hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0;
+    hv_presentation presentation = {};
+    const uint8_t *presentation_data;
+    bool presented = hvc_metadata_presentation(&cache, &presentation_data, &presentation, error, sizeof error) == 0;
+    size_t frames = hvc_frames(client.value);
+    require(frames == (presented ? presentation.layers : 0), "source presentation indexing differs");
+    for (size_t i = 0; indexed && i < frames && i < 16; i++) {
+        const hv_registration &registration = presentation.layer[i].registration;
         const uint8_t *xml, *reference;
         size_t length, reference_length;
-        require(hv_client_xml(client.value, i, &xml, &length) == 0 &&
-                hv_metadata_xml(&metadata, i, &reference, &reference_length, error, sizeof error) == 0 &&
+        require(hvc_xml(client.value, i, &xml, &length) == 0 &&
+                hv_metadata_layer_xml(&metadata, i, &registration, &reference, &reference_length, error, sizeof error) == 0 &&
                 length == reference_length && (!length || std::memcmp(xml, reference, length) == 0),
                 "source XML differs");
+        if (registration.count != 1) continue;
+        hv_registration_entry entry;
+        require(hv_registration_read(&registration, 0, &entry) == nullptr, "registration");
+        size_t codestream = entry.codestream;
         int channels, reference_channels;
         uint8_t table[HV_PALETTE_MAX], reference_table[HV_PALETTE_MAX];
-        int entries = hv_client_palette(client.value, i, &channels, table, sizeof table);
-        int reference_entries = hv_metadata_palette(&metadata, i, &reference_channels,
+        int entries = hvc_palette(client.value, i, &channels, table, sizeof table);
+        int reference_entries = hv_metadata_palette(&metadata, codestream, &reference_channels,
                                                     reference_table, sizeof reference_table,
                                                     error, sizeof error);
         require(entries == reference_entries, "source palette result differs");
@@ -48,30 +58,31 @@ extern "C" int replay_client_response(const uint8_t *data, size_t size) {
         // Bound expensive traversal by decoded geometry, not by input size.
         // Invalid headers still reach the geometry parser; large valid geometry
         // is skipped here rather than consuming the campaign in long loops.
-        const hv_bin *header = hv_cache_find(&cache, HV_BIN_MAIN_HEADER, i, 0);
+        const hvc_bin *header = hvc_cache_find(&cache, HVC_BIN_MAIN_HEADER, codestream, 0);
         if (!header || !header->complete) continue;
-        const hv_frame *frame = hv_frame_get(&cache, i, error, sizeof error);
+        const hvc_frame *frame = hvc_frame_get(&cache, codestream, error, sizeof error);
         if (!frame || frame->precinct_end[frame->resolutions - 1] > 4096 ||
             static_cast<uint64_t>(frame->width) * frame->height > 1024 * 1024 ||
             frame->components > 4 || frame->layers > 32) continue;
-        hv_client_view view;
-        require(hv_client_status(client.value, i, nullptr, &view) == 0, "source status failed");
-        hv_status reference_status;
-        require(hv_reconstruct_status(&cache, i, &reference_status, error, sizeof error) == 0 &&
+        hvc_view view;
+        require(hvc_status(client.value, i, nullptr, &view) == 0, "source status failed");
+        hvc_frame_status reference_status;
+        require(hvc_reconstruct_status(&cache, codestream, &reference_status, error, sizeof error) == 0 &&
                 std::memcmp(&view.source, &reference_status, sizeof reference_status) == 0,
                 "source status differs");
-        size_t length_j2k = hv_client_reconstruct(client.value, i, nullptr, 0);
-        require(length_j2k == hv_reconstruct(&cache, i, nullptr, 0, error, sizeof error),
+        size_t length_j2k = hvc_codestream(client.value, i, nullptr, 0);
+        require(length_j2k == hvc_reconstruct(&cache, codestream, nullptr, 0, error, sizeof error),
                 "source reconstruction size differs");
         if (length_j2k && length_j2k <= 2 * 1024 * 1024) {
             Bytes out(length_j2k), expected(length_j2k);
-            require(hv_client_reconstruct(client.value, i, out.data(), out.size()) == out.size() &&
-                    hv_reconstruct(&cache, i, expected.data(), expected.size(), error, sizeof error) == expected.size() &&
+            require(hvc_codestream(client.value, i, out.data(), out.size()) == out.size() &&
+                    hvc_reconstruct(&cache, codestream, expected.data(), expected.size(), error, sizeof error) == expected.size() &&
                     out == expected, "source reconstructed bytes differ");
         }
     }
+    hv_presentation_free(&presentation);
     hv_metadata_close(&metadata);
-    hv_cache_release(&cache);
+    hvc_cache_release(&cache);
     return 0;
 }
 

@@ -10,6 +10,14 @@
  * of memory once.
  *
  *   test_reader <vector directory> */
+#define _XOPEN_SOURCE 700
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE 1
+#endif
+
+#include "jpeg2000/hv_served.h"
+#include <sys/mman.h>
+#include <unistd.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -175,19 +183,19 @@ static const char *jp2(const bytes *b, size_t *at) {
     uint8_t *p = exact(b);
     const char *error;
     *at = (size_t)-1;
-    error = hv_check_jp2(p, b->n, &jp2c, at);
+    error = hv_served_jp2(p, b->n, &jp2c, at);
     free(p);
     return error;
 }
 static const char *jpx(const bytes *b, size_t *at) {
-    hv_jpx j;
+    hv_served_sources j;
     uint8_t *p = exact(b);
     const char *error;
     *at = (size_t)-1;
-    error = hv_check_jpx(p, b->n, &j, at);
+    error = hv_served_jpx(p, b->n, &j, at);
     if (error == NULL)
-        hv_jpx_free(&j);
-    check(j.jp2c == NULL || error == NULL, "hv_check_jpx frees on failure", error);
+        hv_served_sources_free(&j);
+    check(j.jp2c == NULL || error == NULL, "hv_served_jpx frees on failure", error);
     free(p);
     return error;
 }
@@ -414,9 +422,9 @@ static void check_file_starts(void) {
         static const uint8_t zeros[16];
         hv_box jp2c;
         at = 0;
-        error = hv_check_jp2(zeros, INT_MAX, &jp2c, &at);
+        error = hv_served_jp2(zeros, INT_MAX, &jp2c, &at);
         expect("INT_MAX bytes", error, at, "file.signature", 0);
-        error = hv_check_jp2(zeros, (size_t)INT_MAX + 1, &jp2c, &at);
+        error = hv_served_jp2(zeros, (size_t)INT_MAX + 1, &jp2c, &at);
         expect("INT_MAX + 1 bytes", error, at, "file.size-limit", 0);
     }
 
@@ -491,11 +499,388 @@ static bytes linked(int n) {
     return b;
 }
 
+/* General JP2 access interprets framing and compatibility, not payloads. */
+static void check_jp2_access(void) {
+    bytes b = {0};
+    hv_box cs, untouched = {0};
+    const char *error;
+    size_t at, i;
+    uint8_t *p;
+
+    add(&b, &SIG);
+    box(&b, "ftyp", "test\0\0\0\x07jp2 ", 12);
+    /* Deliberately malformed bodies remain opaque. */
+    box(&b, "jp2h", "x", 1);
+    box(&b, "jp2c", "bytes", 5);
+    p = exact(&b);
+    at = (size_t)-1;
+    error = hv_read_jp2(p, b.n, &cs, &at);
+    expect("general compatible brand and opaque bodies", error, at, NULL, 0);
+    check(cs.end - cs.payload == 5 && memcmp(p + cs.payload, "bytes", 5) == 0,
+          "general access borrows original codestream", NULL);
+    at = (size_t)-1;
+    error = hv_served_jp2(p, b.n, &cs, &at);
+    expect("served brand retained", error, at, "file.ftyp-brand", 12);
+    free(p);
+    for (i = 0; i < b.n; i++) {
+        bytes prefix = b;
+        prefix.n = i;
+        p = exact(&prefix);
+        cs = untouched;
+        at = (size_t)-1;
+        error = hv_read_jp2(p, i, &cs, &at);
+        check(error != NULL && at <= i, "general access proper prefix", error);
+        check(memcmp(&cs, &untouched, sizeof cs) == 0,
+              "failed access leaves codestream unchanged", NULL);
+        free(p);
+    }
+    /* Duplicate codestreams are outside this single-codestream accessor. */
+    box(&b, "jp2c", NULL, 0);
+    p = exact(&b);
+    at = (size_t)-1;
+    error = hv_read_jp2(p, b.n, &cs, &at);
+    expect("general access duplicate codestream", error, at, "jp2.one-codestream", b.n);
+    free(p);
+    /* Compatibility remains an interpreted requirement. */
+    set32(&b, 28, HV_BRAND_JPX);
+    p = exact(&b);
+    at = (size_t)-1;
+    error = hv_read_jp2(p, b.n, &cs, &at);
+    expect("general access missing JP2 compatibility", error, at,
+           "file.ftyp-compatibility", 12);
+    free(p);
+    release(&b);
+}
+
+/* General JPX discovery preserves box order and keeps fragment/reference
+ * bodies opaque. The serving representation is deliberately not used. */
+static void check_container_access(void) {
+    bytes b = {0};
+    hv_boxes it;
+    hv_ftyp type;
+    hv_box item;
+    const char *error;
+    uint8_t *p;
+    size_t at, f, list, refs, i, n, prefix, starts[8], ends[8];
+    const uint32_t types[] = {HV_BOX_JP2C, HV_BOX_FTBL, HV_BOX_JP2C,
+                              HV_BOX_FTBL, HV_BOX_DTBL, HV_BOX_ASOC, HV_BOX_J2CX};
+
+    add(&b, &SIG);
+    add(&b, &FTYP_JPX);
+    starts[0] = b.n; add(&b, &JP2C); ends[0] = b.n;
+    starts[1] = f = begin(&b, "ftbl");
+    list = begin(&b, "flst");
+    u16(&b, 2);
+    u64(&b, 120); u32(&b, 10); u16(&b, 0);
+    u64(&b, 200); u32(&b, 20); u16(&b, 1);
+    end(&b, list); end(&b, f); ends[1] = b.n;
+    starts[2] = b.n; add(&b, &JP2C); ends[2] = b.n;
+    /* An uninterpretable FTBL body is accessible as an opaque extent too. */
+    starts[3] = b.n; box(&b, "ftbl", "x", 1); ends[3] = b.n;
+    starts[4] = refs = begin(&b, "dtbl");
+    u16(&b, 1); url(&b, "relative.j2k"); end(&b, refs); ends[4] = b.n;
+    starts[5] = b.n; box(&b, "asoc", "x", 1); ends[5] = b.n;
+    starts[6] = b.n; box(&b, "j2cx", "x", 1); ends[6] = b.n;
+    p = exact(&b);
+    at = (size_t)-1;
+    fail_at = 0;
+    error = hv_container_open(p, b.n, &it, &type, &at);
+    fail_at = -1;
+    expect("general JPX opening without allocation", error, at, NULL, 0);
+    check(type.brand == HV_BRAND_JPX && type.jpx && it.pos == SIG.n + FTYP_JPX.n,
+          "general JPX type and first content offset", NULL);
+    for (n = 0; n < sizeof types / sizeof *types; n++) {
+        check(hv_boxes_next(&it, &item, &error, &at) == 1 && item.type == types[n] &&
+              item.start == starts[n] && item.end == ends[n],
+              "general JPX ordered opaque extent", NULL);
+    }
+    check(hv_boxes_next(&it, &item, &error, &at) == 0,
+          "general JPX end of content", NULL);
+    check(memcmp(p, b.d, b.n) == 0, "general discovery preserves input bytes", NULL);
+    free(p);
+
+    /* Every exact-sized prefix: opening checks only the prefix it reads;
+     * later truncation is reported by the iterator at the partial box. */
+    for (prefix = 0; prefix < b.n; prefix++) {
+        bytes cut = b;
+        cut.n = prefix;
+        p = exact(&cut);
+        memset(&it, 0, sizeof it);
+        memset(&type, 0, sizeof type);
+        at = (size_t)-1;
+        error = hv_container_open(p, prefix, &it, &type, &at);
+        if (prefix < starts[0]) {
+            check(error != NULL && at <= prefix, "truncated container opening", error);
+            check(it.buf == NULL && it.pos == 0 && it.end == 0 && type.brand == 0,
+                  "failed container outputs unchanged", NULL);
+        } else {
+            expect("complete container prefix opening", error, at, NULL, 0);
+            for (i = 0; i < sizeof types / sizeof *types && ends[i] <= prefix; i++)
+                check(hv_boxes_next(&it, &item, &error, &at) == 1 &&
+                      item.start == starts[i] && item.end == ends[i],
+                      "complete boxes of prefix", NULL);
+            if (starts[i] == prefix)
+                check(hv_boxes_next(&it, &item, &error, &at) == 0,
+                      "prefix at content boundary", NULL);
+            else
+                check(hv_boxes_next(&it, &item, &error, &at) == -1 && at == starts[i],
+                      "truncated later box offset", NULL);
+        }
+        free(p);
+    }
+    /* File Type compatibility is still checked, independently of box bodies. */
+    set32(&b, SIG.n + 16, HV_BRAND_JP2);
+    p = exact(&b); at = (size_t)-1;
+    error = hv_container_open(p, b.n, &it, &type, &at);
+    expect("JPX without JPX compatibility", error, at, "file.ftyp-compatibility", 12);
+    free(p);
+    release(&b);
+
+    /* JP2-compatible alternate brand and ignored MinV use the same entry. */
+    add(&b, &SIG);
+    box(&b, "ftyp", "test\0\0\0\x07jp2 ", 12);
+    p = exact(&b); at = (size_t)-1;
+    error = hv_container_open(p, b.n, &it, &type, &at);
+    expect("general JP2-compatible container opening", error, at, NULL, 0);
+    check(!hv_ftyp_is_jpx(&type) && type.jp2 && type.minor == 7 && it.pos == b.n,
+          "general JP2 file type", NULL);
+    free(p);
+    release(&b);
+}
+
+/* Framed input boxes only; payload errors are independent of box framing. */
+static hv_box first_box(const bytes *b, const uint8_t *p) {
+    hv_boxes it;
+    hv_box box = {0};
+    const char *error;
+    size_t at;
+    hv_boxes_file(&it, p, b->n);
+    check(hv_boxes_next(&it, &box, &error, &at) == 1, "fixture box framing", NULL);
+    return box;
+}
+
+static void check_fragment_access(void) {
+    bytes b = {0}, payload = {0};
+    hv_box table;
+    hv_fragments list;
+    Fragment entry;
+    uint8_t *p;
+    const char *error;
+    size_t at, f, j, k;
+    const unsigned counts[] = {0, 1, 2, 65535};
+
+    for (k = 0; k < sizeof counts / sizeof *counts; k++) {
+        clear(&b);
+        f = begin(&b, "ftbl");
+        j = begin(&b, "flst");
+        u16(&b, counts[k]);
+        for (size_t n = 0; n < counts[k]; n++) {
+            u64(&b, n == 0 ? 12 : UINT64_MAX);
+            u32(&b, n == 0 ? 0 : UINT32_MAX);
+            u16(&b, n == 0 ? 0 : UINT16_MAX);
+        }
+        end(&b, j); end(&b, f);
+        p = exact(&b); table = first_box(&b, p); at = (size_t)-1;
+        fail_at = 0;
+        error = hv_fragments_open(p, &table, &list, &at);
+        fail_at = -1;
+        expect("fragment counts through NF maximum", error, at, NULL, 0);
+        check(list.count == counts[k] && list.buf == p && list.start == 18,
+              "borrowed fragment list", NULL);
+        for (size_t n = 0; n < list.count; n++) {
+            at = (size_t)-1;
+            error = hv_fragment_read(&list, n, &entry, &at);
+            expect("fragment field decoding", error, at, NULL, 0);
+            check(entry.off == (n == 0 ? 12 : UINT64_MAX) &&
+                  entry.len == (n == 0 ? 0 : UINT32_MAX) &&
+                  entry.dr == (n == 0 ? 0 : UINT16_MAX),
+                  "fragment values without resolution or extent arithmetic", NULL);
+        }
+        memset(&entry, 0, sizeof entry); at = (size_t)-1;
+        error = hv_fragment_read(&list, SIZE_MAX, &entry, &at);
+        expect("fragment index before arithmetic", error, at, "fragment index out of range", 18);
+        check(entry.off == 0 && entry.len == 0 && entry.dr == 0,
+              "failed fragment output unchanged", NULL);
+        if (list.count > 0) {
+            /* OFF below 12 is a format constraint, not server policy. */
+            memset(p + list.start, 0, 8); at = (size_t)-1;
+            error = hv_fragment_read(&list, 0, &entry, &at);
+            expect("fragment OFF format bound", error, at,
+                   "flst: fragment offset (OFF) below 12", 18);
+        }
+        free(p);
+    }
+    /* NF=2 with every partial payload, plus a trailing byte. */
+    u16(&payload, 2);
+    u64(&payload, 12); u32(&payload, 1); u16(&payload, 0);
+    u64(&payload, 20); u32(&payload, 1); u16(&payload, 1);
+    u8(&payload, 0);
+    for (k = 0; k <= payload.n; k++) {
+        clear(&b); f = begin(&b, "ftbl");
+        box(&b, "flst", payload.d, k); end(&b, f);
+        p = exact(&b); table = first_box(&b, p); at = (size_t)-1;
+        list.buf = NULL; list.start = list.count = 0;
+        error = hv_fragments_open(p, &table, &list, &at);
+        expect("fragment list bounded NF/extent", error, at,
+               k == 30 ? NULL : k < 2 ? "flst: shorter than NF" : "flst.nf-count", 8);
+        if (error != NULL)
+            check(list.buf == NULL && list.count == 0 && list.start == 0,
+                  "failed fragment list output unchanged", NULL);
+        free(p);
+    }
+    /* Empty/duplicate FLST children and malformed later child framing. */
+    for (k = 0; k < 3; k++) {
+        clear(&b); f = begin(&b, "ftbl");
+        if (k > 0) box(&b, "flst", "\0\0", 2);
+        if (k == 1) box(&b, "flst", "\0\0", 2);
+        if (k == 2) u8(&b, 0);
+        end(&b, f);
+        p = exact(&b); table = first_box(&b, p); at = (size_t)-1;
+        error = hv_fragments_open(p, &table, &list, &at);
+        expect("fragment table child structure", error, at,
+               k == 2 ? "invalid or truncated box header" : "ftbl.one-flst", k == 2 ? 18 : 0);
+        free(p);
+    }
+    release(&payload); release(&b);
+}
+
+static void check_reference_access(void) {
+    bytes b = {0};
+    hv_box table, entry;
+    hv_boxes it;
+    const char *error;
+    const uint8_t *loc;
+    uint8_t *p;
+    size_t at, count, size, root;
+    const char *locations[] = {"relative.j2k", "file:///other.dat", "https://example.org/a.jp2", ""};
+    size_t k;
+
+    root = begin(&b, "dtbl"); u16(&b, 4);
+    for (k = 0; k < 4; k++) url(&b, locations[k]);
+    end(&b, root); p = exact(&b); table = first_box(&b, p); at = (size_t)-1;
+    fail_at = 0;
+    error = hv_references_open(p, &table, &it, &count, &at);
+    fail_at = -1;
+    expect("data references without serving URL policy", error, at, NULL, 0);
+    check(count == 4 && it.buf == p && it.pos == 10, "borrowed reference table", NULL);
+    for (k = 0; k < count; k++) {
+        check(hv_boxes_next(&it, &entry, &error, &at) == 1, "reference entry order", NULL);
+        at = (size_t)-1;
+        error = hv_url_read(p, &entry, &loc, &size, &at);
+        expect("URL structural reading", error, at, NULL, 0);
+        check(size == strlen(locations[k]) && loc == p + entry.payload + 4 &&
+              memcmp(loc, locations[k], size) == 0, "original URL bytes", NULL);
+    }
+    free(p);
+    /* Count and type errors do not leak a partially initialized iterator. */
+    for (k = 0; k < 4; k++) {
+        clear(&b); root = begin(&b, "dtbl");
+        if (k != 0) u16(&b, k == 3 ? 0 : 1);
+        if (k == 2) box(&b, "xml ", NULL, 0);
+        if (k == 3) url(&b, "a");
+        end(&b, root); p = exact(&b); table = first_box(&b, p);
+        memset(&it, 0, sizeof it); count = SIZE_MAX; at = (size_t)-1;
+        error = hv_references_open(p, &table, &it, &count, &at);
+        expect("reference structure errors", error, at,
+               k == 0 ? "dtbl: shorter than NDR" : k == 2 ? "dtbl.non-url" : "dtbl.ndr-count",
+               k == 2 ? 10 : 0);
+        check(it.buf == NULL && it.pos == 0 && count == SIZE_MAX,
+              "failed reference outputs unchanged", NULL);
+        free(p);
+    }
+    /* Exactly framed URL boxes with malformed contents. */
+    for (k = 0; k < 5; k++) {
+        static const uint8_t bodies[][7] = {
+            {0,0,0}, {1,0,0,0,0}, {0,0,0,0,'a'},
+            {0,0,0,0,0,'a',0}, {0,0,0,1,0}
+        };
+        static const size_t lengths[] = {3,5,5,7,5};
+        clear(&b); box(&b, "url ", bodies[k], lengths[k]);
+        p = exact(&b); entry = first_box(&b, p);
+        loc = NULL; size = SIZE_MAX; at = (size_t)-1;
+        error = hv_url_read(p, &entry, &loc, &size, &at);
+        expect("URL content errors", error, at,
+               k == 0 ? "url: shorter than VERS and FLAG" :
+               k == 1 || k == 4 ? "url.version-flags" : "url.terminator", 0);
+        check(loc == NULL && size == SIZE_MAX, "failed URL outputs unchanged", NULL);
+        free(p);
+    }
+    release(&b);
+}
+
+/* A real sparse mapping: the XLBox ends above INT_MAX and the codestream
+ * follows it. Only headers and the small original codestream are touched. */
+static void check_large_jp2_access(void) {
+    bytes head = {0};
+    size_t stream_at = (size_t)INT_MAX + 128;
+    size_t size = stream_at + JP2C.n, at;
+    uint8_t *mapped;
+    hv_box cs;
+    const char *error;
+    FILE *f = tmpfile();
+    if (f == NULL) {
+        check(0, "large access temporary file", NULL);
+        return;
+    }
+    if (ftruncate(fileno(f), (off_t)size) != 0) {
+        check(0, "large access sparse extent", NULL);
+        fclose(f);
+        return;
+    }
+    mapped = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fileno(f), 0);
+    if (mapped == MAP_FAILED) {
+        check(0, "large access mapping", NULL);
+        fclose(f);
+        return;
+    }
+    add(&head, &SIG);
+    add(&head, &FTYP_JP2);
+    u32(&head, 1);
+    put(&head, "free", 4);
+    u64(&head, stream_at - SIG.n - FTYP_JP2.n);
+    memcpy(mapped, head.d, head.n);
+    memcpy(mapped + stream_at, JP2C.d, JP2C.n);
+    at = (size_t)-1;
+    error = hv_read_jp2(mapped, size, &cs, &at);
+    expect("general access above INT_MAX", error, at, NULL, 0);
+    check(error == NULL && cs.start == stream_at && cs.end == size &&
+          memcmp(mapped + cs.payload, JP2C.d + 8, JP2C.n - 8) == 0,
+          "large offset original bytes", NULL);
+    at = (size_t)-1;
+    error = hv_served_jp2(mapped, size, &cs, &at);
+    expect("served large-file limit retained", error, at, "file.size-limit", 0);
+    at = (size_t)-1;
+    error = hv_check_jp2h(mapped, size, &at);
+    expect("header validation limit retained", error, at, "file.size-limit", 0);
+    at = (size_t)-1;
+    error = hv_read_jp2(mapped, size - 1, &cs, &at);
+    expect("large offset codestream overrun", error, at, "box overruns its container", stream_at);
+    /* The same large box extents through general JPX access. */
+    {
+        hv_boxes it;
+        hv_ftyp type;
+        memcpy(mapped + SIG.n + 8, "jpx ", 4);
+        memcpy(mapped + SIG.n + 16, "jpx ", 4);
+        at = (size_t)-1;
+        error = hv_container_open(mapped, size, &it, &type, &at);
+        expect("general JPX opening above INT_MAX", error, at, NULL, 0);
+        check(hv_ftyp_is_jpx(&type) &&
+              hv_boxes_next(&it, &cs, &error, &at) == 1 && cs.type == HV_BOX_FREE &&
+              cs.end == stream_at && hv_boxes_next(&it, &cs, &error, &at) == 1 &&
+              cs.type == HV_BOX_JP2C && cs.start == stream_at && cs.end == size &&
+              hv_boxes_next(&it, &cs, &error, &at) == 0,
+              "general JPX large ordered extents", NULL);
+    }
+    check(munmap(mapped, size) == 0, "large access unmap", NULL);
+    fclose(f);
+    release(&head);
+}
+
 static void check_jpx_files(void) {
     bytes b = {NULL, 0, 0};
     const char *error;
     size_t at;
-    hv_jpx j;
+    hv_served_sources j;
     uint8_t *p;
     int k, i;
 
@@ -507,16 +892,16 @@ static void check_jpx_files(void) {
     for (k = 0; k < 40; k++)
         add(&b, &JP2C);
     p = exact(&b);
-    check(hv_check_jpx(p, b.n, &j, &at) == NULL && j.count == 40 && j.links == NULL &&
+    check(hv_served_jpx(p, b.n, &j, &at) == NULL && j.count == 40 && j.links == NULL &&
           j.jp2c[39].start == b.n - JP2C.n, "40 embedded codestreams", NULL);
-    hv_jpx_free(&j);
-    check(j.jp2c == NULL && j.links == NULL && j.count == 0, "hv_jpx_free clears", NULL);
-    hv_jpx_free(&j);
+    hv_served_sources_free(&j);
+    check(j.jp2c == NULL && j.links == NULL && j.count == 0, "hv_served_sources_free clears", NULL);
+    hv_served_sources_free(&j);
     /* Out of memory at each growth. */
     for (i = 0; i < 3; i++) {
         fail_at = i;
         at = 0;
-        error = hv_check_jpx(p, b.n, &j, &at);
+        error = hv_served_jpx(p, b.n, &j, &at);
         fail_at = -1;
         /* the array grows at the 1st, 17th and 33rd codestream */
         expect("40 embedded codestreams, out of memory", error, at, "out of memory",
@@ -528,37 +913,37 @@ static void check_jpx_files(void) {
 
     b = linked(40);
     p = exact(&b);
-    error = hv_check_jpx(p, b.n, &j, &at);
+    error = hv_served_jpx(p, b.n, &j, &at);
     check(error == NULL && j.count == 40 && j.jp2c == NULL && j.links[39].dr == 40 &&
           j.links[39].offset == 85 && j.links[39].length == 88 && j.links[0].loc_size == 16 &&
           memcmp(j.links[0].loc, "file://c%20d.jp2", 16) == 0 && j.links[1].loc_size == 13,
           "40 linked codestreams", error);
     if (error == NULL)
-        hv_jpx_free(&j);
+        hv_served_sources_free(&j);
     for (i = 0; i < 9; i++) {
         fail_at = i;
-        error = hv_check_jpx(p, b.n, &j, &at);
+        error = hv_served_jpx(p, b.n, &j, &at);
         fail_at = -1;
         check(error != NULL && strcmp(error, "out of memory") == 0 && j.links == NULL,
               "40 linked codestreams, out of memory", error);
     }
     fail_at = 9;
-    error = hv_check_jpx(p, b.n, &j, &at);
+    error = hv_served_jpx(p, b.n, &j, &at);
     fail_at = -1;
     check(error == NULL, "40 linked codestreams, 9 allocations", error);
     if (error == NULL)
-        hv_jpx_free(&j);
+        hv_served_sources_free(&j);
     free(p);
     release(&b);
 
     /* One linked codestream. */
     b = linked(1);
     p = exact(&b);
-    error = hv_check_jpx(p, b.n, &j, &at);
+    error = hv_served_jpx(p, b.n, &j, &at);
     check(error == NULL && j.count == 1 && j.links[0].dr == 1 && j.links[0].loc_size == 16 &&
           j.links[0].loc == p + b.n - 17, "one linked codestream", error);
     if (error == NULL)
-        hv_jpx_free(&j);
+        hv_served_sources_free(&j);
     free(p);
     release(&b);
 
@@ -674,49 +1059,49 @@ static void check_jpx_files(void) {
 }
 
 static void check_link_paths(void) {
-    hv_link link;
+    hv_served_source link;
     char out[64];
     const char *error;
 
     memset(&link, 0, sizeof link);
     link.loc = (const uint8_t *)"file://a%20b.jp2";
     link.loc_size = 16;
-    check(hv_link_path(&link, "/x/y.jpx", out, 0) != NULL &&
-          strcmp(hv_link_path(&link, "/x/y.jpx", out, 0), "no room for the linked path") == 0,
+    check(hv_served_path(&link, "/x/y.jpx", out, 0) != NULL &&
+          strcmp(hv_served_path(&link, "/x/y.jpx", out, 0), "no room for the linked path") == 0,
           "no room", NULL);
     strcpy(out, "?");
-    error = hv_link_path(&link, "/x/y.jpx", out, 1);
+    error = hv_served_path(&link, "/x/y.jpx", out, 1);
     check(error != NULL && strcmp(error, "linked path longer than the caller's buffer") == 0 &&
           out[0] == 0, "room for the NUL alone", error);
-    error = hv_link_path(&link, "y.jpx", out, sizeof out);
+    error = hv_served_path(&link, "y.jpx", out, sizeof out);
     check(error == NULL && strcmp(out, "a b.jp2") == 0, "no directory in the JPX path", error);
     /* "/x/" and "a b.jp2" with its NUL: 11 bytes */
-    error = hv_link_path(&link, "/x/y.jpx", out, 11);
+    error = hv_served_path(&link, "/x/y.jpx", out, 11);
     check(error == NULL && strcmp(out, "/x/a b.jp2") == 0, "a joined path that just fits",
           error);
     strcpy(out, "?");
-    error = hv_link_path(&link, "/x/y.jpx", out, 10);
+    error = hv_served_path(&link, "/x/y.jpx", out, 10);
     check(error != NULL && strcmp(error, "linked path longer than the caller's buffer") == 0 &&
           out[0] == 0, "a joined path one byte too long", error);
     link.loc = (const uint8_t *)"file://a%zz.jp2";
     link.loc_size = 15;
     strcpy(out, "?");
-    error = hv_link_path(&link, NULL, out, sizeof out);
+    error = hv_served_path(&link, NULL, out, sizeof out);
     check(error != NULL && strcmp(error, "url.percent-encoding") == 0 && out[0] == 0,
           "a bad escape", error);
     /* A full output buffer wins over an invalid escape beyond that prefix. */
     link.loc = (const uint8_t *)"file://ab%zz.jp2";
     link.loc_size = strlen((const char *)link.loc);
-    error = hv_link_path(&link, NULL, out, 2);
+    error = hv_served_path(&link, NULL, out, 2);
     check(error != NULL && strcmp(error, "linked path longer than the caller's buffer") == 0 &&
           out[0] == 0, "buffer fills before invalid URL escape", error);
-    error = hv_link_path(&link, NULL, out, 3);
+    error = hv_served_path(&link, NULL, out, 3);
     check(error != NULL && strcmp(error, "url.percent-encoding") == 0 && out[0] == 0,
           "invalid URL escape at the buffer boundary", error);
 }
 
 static void check_links(void) {
-    hv_link link;
+    hv_served_source link;
     const char *error;
     size_t at = 99;
     bytes b = {NULL, 0, 0};
@@ -728,7 +1113,7 @@ static void check_links(void) {
     add(&b, &FRAME1);
     b.d[5] = 'X';                               /* TBox of the signature */
     p = exact(&b);
-    error = hv_check_link(p, b.n, &link, &at);
+    error = hv_served_link(p, b.n, &link, &at);
     expect("a linked file without the signature", error, at, "file.signature", 0);
     free(p);
     release(&b);
@@ -1292,7 +1677,7 @@ static void compare_items(const char *what, const uint8_t *buf, size_t start, si
 /* Every proper prefix of buf[start, end) is rejected, with every flag, and
  * none is read past (each in a buffer of exactly its size). */
 static void check_prefixes(const char *what, const uint8_t *buf, size_t start, size_t end) {
-    static const unsigned flags[] = {0, HV_ACCEPT_PLT_PADDING, HV_PROFILE_HEADERS, HV_PROFILE};
+    static const unsigned flags[] = {0, HV_READ_PADDED, HV_READ_PACKETS_JPIP, HV_READ_JPIP};
     size_t n, at;
     int f;
     for (n = start; n < end; n++) {
@@ -1316,7 +1701,7 @@ static void check_codestreams(void) {
     hv_codestream cs;
 
     b = simple();
-    error = cs_check(&b, HV_PROFILE, &at);
+    error = cs_check(&b, HV_READ_JPIP, &at);
     expect("a simple codestream", error, at, NULL, 0);
     p = exact(&b);
     compare_items("a simple codestream", p, 0, b.n, 0);
@@ -1325,24 +1710,29 @@ static void check_codestreams(void) {
 
     /* The open: start after end; the pair of flags; SOC; SIZ. */
     p = exact(&b);
-    check(hv_codestream_open(&cs, p, 5, 4, 0) != 0 &&
+    check(hv_codestream_open(&cs, p, 5, 4, HV_READ_VALIDATE) != 0 &&
           strcmp(cs.error, "codestream ends before it starts") == 0 && cs.error_at == 5,
           "start after end", cs.error);
     hv_codestream_close(&cs);
-    check(hv_codestream_open(&cs, p, 0, b.n, HV_PROFILE | HV_ACCEPT_PLT_PADDING) != 0 &&
-          strcmp(cs.error, "HV_ACCEPT_PLT_PADDING with HV_PROFILE") == 0,
-          "padding with the profile", cs.error);
+    check(hv_codestream_open(&cs, p, 0, b.n, (hv_read_mode)-1) != 0 &&
+          strcmp(cs.error, "invalid codestream read mode") == 0,
+          "invalid read mode", cs.error);
     hv_codestream_close(&cs);
-    check(hv_codestream_open(&cs, p, 0, b.n, HV_PROFILE_HEADERS | HV_ACCEPT_PLT_PADDING) == 0,
-          "padding with the profile's headers", cs.error);
+    check(hv_codestream_open(&cs, p, 0, b.n, HV_READ_PADDED) == 0,
+          "padded validation", cs.error);
     hv_codestream_close(&cs);
     fail_at = 0;                        /* the components */
-    check(hv_codestream_open(&cs, p, 0, b.n, 0) != 0 && strcmp(cs.error, "out of memory") == 0 &&
+    check(hv_codestream_open(&cs, p, 0, b.n, HV_READ_VALIDATE) != 0 && strcmp(cs.error, "out of memory") == 0 &&
           cs.error_at == 2,
           "open out of memory", cs.error);
     fail_at = -1;
     hv_codestream_close(&cs);
     check(cs.error != NULL && hv_codestream_siz(&cs) == NULL, "close keeps the error", NULL);
+    fail_at = 1;                        /* cross-segment validation state */
+    check(hv_codestream_open(&cs, p, 0, b.n, HV_READ_VALIDATE) != 0 &&
+          hv_codestream_siz(&cs) == NULL, "failed open exposes no SIZ", cs.error);
+    fail_at = -1;
+    hv_codestream_close(&cs);
     free(p);
 
     /* The tile-part counts of 300 tiles, in two pages (256 and 44): tiles
@@ -1405,7 +1795,7 @@ static void check_codestreams(void) {
                     fail_at = j;
                     nfrees = 0;
                     at = (size_t)-1;
-                    error = hv_codestream_check(p, 0, b.n, 0, &at);
+                    error = hv_codestream_check(p, 0, b.n, HV_READ_VALIDATE, &at);
                     fail_at = -1;
                     check(nfrees == j, "allocation failure frees every earlier allocation", NULL);
                     nfrees = -1;
@@ -1477,7 +1867,7 @@ static void check_codestreams(void) {
         clear(&b);
         u16(&b, HV_SOC);
         siz(&b, f, 1, NULL, NULL);
-        error = cs_check(&b, HV_PROFILE_HEADERS, &at);
+        error = cs_check(&b, HV_READ_PACKETS_JPIP, &at);
         expect("2^31 wide", error, at, "SIZ: Xsiz or Ysiz above 2,147,483,647 (Siz-Profile)", 2);
         f[0] = f[4] = 4;
         for (i = 0; i < 3; i += 2) {
@@ -1485,7 +1875,7 @@ static void check_codestreams(void) {
             clear(&b);
             u16(&b, HV_SOC);
             siz(&b, f, 3, xr, yr);
-            error = cs_check(&b, HV_PROFILE_HEADERS, &at);
+            error = cs_check(&b, HV_READ_PACKETS_JPIP, &at);
             expect("XRsiz 2", error, at, "siz.component-sampling", 2);
             xr[i] = 1;
         }
@@ -1554,7 +1944,7 @@ static void check_codestreams(void) {
         u16(&b, HV_EOC);
         error = cs_check(&b, 0, &at);
         expect("Psot 0, no data", error, at, NULL, 0);
-        error = cs_check(&b, HV_PROFILE, &at);
+        error = cs_check(&b, HV_READ_JPIP, &at);
         expect("Psot 0, no data, no PLT", error, at, "codestream.no-plt", t);
         clear(&b);
         main_header(&b, 4, 4);
@@ -1566,7 +1956,7 @@ static void check_codestreams(void) {
         u16(&b, HV_SOD);
         put(&b, "\x5A\x5A\x5A", 3);
         u16(&b, HV_EOC);
-        error = cs_check(&b, HV_PROFILE, &at);
+        error = cs_check(&b, HV_READ_JPIP, &at);
         expect("Psot 0", error, at, NULL, 0);
         p = exact(&b);
         compare_items("Psot 0", p, 0, b.n, 0);
@@ -1857,7 +2247,7 @@ static void check_codestreams(void) {
     }
 
     /* Zero PLT entries: the padding of each tile-part, with
-     * HV_ACCEPT_PLT_PADDING. Two tile-parts of one tile, each a packet and
+     * HV_READ_PADDED. Two tile-parts of one tile, each a packet and
      * a zero entry; and the items of one with tile-part COD, COC, QCD and
      * COM. */
     {
@@ -1875,12 +2265,12 @@ static void check_codestreams(void) {
             sot_end(&b, t);
         }
         u16(&b, HV_EOC);
-        error = cs_check(&b, HV_ACCEPT_PLT_PADDING, &at);
+        error = cs_check(&b, HV_READ_PADDED, &at);
         expect("padding in each tile-part", error, at, NULL, 0);
         error = cs_check(&b, 0, &at);
         expect("padding without the flag", error, at, "plt.zero-length", first);
         p = exact(&b);
-        compare_items("padding in each tile-part", p, 0, b.n, HV_ACCEPT_PLT_PADDING);
+        compare_items("padding in each tile-part", p, 0, b.n, HV_READ_PADDED);
         free(p);
         clear(&b);
         main_header(&b, 4, 4);
@@ -1929,7 +2319,7 @@ static void check_codestreams(void) {
     p = exact(&b);
     {
         hv_item item;
-        check(hv_codestream_open(&cs, p, 0, b.n, 0) == 0, "open", cs.error);
+        check(hv_codestream_open(&cs, p, 0, b.n, HV_READ_VALIDATE) == 0, "open", cs.error);
         while (hv_codestream_next(&cs, &item) == 1)
             ;
         check(hv_codestream_next(&cs, &item) == 0 && item.kind == 0 && item.end == 0,
@@ -1941,12 +2331,12 @@ static void check_codestreams(void) {
               hv_codestream_qcd(&cs) == NULL && cs.error == NULL, "the accessors after close",
               NULL);
         check(hv_codestream_next(&cs, &item) == 0, "next after close", NULL);
-        check(hv_codestream_open(&cs, p, 0, 3, 0) != 0, "open 3 bytes", NULL);
+        check(hv_codestream_open(&cs, p, 0, 3, HV_READ_VALIDATE) != 0, "open 3 bytes", NULL);
         hv_codestream_close(&cs);
         check(hv_codestream_next(&cs, &item) == -1 && cs.error_at == 2 &&
               strcmp(cs.error, "SOC is not followed by SIZ") == 0, "next after a failed open",
               cs.error);
-        check(hv_codestream_open(&cs, p, 0, b.n, 0) == 0 && cs.error == NULL &&
+        check(hv_codestream_open(&cs, p, 0, b.n, HV_READ_VALIDATE) == 0 && cs.error == NULL &&
               cs.error_at == 0 && hv_codestream_siz(&cs) != NULL &&
               hv_codestream_cod(&cs) == NULL && hv_codestream_qcd(&cs) == NULL,
               "open after closing a failed open", cs.error);
@@ -2053,7 +2443,7 @@ static void check_plt_cursor(void) {
         uint8_t *input = malloc(cases[i].size);
         if (input == NULL) abort();
         memcpy(input, cases[i].bytes, cases[i].size);
-        hv_plt_init(&a, HV_PROFILE);
+        hv_plt_init(&a, HV_PLT_PROFILE);
         check(hv_plt_begin(&a, &range) == NULL,
               "cursor begins without reading entries", NULL);
         while (hv_plt_read(&a, input, &value) == 1) ;
@@ -2068,8 +2458,8 @@ static void check_plt_cursor(void) {
     {
         const uint8_t entries[] = {3, 0};
         hv_plt range = {0, 0, sizeof entries};
-        hv_plt_init(&a, HV_PROFILE);
-        hv_plt_init(&b, HV_PROFILE);
+        hv_plt_init(&a, HV_PLT_PROFILE);
+        hv_plt_init(&b, HV_PLT_PROFILE);
         hv_plt_begin(&a, &range);
         hv_plt_begin(&b, &range);
         check(hv_plt_read(&a, entries, &value) == 1 && value == 3 && a.pos == 1 && b.pos == 0,
@@ -2083,7 +2473,7 @@ static void check_plt_cursor(void) {
         hv_plt_begin(&a, &range);
         check(hv_plt_read(&a, entries, &value) == -1 && strcmp(a.error, "plt.padding-position") == 0,
               "padding state survives tile-part boundaries", a.error);
-        hv_plt_init(&a, HV_PROFILE);
+        hv_plt_init(&a, HV_PLT_PROFILE);
         hv_plt_begin(&a, &range);
         hv_plt_read(&a, entries, &value);
         check(hv_plt_end_tile(&a, 4) != NULL && strcmp(a.error, "plt.coverage") == 0,
@@ -2099,7 +2489,7 @@ static void check_plt_cursor(void) {
         if (original != NULL && replacement != NULL) {
             memcpy(original, file, sizeof file);
             memcpy(replacement, file, sizeof file);
-            hv_plt_init(&a, HV_PROFILE);
+            hv_plt_init(&a, HV_PLT_PROFILE);
             check(hv_plt_begin(&a, &range) == NULL &&
                   hv_plt_read(&a, original, &value) == 1 && value == 3 && a.pos == 3,
                   "read first packet before remapping", a.error);
@@ -2121,7 +2511,7 @@ static void check_plt_cursor(void) {
         hv_item item;
         hv_plt saved = {0, 0, 0};
         size_t data_size = 0;
-        int status = hv_codestream_open(&cs, stream.d, 0, stream.n, HV_PROFILE | HV_DEFER_PLT);
+        int status = hv_codestream_open(&cs, stream.d, 0, stream.n, HV_READ_JPIP_INDEX);
         while (status == 0 && (status = hv_codestream_next(&cs, &item)) == 1) {
             if (item.plt) saved = *item.plt;
             if (item.kind == HV_TILE_DATA) data_size = item.end - item.start;
@@ -2129,28 +2519,28 @@ static void check_plt_cursor(void) {
         }
         check(status == 0 && saved.end > saved.start && cs.plt_reader.count.packets == 0,
               "structural walk does not consume PLT", cs.error);
-        hv_plt_init(&a, HV_PROFILE);
+        hv_plt_init(&a, HV_PLT_PROFILE);
         hv_plt_begin(&a, &saved);
         while (hv_plt_read(&a, stream.d, &value) == 1) ;
         check(hv_plt_end_tile(&a, data_size) == NULL &&
               hv_plt_end(&a, hv_rule_packets(hv_codestream_siz(&cs),
                   &hv_codestream_cod(&cs)->sgcod, &hv_codestream_cod(&cs)->spcod)) == NULL,
               "consume saved ranges after structural completion", a.error);
-        hv_plt_init(&a, HV_PROFILE);
+        hv_plt_init(&a, HV_PLT_PROFILE);
         check(hv_plt_end(&a, hv_rule_packets(hv_codestream_siz(&cs),
                   &hv_codestream_cod(&cs)->sgcod, &hv_codestream_cod(&cs)->spcod)) != NULL,
               "packet count catches an unconsumed codestream", a.error);
         hv_codestream_close(&cs);
         stream.d[saved.end - 1] = 0x80;
-        status = hv_codestream_open(&cs, stream.d, 0, stream.n, HV_PROFILE | HV_DEFER_PLT);
+        status = hv_codestream_open(&cs, stream.d, 0, stream.n, HV_READ_JPIP_INDEX);
         if (status == 0) while ((status = hv_codestream_next(&cs, &item)) == 1) ;
         check(status == 0, "malformed PLT is genuinely deferred", cs.error);
         hv_codestream_close(&cs);
-        check(hv_codestream_check(stream.d, 0, stream.n, HV_PROFILE, &at) != NULL,
+        check(hv_codestream_check(stream.d, 0, stream.n, HV_READ_JPIP, &at) != NULL,
               "eager validation still rejects malformed PLT", NULL);
-        check(hv_codestream_check(stream.d, 0, stream.n, HV_PROFILE | HV_DEFER_PLT, &at) != NULL,
+        check(hv_codestream_check(stream.d, 0, stream.n, HV_READ_JPIP_INDEX, &at) != NULL,
               "full validator refuses deferred flag", NULL);
-        check(hv_codestream_open(&cs, stream.d, 0, stream.n, HV_DEFER_PLT) != 0,
+        check(hv_codestream_open(&cs, stream.d, 0, stream.n, (hv_read_mode)-1) != 0,
               "deferred mode requires served profile", NULL);
         hv_codestream_close(&cs);
         release(&stream);
@@ -2639,7 +3029,7 @@ static void check_plt_packets(void) {
     segments[1].zplt=1;
     error=hv_plt_check_segments(NULL,0,&at);
     check(error && strcmp(error,"codestream.no-plt")==0,"missing saved segments",error);
-    hv_plt_init(&r,HV_PROFILE);
+    hv_plt_init(&r,HV_PLT_PROFILE);
     check(hv_plt_begin(&r,&segments[0])==NULL &&
           hv_plt_packet(&r,bytes,8,0,2,&offset,&length)==1 && offset==0 && length==3 &&
           hv_plt_packet(&r,bytes,8,0,2,&offset,&length)==0 &&
@@ -2648,21 +3038,21 @@ static void check_plt_packets(void) {
           hv_plt_packet(&r,bytes,8,1,2,&offset,&length)==0 &&
           hv_plt_end_tile(&r,8)==NULL && hv_plt_end(&r,2)==NULL,
           "packet ranges across segments",r.error);
-    hv_plt_init(&r,HV_PROFILE);
+    hv_plt_init(&r,HV_PLT_PROFILE);
     hv_plt_begin(&r,&segments[0]);offset=UINT64_MAX;
     check(hv_plt_packet(&r,bytes,2,1,2,&offset,&length)==-1 &&
           strcmp(r.error,"plt.coverage")==0 && offset==UINT64_MAX,
           "oversized packet is not published",r.error);
-    hv_plt_init(&r,HV_PROFILE);
+    hv_plt_init(&r,HV_PLT_PROFILE);
     hv_plt_begin(&r,&segments[0]);offset=UINT64_MAX;
     check(hv_plt_packet(&r,bytes,8,1,2,&offset,&length)==-1 && offset==UINT64_MAX,
           "early PLT end is not published",r.error);
     segments[0].end=2;
-    hv_plt_init(&r,HV_PROFILE);hv_plt_begin(&r,&segments[0]);offset=UINT64_MAX;
+    hv_plt_init(&r,HV_PLT_PROFILE);hv_plt_begin(&r,&segments[0]);offset=UINT64_MAX;
     check(hv_plt_packet(&r,bytes,3,1,2,&offset,&length)==-1 && offset==UINT64_MAX,
           "early data end is not published",r.error);
     segments[0].end=sizeof bytes;
-    hv_plt_init(&r,HV_PROFILE);hv_plt_begin(&r,&segments[0]);
+    hv_plt_init(&r,HV_PLT_PROFILE);hv_plt_begin(&r,&segments[0]);
     check(hv_plt_packet(&r,bytes,8,1,2,&offset,&length)==1 &&
           hv_plt_packet(&r,bytes,8,1,2,&offset,&length)==1 &&
           hv_plt_packet(&r,bytes,8,1,2,&offset,&length)==0 &&
@@ -2670,7 +3060,7 @@ static void check_plt_packets(void) {
           "packet indexing consumes final padding",r.error);
     hv_plt_init(&r,0);
     check(hv_plt_packet(&r,bytes,8,1,2,&offset,&length)==-1 &&
-          strcmp(r.error,"PLT packet indexing requires HV_PROFILE")==0,
+          strcmp(r.error,"PLT packet indexing requires HV_PLT_PROFILE")==0,
           "packet cursor requires the profile",r.error);
 }
 
@@ -2684,7 +3074,7 @@ static void check_plt_repeated(void) {
         hv_plt range = {0, 0, sizeof first};
         hv_plt_reader r;
         uint64_t value;
-        hv_plt_init(&r, HV_PROFILE);
+        hv_plt_init(&r, HV_PLT_PROFILE);
         check(hv_plt_begin(&r, &range) == NULL &&
               hv_plt_read(&r, first, &value) == 1 && value == n && r.pos == 1 &&
               hv_plt_read(&r, remapped, &value) == 1 && value == n && r.pos == 2 &&
@@ -2710,13 +3100,13 @@ static void check_plt_repeated(void) {
         hv_plt range = {0, 0, sizeof entries - 1};
         hv_plt_reader r;
         uint64_t value;
-        hv_plt_init(&r, HV_PROFILE);
+        hv_plt_init(&r, HV_PLT_PROFILE);
         hv_plt_begin(&r, &range);
         while (hv_plt_read(&r, entries, &value) == 1) ;
         check(r.error != NULL && strcmp(r.error, "plt.padding-position") == 0,
               "repeated padding still forbids a later packet", r.error);
         range.end++;
-        hv_plt_init(&r, HV_PROFILE);
+        hv_plt_init(&r, HV_PLT_PROFILE);
         hv_plt_begin(&r, &range);
         while (hv_plt_read(&r, entries, &value) == 1) ;
         check(r.error != NULL && strcmp(r.error, "invalid PLT") == 0,
@@ -2725,7 +3115,7 @@ static void check_plt_repeated(void) {
 }
 
 /* hv_plt_reader used out of order: a segment begun before the last is
- * read, an empty range, and the completions without HV_PROFILE or before
+ * read, an empty range, and the completions without HV_READ_JPIP or before
  * the tile-part is read. Each error is terminal. */
 static void check_plt_misuse(void) {
     static const uint8_t entries[] = {3, 5};
@@ -2734,39 +3124,456 @@ static void check_plt_misuse(void) {
     uint64_t value;
     /* Completion must reject the cursor state before checking this count. */
     const uint64_t unused_packets = 0;
-    hv_plt_init(&a, HV_PROFILE);
+    hv_plt_init(&a, HV_PLT_PROFILE);
     check(hv_plt_begin(&a, &range) == NULL && hv_plt_read(&a, entries, &value) == 1 &&
           hv_plt_begin(&a, &range) != NULL && strcmp(a.error, "PLT segment not consumed") == 0,
           "begun twice", a.error);
     check(hv_plt_read(&a, entries, &value) == -1, "begun twice, terminal", NULL);
 
-    hv_plt_init(&a, HV_PROFILE);
+    hv_plt_init(&a, HV_PLT_PROFILE);
     range.start = range.end = 1;
     check(hv_plt_begin(&a, &range) != NULL && strcmp(a.error, "invalid PLT") == 0,
           "an empty range", a.error);
     range.start = 0;
     range.end = 2;
 
-    hv_plt_init(&a, HV_PROFILE_HEADERS);
+    hv_plt_init(&a, HV_PLT_STANDARD);
     check(hv_plt_end_tile(&a, 8) != NULL &&
-          strcmp(a.error, "PLT completion requires HV_PROFILE") == 0,
-          "end_tile without HV_PROFILE", a.error);
-    hv_plt_init(&a, HV_PROFILE_HEADERS);
+          strcmp(a.error, "PLT completion requires HV_PLT_PROFILE") == 0,
+          "end_tile without HV_READ_JPIP", a.error);
+    hv_plt_init(&a, HV_PLT_STANDARD);
     check(hv_plt_end(&a, unused_packets) != NULL &&
-          strcmp(a.error, "PLT completion requires HV_PROFILE") == 0,
-          "end without HV_PROFILE", a.error);
+          strcmp(a.error, "PLT completion requires HV_PLT_PROFILE") == 0,
+          "end without HV_READ_JPIP", a.error);
 
-    hv_plt_init(&a, HV_PROFILE);
+    hv_plt_init(&a, HV_PLT_PROFILE);
     check(hv_plt_begin(&a, &range) == NULL && hv_plt_read(&a, entries, &value) == 1 &&
           hv_plt_end(&a, unused_packets) != NULL &&
           strcmp(a.error, "PLT tile-part not completed") == 0,
           "end in the middle of a segment", a.error);
-    hv_plt_init(&a, HV_PROFILE);
+    hv_plt_init(&a, HV_PLT_PROFILE);
     check(hv_plt_begin(&a, &range) == NULL && hv_plt_read(&a, entries, &value) == 1 &&
           hv_plt_read(&a, entries, &value) == 1 && hv_plt_read(&a, entries, &value) == 0 &&
           hv_plt_end(&a, unused_packets) != NULL &&
           strcmp(a.error, "PLT tile-part not completed") == 0,
           "end before end_tile", a.error);
+}
+
+/* Opaque framing shares the validator's bounded field reads, without
+ * interpreting bodies or treating SOT/SOP as marker-only codes. */
+static void check_marker_framing(void) {
+    static const uint16_t codes[] = {HV_QCD, HV_COM, HV_TLM, HV_PLM, HV_PLT,
+                                     HV_SOT, HV_SOP, 0xFF70};
+    static const unsigned lengths[] = {2, 3, 65535};
+    static const uint16_t alone[] = {HV_SOC, HV_SOD, HV_EOC, HV_EPH, 0xFF30, 0xFF3F};
+    size_t i, j, n;
+    for (i = 0; i < sizeof codes / sizeof *codes; i++) {
+        for (j = 0; j < sizeof lengths / sizeof *lengths; j++) {
+            bytes b = {0};
+            hv_marker m;
+            const char *error;
+            uint8_t *buf;
+            u16(&b, codes[i]);
+            u16(&b, lengths[j]);
+            while (b.n < lengths[j] + 2u) u8(&b, 0xFF);
+            buf = exact(&b);
+            error = hv_marker_read(buf, 0, b.n, &m);
+            check(error == NULL && m.code == codes[i] && m.start == 0 &&
+                  m.payload == 4 && m.end == b.n, "opaque marker extent", error);
+            for (n = 0; n < b.n; n++) {
+                bytes prefix = {buf, n, n};
+                uint8_t *short_buf = exact(&prefix);
+                hv_marker before;
+                memset(&m, 0x55, sizeof m);
+                memcpy(&before, &m, sizeof before);
+                error = hv_marker_read(short_buf, 0, n, &m);
+                check(error != NULL && strcmp(error, n < 2 ? "expected a marker" :
+                       "marker segment overruns its header") == 0,
+                      "opaque marker prefix", error);
+                check(memcmp(&m, &before, sizeof m) == 0,
+                      "opaque error leaves result unchanged", NULL);
+                free(short_buf);
+            }
+            free(buf);
+            release(&b);
+        }
+    }
+    for (i = 0; i < sizeof alone / sizeof *alone; i++) {
+        uint8_t buf[] = {(uint8_t)(alone[i] >> 8), (uint8_t)alone[i], 0xFF, 0xFF};
+        hv_marker m;
+        const char *error = hv_marker_read(buf, 0, sizeof buf, &m);
+        check(error == NULL && m.code == alone[i] && m.payload == 2 && m.end == 2,
+              "marker-only extent", error);
+    }
+    {
+        uint8_t buf[] = {0, 0xFF, 0x64, 0, 2};
+        hv_marker m;
+        const char *error = hv_marker_read(buf, 1, sizeof buf, &m);
+        check(error == NULL && m.start == 1 && m.payload == 5 && m.end == 5,
+              "marker at nonzero offset", error);
+        check(hv_marker_read(buf, sizeof buf + 1, sizeof buf, &m) != NULL &&
+              hv_marker_read(buf, SIZE_MAX, sizeof buf, &m) != NULL,
+              "reversed marker range", NULL);
+        buf[3] = 0; buf[4] = 1;
+        check(hv_marker_read(buf, 1, sizeof buf, &m) != NULL,
+              "marker length below two", NULL);
+        buf[1] = 0; buf[2] = 0x64;
+        check(hv_marker_read(buf, 1, sizeof buf, &m) != NULL,
+              "invalid marker code", NULL);
+        buf[1] = 0xFF; buf[2] = 0xFF;
+        check(hv_marker_read(buf, 1, sizeof buf, &m) != NULL,
+              "reserved FF marker code", NULL);
+    }
+}
+
+static void check_selected_header(void) {
+    hv_boxes boxes;
+    hv_box box, header_box = {0}, stream = {0};
+    hv_header header, saved;
+    const char *error;
+    size_t at = (size_t)-1;
+    hv_boxes_file(&boxes, JP2.d, JP2.n);
+    while (hv_boxes_next(&boxes, &box, &error, &at) == 1) {
+        if (box.type == HV_BOX_JP2H) header_box = box;
+        if (box.type == HV_BOX_JP2C) stream = box;
+    }
+    nfrees = 0;
+    error = hv_read_jp2h_boxes(JP2.d, &header_box, &stream, &header, &at);
+    check(error == NULL && at == (size_t)-1 && nfrees == 1,
+          "selected header releases component view and preserves success offset", error);
+    memcpy(&saved, &header, sizeof saved);
+    nfrees = 0; fail_at = 0;
+    error = hv_read_jp2h_boxes(JP2.d, &header_box, &stream, &header, &at);
+    fail_at = -1;
+    check(error != NULL && strcmp(error, "out of memory") == 0 && nfrees == 0 &&
+          memcmp(&header, &saved, sizeof header) == 0,
+          "selected header allocation failure preserves output", error);
+    {
+        hv_marker marker = {0};
+        size_t pos = stream.payload;
+        while (hv_marker_read(JP2.d, pos, stream.end, &marker) == NULL && marker.code != HV_COD)
+            pos = marker.end;
+        check(marker.code == HV_COD, "selected header MCT located", NULL);
+        if (marker.code == HV_COD) {
+            uint8_t mct = JP2.d[marker.payload + 4];
+            JP2.d[marker.payload + 4] = 2;
+            nfrees = 0;
+            error = hv_read_jp2h_boxes(JP2.d, &header_box, &stream, &header, &at);
+            check(error != NULL && strcmp(error, "invalid COD") == 0 && nfrees == 1 &&
+                  memcmp(&header, &saved, sizeof header) == 0,
+                  "selected header field failure frees view and preserves output", error);
+            JP2.d[marker.payload + 4] = mct;
+        }
+    }
+    nfrees = -1;
+    at = (size_t)-1;
+    error = hv_read_jp2h_boxes(JP2.d, &header_box, &stream, &header, &at);
+    check(error == NULL && at == (size_t)-1,
+          "selected header retry after allocation and field failure", error);
+}
+
+static void check_header_siz_fields(void) {
+    static const struct { const char *file, *error; } opaque[] = {
+        {"jp2-siz.rsiz-3.jp2", "siz.unsupported-profile"},
+        {"jp2-siz.xtosiz-1.jp2", "siz.tile-origin"},
+        {"jp2-siz.ytosiz-1.jp2", "siz.tile-origin"},
+        {"jp2-rule-siz.tile-covers-origin-53.jp2", "siz.tile-covers-origin"}
+    };
+    for (size_t i = 0; i < sizeof opaque / sizeof *opaque; i++) {
+        bytes b = load(opaque[i].file);
+        hv_header header;
+        hv_box box;
+        size_t at = 0;
+        const char *error = hv_read_jp2h(b.d, b.n, &header, &at);
+        check(error == NULL, "header information ignores tile/capability admission", error);
+        error = hv_check_jp2h(b.d, b.n, &at);
+        check(error == NULL, "header consistency ignores tile/capability admission", error);
+        error = hv_read_jp2(b.d, b.n, &box, &at);
+        check(error == NULL, "SIZ fixture codestream extent", error);
+        if (error == NULL) {
+            error = hv_codestream_check(b.d, box.payload, box.end, HV_READ_VALIDATE, &at);
+            check(error != NULL && strcmp(error, opaque[i].error) == 0,
+                  "explicit SIZ validation retained", error);
+        }
+        release(&b);
+    }
+    {
+        bytes b = load("jp2-siz.xsiz-2147483648.jp2");
+        hv_boxes boxes, children;
+        hv_box box, stream;
+        hv_header header;
+        size_t at = 0;
+        const char *error = NULL;
+        hv_boxes_file(&boxes, b.d, b.n);
+        while (hv_boxes_next(&boxes, &box, &error, &at) == 1)
+            if (box.type == HV_BOX_JP2H) {
+                hv_boxes_children(&children, b.d, &box);
+                while (hv_boxes_next(&children, &box, &error, &at) == 1)
+                    if (box.type == HV_BOX_IHDR) {
+                        b.d[box.payload + 4] = 0x80;
+                        b.d[box.payload + 5] = b.d[box.payload + 6] = b.d[box.payload + 7] = 0;
+                    }
+            }
+        error = hv_read_jp2h(b.d, b.n, &header, &at);
+        check(error == NULL, "header consistency does not count tiles", error);
+        error = hv_read_jp2(b.d, b.n, &stream, &at);
+        check(error == NULL, "tile-count fixture extent", error);
+        if (error == NULL) {
+            error = hv_codestream_check(b.d, stream.payload, stream.end, HV_READ_VALIDATE, &at);
+            check(error != NULL && strcmp(error, "siz.tile-count") == 0,
+                  "explicit tile-count validation retained", error);
+        }
+        release(&b);
+    }
+}
+
+static void check_header_coding_fields(void) {
+    static const struct { const char *file, *error; } opaque[] = {
+        {"jp2-cod.scod.reserved-1.jp2", "invalid COD"},
+        {"jp2-cod.sgcod.progression-5.jp2", "invalid COD"},
+        {"jp2-cod.sgcod.layers-0.jp2", "invalid COD"},
+        {"jp2-cod.spcod.levels-33.jp2", "invalid COD"},
+        {"jp2-cod.spcod.cbWidthExp-5.jp2", "cod.codeblock-area"},
+        {"jp2-cod.spcod.cbStyle-64.jp2", "invalid COD"},
+        {"jp2-cod.spcod.transform-2.jp2", "invalid COD"}
+    };
+    static const struct { const char *file, *error; } interpreted[] = {
+        {"jp2-cod.sgcod.mct-2.jp2", "invalid COD"},
+        {"jp2-cod.sgcod.mct-1.jp2", "siz.mct-components"}
+    };
+    size_t i;
+    for (i = 0; i < sizeof opaque / sizeof *opaque; i++) {
+        bytes b = load(opaque[i].file);
+        hv_header header;
+        hv_box box;
+        hv_codestream cs;
+        hv_item item;
+        size_t at = 0;
+        const char *error = hv_read_jp2h(b.d, b.n, &header, &at);
+        check(error == NULL, "header information ignores unused COD fields", error);
+        error = hv_check_jp2h(b.d, b.n, &at);
+        check(error == NULL, "header consistency ignores unused COD fields", error);
+        error = hv_read_jp2(b.d, b.n, &box, &at);
+        check(error == NULL, "coding fixture codestream extent", error);
+        if (error == NULL) {
+            error = hv_codestream_check(b.d, box.payload, box.end, HV_READ_VALIDATE, &at);
+            check(error != NULL && strcmp(error, opaque[i].error) == 0,
+                  "explicit COD validation retained", error);
+            int status = hv_codestream_open(&cs, b.d, box.payload, box.end, HV_READ_PACKETS);
+            if (status == 0)
+                while ((status = hv_codestream_next(&cs, &item)) == 1) {}
+            check(status < 0 && strcmp(cs.error, opaque[i].error) == 0,
+                  "packet-operation COD validation retained", cs.error);
+            hv_codestream_close(&cs);
+        }
+        release(&b);
+    }
+    for (i = 0; i < sizeof interpreted / sizeof *interpreted; i++) {
+        bytes b = load(interpreted[i].file);
+        hv_header header;
+        size_t at = 0;
+        const char *error = hv_read_jp2h(b.d, b.n, &header, &at);
+        check(error != NULL && strcmp(error, interpreted[i].error) == 0,
+              "JP2 MCT channel checks retained", error);
+        release(&b);
+    }
+    {
+        bytes b = load("jp2.jp2");
+        hv_box box;
+        hv_marker m = {0};
+        hv_header header;
+        size_t at = 0, pos;
+        const char *error = hv_read_jp2(b.d, b.n, &box, &at);
+        check(error == NULL, "MCT bounds fixture", error);
+        if (error == NULL) {
+            pos = box.payload;
+            while (hv_marker_read(b.d, pos, box.end, &m) == NULL && m.code != HV_COD)
+                pos = m.end;
+            check(m.code == HV_COD, "MCT bounds COD located", NULL);
+            if (m.code == HV_COD) {
+                b.d[m.start + 2] = 0;
+                b.d[m.start + 3] = 6; /* SCod, progression, layers; no MCT. */
+                error = hv_read_jp2h(b.d, b.n, &header, &at);
+                check(error != NULL && strcmp(error, "invalid COD") == 0 && at == m.start,
+                      "MCT byte must lie within COD segment", error);
+            }
+        }
+        release(&b);
+    }
+    {
+        bytes b = load("jpx-embedded.jpx");
+        hv_served_sources jpx;
+        hv_marker m = {0};
+        size_t at = 0;
+        const char *error = hv_served_jpx(b.d, b.n, &jpx, &at);
+        check(error == NULL && jpx.count > 0, "JPX coding fixture", error);
+        if (error == NULL) {
+            if (jpx.count > 0) {
+                hv_box *box = &jpx.jp2c[0];
+                size_t pos = box->payload;
+                while (hv_marker_read(b.d, pos, box->end, &m) == NULL && m.code != HV_COD)
+                    pos = m.end;
+                check(m.code == HV_COD && m.end - m.payload > 4, "JPX MCT located", NULL);
+                if (m.code == HV_COD && m.end - m.payload > 4) {
+                    b.d[m.payload + 4] = 2;
+                    error = hv_check_jpx_headers(b.d, b.n, &at);
+                    check(error == NULL, "JPX header consistency does not interpret MCT", error);
+                    error = hv_codestream_check(b.d, box->payload, box->end, HV_READ_VALIDATE, &at);
+                    check(error != NULL && strcmp(error, "invalid COD") == 0,
+                          "JPX explicit COD validation retained", error);
+                }
+            }
+            hv_served_sources_free(&jpx);
+        }
+        release(&b);
+    }
+}
+
+static void check_packet_reader_modes(void) {
+    static const hv_read_mode accepted[] = {HV_READ_PACKETS, HV_READ_PACKETS_JPIP};
+    static const hv_read_mode rejected[] = {(hv_read_mode)-1, (hv_read_mode)99};
+    bytes b = simple();
+    size_t i;
+    /* Operation checks are independent of declaration validation. */
+    b.d[6] = b.d[7] = 0xff;
+    for (i = 0; i < sizeof accepted / sizeof *accepted; i++) {
+        hv_codestream cs;
+        hv_item item;
+        int status = hv_codestream_open(&cs, b.d, 0, b.n, accepted[i]);
+        int saw_data = 0, saw_eoc = 0;
+        if (status == 0) {
+            while ((status = hv_codestream_next(&cs, &item)) == 1) {
+                saw_data |= item.kind == HV_TILE_DATA;
+                saw_eoc |= item.code == HV_EOC;
+                check(item.qcd == NULL && item.com == NULL && item.plt == NULL,
+                      "packet reader leaves bodies opaque", NULL);
+            }
+        }
+        check(status == 0 && saw_data && saw_eoc,
+              "packet reader flags retain whole-codestream traversal", cs.error);
+        hv_codestream_close(&cs);
+    }
+    for (i = 0; i < sizeof rejected / sizeof *rejected; i++) {
+        hv_codestream cs;
+        int status = hv_codestream_open(&cs, b.d, 0, b.n, rejected[i]);
+        check(status < 0 && strcmp(cs.error,
+                                  "invalid codestream read mode") == 0,
+              "reader rejects invalid modes", cs.error);
+        hv_codestream_close(&cs);
+    }
+    {
+        hv_codestream cs;
+        int status;
+        nfrees = 0;
+        b.d[35] = 1;                         /* XTOsiz 1 beyond XOsiz 0. */
+        status = hv_codestream_open(&cs, b.d, 0, b.n, HV_READ_PACKETS);
+        check(status < 0 && strcmp(cs.error, "siz.tile-origin") == 0,
+              "broader declaration retains tile-grid admission", cs.error);
+        hv_codestream_close(&cs);
+        check(nfrees == 1, "packet SIZ failure frees component view", NULL);
+        b.d[35] = 0;
+        nfrees = 0; fail_at = 0;
+        status = hv_codestream_open(&cs, b.d, 0, b.n, HV_READ_PACKETS);
+        fail_at = -1;
+        check(status < 0 && strcmp(cs.error, "out of memory") == 0,
+              "packet component allocation failure", cs.error);
+        hv_codestream_close(&cs);
+        check(nfrees == 0, "failed packet allocation leaves no component view", NULL);
+        nfrees = -1;
+        hv_marker marker = {0};
+        size_t pos = 0;
+        while (hv_marker_read(b.d, pos, b.n, &marker) == NULL && marker.code != HV_COD)
+            pos = marker.end;
+        check(marker.code == HV_COD, "packet MCT located", NULL);
+        if (marker.code == HV_COD) {
+            uint8_t mct = b.d[marker.payload + 4];
+            hv_item item;
+            b.d[marker.payload + 4] = 1;
+            status = hv_codestream_open(&cs, b.d, 0, b.n, HV_READ_PACKETS);
+            while (status == 0 && hv_codestream_cod(&cs) == NULL) {
+                int next = hv_codestream_next(&cs, &item);
+                if (next != 1) { status = -1; break; }
+            }
+            check(status < 0 && strcmp(cs.error, "siz.mct-components") == 0,
+                  "broader declaration retains COD MCT geometry", cs.error);
+            hv_codestream_close(&cs);
+            b.d[marker.payload + 4] = mct;
+        }
+        status = hv_codestream_open(&cs, b.d, 0, b.n, HV_READ_PACKETS);
+        check(status == 0, "packet reader retry after failures", cs.error);
+        hv_codestream_close(&cs);
+    }
+    release(&b);
+}
+
+/* These bodies are copied or dropped by tools. Framing can reach the
+ * first tile-part, while the explicit validator retains its diagnostic. */
+static void check_opaque_bodies(void) {
+    static const struct { const char *file, *error; uint16_t code; } cases[] = {
+        {"jp2-rule-main.com-21.jp2", "invalid COM", HV_COM},
+        {"jp2-rule-qcd.style-72.jp2", "qcd.style", HV_QCD},
+        {"jp2-rule-qcc.component-69.jp2", "qcc.component", HV_QCC},
+        {"jp2-rule-rgn.component-77.jp2", "rgn.component", HV_RGN},
+        {"jp2-rule-crg.length-95.jp2", "invalid CRG", HV_CRG},
+        {"jp2-rule-tlm.stlm-83.jp2", "invalid TLM", HV_TLM},
+        {"jp2-rule-plm.length-87.jp2", "plm.length", HV_PLM},
+        {"jp2-sot.isot-1.jp2", "sot.isot-range", HV_SOT},
+        {"jp2-sot.tpsot-1.jp2", "sot.tpsot-sequence", HV_SOT}
+    };
+    size_t i;
+    for (i = 0; i < sizeof cases / sizeof *cases; i++) {
+        bytes file = load(cases[i].file);
+        hv_box box;
+        hv_marker m;
+        size_t at = 0, pos;
+        int found = 0;
+        const char *error = hv_served_jp2(file.d, file.n, &box, &at);
+        check(error == NULL, cases[i].file, error);
+        if (error == NULL) {
+            pos = box.payload;
+            while ((error = hv_marker_read(file.d, pos, box.end, &m)) == NULL) {
+                found |= m.code == cases[i].code;
+                if (m.code == HV_COM && cases[i].code == HV_COM) {
+                    /* Reserved Rcom, without changing the segment extent. */
+                    file.d[m.payload] = 0xFF;
+                    file.d[m.payload + 1] = 0xFF;
+                }
+                if (m.code == HV_SOT) break;
+                pos = m.end;
+            }
+            check(error == NULL && found && m.code == HV_SOT,
+                  "opaque main-header traversal", error);
+            error = hv_codestream_check(file.d, box.payload, box.end, HV_READ_VALIDATE, &at);
+            check(error != NULL && strcmp(error, cases[i].error) == 0,
+                  "explicit body validation retained", error);
+            {
+                hv_header header;
+                error = hv_read_jp2h(file.d, file.n, &header, &at);
+                check(error == NULL, "input header leaves other bodies opaque", error);
+                error = hv_check_jp2h(file.d, file.n, &at);
+                check(error == NULL, "header validation leaves other bodies opaque", error);
+            }
+            {
+                hv_codestream cs;
+                hv_item item;
+                int status = hv_codestream_open(&cs, file.d, box.payload, box.end, HV_READ_PACKETS);
+                if (status == 0) {
+                    while ((status = hv_codestream_next(&cs, &item)) == 1) {
+                        check(item.qcd == NULL && item.com == NULL && item.plt == NULL,
+                              "packet-operation bodies opaque", NULL);
+                    }
+                }
+                if (cases[i].code == HV_SOT)
+                    check(status < 0 && strcmp(cs.error, cases[i].error) == 0,
+                          "packet-operation tile framing retained", cs.error);
+                else
+                    check(status == 0, "packet-operation opaque traversal", cs.error);
+                check(hv_codestream_qcd(&cs) == NULL, "opaque QCD accessor", NULL);
+                hv_codestream_close(&cs);
+            }
+        }
+        release(&file);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -2779,12 +3586,23 @@ int main(int argc, char **argv) {
     load_bases();
     check_boxes();
     check_file_starts();
+    check_jp2_access();
+    check_container_access();
+    check_fragment_access();
+    check_reference_access();
+    check_large_jp2_access();
     check_jpx_files();
     check_link_paths();
     check_links();
     check_jp2_headers();
     check_jpx_header_boxes();
     check_rreqs();
+    check_marker_framing();
+    check_selected_header();
+    check_header_siz_fields();
+    check_header_coding_fields();
+    check_packet_reader_modes();
+    check_opaque_bodies();
     check_codestreams();
     check_plt_cursor();
     check_header_diagnostics();

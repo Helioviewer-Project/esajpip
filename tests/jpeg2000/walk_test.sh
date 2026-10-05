@@ -67,8 +67,13 @@ expect 1 "raw.j2k: file.signature at 0" "$exe" -P "$work/raw.j2k"
 # The layers: jp2-sig-bad.jp2 only fails the file rules.
 expect 0 "jp2-sig-bad.jp2: 6 boxes" "$exe" "$vectors/jp2-sig-bad.jp2"
 expect 1 "jp2-sig-bad.jp2: file.signature at 0" "$exe" -P "$vectors/jp2-sig-bad.jp2"
-expect 0 "jpx-embedded.jpx: 12 boxes, 2 codestreams, 2 tile-parts" \
+expect 0 "jpx-embedded.jpx: 12 boxes, 2 codestreams, 0 tile-parts" \
     "$exe" -H "$vectors/jpx-embedded.jpx"
+
+# Header-only validation leaves unrelated quantization and tile data opaque.
+expect 0 "; headers only" "$exe" -H "$vectors/jp2-rule-qcd.style-72.jp2"
+expect 1 "qcd.style" "$exe" "$vectors/jp2-rule-qcd.style-72.jp2"
+expect 1 "qcd.style" "$exe" -H -w "$vectors/jp2-rule-qcd.style-72.jp2"
 
 # Trailing zero PLT entries: refused at the standard layer, accepted with -p
 # and counted.
