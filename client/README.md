@@ -62,10 +62,10 @@ itself.
 
 ## Terms
 
-- **Frame.** A codestream of the file, numbered from 0. A JP2 has one. A JPX
-  has one per image, whether the images are embedded or linked. The frames of
-  one JPX may differ in size, components, resolution levels and color table,
-  so each frame reports its own.
+- **Frame.** A JPX compositing layer, numbered from 0; JP2 has one implicit
+  layer. `hvc_view.codestream` identifies the codestream used for requests.
+  Layers may reorder or share codestreams. Each frame reports its own geometry
+  and color table, whether its image is embedded or linked.
 - **`reduce`.** The number of highest resolution levels left out, as in
   `opj_decompress -r` and `kdu_expand -reduce`. The size is the full size
   divided by 2^`reduce`, rounded up: a 4096x4096 frame is 1024x1024 at
@@ -249,7 +249,7 @@ After that, `frame(index, { fit: [1024, 768] })` decodes from the cache.
 - **Decoding.** Every `frame` call decodes. Decoded frames are not kept: keep
   the textures of frames shown repeatedly.
 - **First request for a frame.** If its main header has not arrived, a
-  header-only request (`stream=index&layers=0`) obtains its size and resolution
+  header-only request (`stream=view.codestream&layers=0`) obtains its size and resolution
   levels before requesting pixels. This adds one round trip on the first
   visit, and makes the request exact even when movie frames differ in size.
 
@@ -330,7 +330,10 @@ complete bins and exact partial byte prefixes in bounded `model` batches. It
 never declares partial `M0`. Metadata repeated during restoration is checked
 against the retained bytes. Normal responses also accept identical overlap and
 append only new bytes to each bin. Once restoration finishes, the interrupted request resumes; another failure
-ends recovery. Closing a source prevents it from reopening a channel.
+ends recovery. Transport failure leaves valid cached frames usable. A refused
+JPP or restoration response retires the cache; even previously ready frames
+cannot be fetched from it. Pixels already returned to JavaScript remain owned
+by the caller. Closing a source prevents it from reopening a channel.
 
 This relies on the server's immutable-source contract: the target and its linked
 files must remain unchanged across channel replacement, including server restarts.
@@ -433,10 +436,12 @@ quality across the selected resolution levels.
 The host retains HTTP, channel routing, scheduling and decoding. Submit the
 opening response with `hvc_response`, then use `hvc_frames` to
 read the frame count. Keep one request outstanding per source, serialize all
-calls, and do not add `len` or a region to prepared requests. After each
-response, prepare again until the requested frame is ready. This handles
-heterogeneous movies using each frame's own header. Successful completed
-responses confirm whole-packet layer boundaries automatically.
+calls, and request whole-frame windows. A byte limit is allowed; after a limit
+EOR, prepare again and use the returned dimensions and `requested_layers`.
+Preparation can raise quality to full when previously received unconfirmed
+bytes make a smaller layer boundary ambiguous. Normal completion confirms
+whole-packet boundaries. The client uses each frame's own header; old servers
+still have the mixed-size movie limitation documented in [CLASSICAL.md](CLASSICAL.md).
 
 ```c
 hvc *source = hvc_create(inspect, decoder_context);
@@ -475,7 +480,7 @@ hvc_destroy(source);
 return -1;
 ```
 
-For channel recovery, keep the source. `hvc_model` writes retained-bin
+For transport interruption before ingestion refusal, keep the source for channel recovery. `hvc_model` writes retained-bin
 declarations in bounded batches; start its cursor at zero and stop at an empty
 batch. Select no codestreams (`stream` equal to `hvc_codestreams(source)`, `layers=0`).
 The first batch opens a replacement channel on the original target; later
@@ -485,15 +490,17 @@ original pending request. Restoration retains geometry, quality and metadata
 pointers and does not complete the pending frame request. Use it only after a
 successful initial metadata exchange, for the same immutable target.
 
-A response ending before window completion retains its bytes without
-confirming quality; the host can prepare another request. A rejected response
-may have applied valid preceding messages. Its pending
-request remains available for retry, but protocol errors require closing the
-channel. Destroying the source releases its metadata and cache in the correct
-order. The XML returned by `hvc_xml` remains valid until destruction;
-`hvc_palette` copies into a host buffer. `hvc_codestream` preserves
-sample precision and uses the same size-query/caller-buffer convention as
-`hvc_reconstruct`.
+A byte-limit EOR retains bytes without confirming quality; the host can prepare
+another request. A refused response may have applied preceding messages. Discard
+the client and channel on refusal, including restoration refusal, and invalidate
+its persisted cache. The library does not automatically reject later calls.
+Reusing that source could mix bytes from changed targets. Transport interruption
+without an ingestion refusal can instead use the recovery procedure above.
+
+Destroying the source releases its metadata and cache. `hvc_xml` returns borrowed
+bytes valid until destruction; `hvc_palette` copies into a host buffer.
+`hvc_codestream` preserves sample precision and follows the same size-query and
+caller-buffer convention as `hvc_reconstruct`.
 
 ### Requests
 
@@ -508,19 +515,25 @@ GET /<path>?cid=<cid>&cclose=<cid>
 - The first request names the image and asks for a channel. Its response has
   the header `JPIP-cnew`, whose `cid` and `path` fields the later requests
   use.
-- `stream` is the frame. `fsiz` is its size at the `reduce` wanted: the full
+- `stream` is `hvc_view.codestream`, the codestream mapped to the JPX layer. `fsiz` is its size at the `reduce` wanted: the full
   size divided by 2^`reduce`, rounded up.
 - The first response of a channel also carries the metadata of all frames,
   whatever it asks for.
 - A frame's size and resolution levels are known once its main header has
-  arrived. Before that, request `stream=<frame>&layers=0`, then use
+  arrived. Before that, request `stream=<view.codestream>&layers=0`, then use
   `hvc_reconstruct_status` to size the pixel request.
-- Do not use `len` for pixel requests. For a whole-frame request limited by
-  `layers`, apply its entire response and call `hvc_reconstruct_confirm` only
-  after `WINDOW_DONE` or `IMAGE_DONE`, with its exact reduction and clamped
-  layer count. This records the whole-packet prefixes for reconstruction.
-  Unconfirmed bytes stay cached but are omitted from decoder input. `layers=0` is
-  used only to obtain headers.
+- Full-quality pixel requests may use `len`. Consume every response through
+  EOR and continue after a byte-limit EOR. A host using only `hvc_response` and
+  `hvc_status` obtains readiness from completed bins. A prepared host must use
+  each returned `hvc_view`, including `requested_layers`. Do not repeatedly retry
+  a normally completed window that leaves its requested view unready.
+- For layer-limited windows, prefer `hvc_prepare`/`hvc_response`: they confirm
+  quality only after normal window completion. If a prior response left
+  unconfirmed bytes, preparation raises the request to full quality to avoid
+  treating a mid-packet byte offset as a layer boundary. At the low level,
+  `hvc_reconstruct_confirm` requires that unfinished bins had no unconfirmed
+  tail before the layer-limited request. Unconfirmed bytes remain cached but
+  are omitted from decoder input. Successful reconstruction is not readiness.
 - [`../JPIP_PROFILE.md`](../JPIP_PROFILE.md) describes the requests the server
   accepts, and [`../CHANNELS.md`](../CHANNELS.md) its channels, status codes
   and timeouts.
@@ -566,15 +579,19 @@ data-bin access. Each header documents its calls' results. Calls that take `erro
   it accepts one unsigned component of at most 8 bits. See [What the pixels
   are](#what-the-pixels-are).
 - **`hv_metadata`.** Start with `{0}`. `hvc_metadata_open` fails while the
-  metadata is incomplete, which it is not after a whole first response. The
+  metadata is incomplete; a normally ended opening response need not contain
+  all metadata on an older server. The
   index points into the store: XML pointers stay valid until
   `hvc_cache_release`, and the index must be closed before the store is
   released.
 - **Color tables.** `HV_PALETTE_MAX` bytes hold any table. A call with
   capacity 0 returns `entries` and sets `channels` without writing.
 - **Errors in a response.** When `hvc_jpp_next` or `hvc_cache_apply` fails, the
-  store no longer matches the server's record of the channel. Close the
-  channel. What is cached still decodes.
+  response is refused. The source API does not latch a failed state. The host
+  must retire that source and channel and invalidate its persisted cache. A new
+  source is required for retry; a later response must not be merged into a
+  potentially mixed cache. Already captured immutable inputs retain their own
+  bytes, subject to the source-lifetime requirements in `hvc_decode.h`.
 - **Threads.** A store has no locking: use it from one thread at a time.
 - **Pixels.** `image.pixels` is allocated with `malloc`; the caller frees it.
 
@@ -583,9 +600,10 @@ shortest complete example.
 
 ## Limits
 
-- **Whole-frame windows only.** No regions or decoding during response
-  arrival. Layer-limited previews decode after the window completes; arbitrary
-  byte-limited partial delivery is not supported.
+- **Whole-frame windows only.** No requested regions. Byte-limited responses
+  accumulate in the cache; display only reductions/quality reported ready.
+  Serialize source operations, including input creation, with response ingestion.
+  An existing immutable decode input can be read while later responses arrive.
 - **No eviction.** The cache grows until the source is destroyed.
 - **Bounded recovery.** An operation attempts one replacement channel. There
   is no background keepalive or retry loop while a server remains unavailable.
@@ -630,6 +648,12 @@ curl -s -o f3.jpp \
   'http://localhost:8900/movie.jpx?cnew=http&type=jpp-stream&stream=3&fsiz=1024,1024,closest'
 build/client/hvc_jpp2j2k -c 3 -o frame3.j2k f3.jpp
 ```
+
+The final response must complete its window and the selected codestream must
+have a whole full-quality resolution, with no nonempty precinct bins outside
+that complete resolution prefix. Header-only and unconfirmed layer-limited
+responses are refused. Byte-limited responses can be combined through completion.
+Refusal leaves any existing output file unchanged.
 
 The tool prints the number of messages of each response and why it ended. It
 exits with 0 on success, 1 on an error and 2 on a usage error.
@@ -701,12 +725,13 @@ checks below.
 
 | Test | What it checks |
 | --- | --- |
-| `client_cache` | The store: appending, completion, refusals, many bins, cache-model batching and exact metadata replay |
+| `client_cache` | The store: appending, identical overlap/replay, conflict and final-size refusals, completion, many bins and cache-model batching |
 | `client_jpp` | Messages written by the server's own writer, read back |
 | `client_jpp_malformed` | Damaged messages, all refused |
 | `client_reconstruct` | Every codestream of the corpus, the transcoder's reference images and the merger's reference movie, served by the server's own code at each resolution: the written codestream, the cached levels, the decoded pixels, and the movie's frame count, XML and color tables |
 | `client_image` | Sample scaling at several precisions, and unchanged color table indices |
-| `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay and decoded pixel equality |
+| `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality |
+| `client_converter` | Refusal of incomplete/header-only/unconfirmed quality input without overwriting output; completed continuation, reduced windows and replay |
 
 The JavaScript is checked by a script that needs Node.js, the built module and
 a running server:

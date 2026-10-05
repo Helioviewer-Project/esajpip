@@ -87,7 +87,9 @@ const char *hvc_error(const hvc *client);
  * EOR reason, or -1. A prepared request is confirmed only after a complete
  * WINDOW_DONE/IMAGE_DONE response. Other EOR reasons retain bytes without
  * confirming quality; prepare again to retry. Messages preceding an error
- * remain cached, with the pending request available after restoration. */
+ * remain cached. After a refusal, the host must discard the source and channel;
+ * subsequent calls are not automatically disabled. Existing immutable decode
+ * inputs remain subject to their documented source lifetime. */
 int hvc_response(hvc *client, const uint8_t *body, size_t size);
 /* Frames are JPX layers in file order, or JP2's single implicit layer. */
 size_t hvc_frames(hvc *client);
@@ -100,9 +102,16 @@ int hvc_status(hvc *client, uint64_t frame, const hvc_options *options,
                hvc_view *view);
 
 /* Inspect and remember the next request. HEADER means stream=view.codestream,layers=0;
- * FRAME means stream=view.codestream,fsiz=width,height,closest,layers=<clamped options>.
- * No len or ROI. With layers=0, omit the layers field. After submitting its
- * response, prepare again until READY. Only one request may be pending.
+ * FRAME means stream=view.codestream,fsiz=width,height,closest,layers=view.requested_layers.
+ * Whole-frame windows only. A byte-limit EOR retains bytes without confirmation;
+ * prepare again and use the newly returned request. If unconfirmed precinct
+ * bytes precede a layer-limited request, requested_layers is raised to full
+ * quality so a cached mid-packet tail cannot be confirmed as a layer boundary.
+ * Always send view.requested_layers, not the original option. A full-quality
+ * host may instead use response/status without prepare; readiness then comes
+ * only from completed bins. If WINDOW_DONE/IMAGE_DONE leaves the requested view
+ * unready, report failure rather than repeating a completed window forever.
+ * Only one request may be pending.
  * Local sources return READY immediately, without a network request. */
 int hvc_prepare(hvc *client, uint64_t frame, const hvc_options *options,
                 hvc_view *view);

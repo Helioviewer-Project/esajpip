@@ -22,13 +22,13 @@ frame count or XML.
 
 Use `hvc_options.layers=0`, meaning full quality. Classical servers do
 not implement layer selection. A missing-header request is
-`cid=<cid>&stream=<frame>&len=<budget>`, without window fields.
+`cid=<cid>&stream=<view.codestream>&len=<budget>`, without window fields.
 For a prepared frame, use W,H from that frame's `hvc_view`, at its
 requested resolution. Do not reuse another frame's geometry or approximate
 fit dimensions. Request:
 
 ```text
-cid=<cid>&stream=<frame>&fsiz=W,H,closest&rsiz=W+1,H+1&roff=0,0&len=<budget>
+cid=<cid>&stream=<view.codestream>&fsiz=W,H,closest&rsiz=W+1,H+1&roff=0,0&len=<budget>
 ```
 
 Evaluate W+1 and H+1 numerically. The one-pixel padding compensates for the
@@ -40,19 +40,24 @@ With approximate dimensions, the older server can scale the padded region
 past the image and fail during packet lookup. Do not pad a priming request
 before the frame's own geometry is known.
 
-Response continuation is general client behavior, not an older-server
-workaround. After every response, call `hvc_prepare` again. A byte-limit
-EOR retains the bytes but does not confirm window completion. Repeat the prepared request
-on the same channel until READY, then reconstruct. Do not change the window
-while accumulating an unfinished request. The JHV frame budget is 2 MiB.
+Response continuation is general client behavior. A full-quality host may use
+`hvc_response` and `hvc_status` without preparing requests. Alternatively, use
+`hvc_prepare` after each response. In either case, read through EOR: byte-limit
+EOR retains bytes and allows continuation on the same channel. Readiness is
+not a substitute for consuming the response. A normally completed window
+(`WINDOW_DONE` or `IMAGE_DONE`) that leaves the requested view unready is a
+failure, not a reason to repeat that completed window indefinitely. Reconstruct
+for display only after the requested view is ready. Full-quality requests may
+be interleaved between frames; keep each frame's own geometry. JHV's frame
+budget is 2 MiB.
 
 ## Replacing a channel
 
 Keep the client for the same immutable target. The classical server needs a
 fresh persistent connection and channel. Do not use the new-server recipe
-`stream=<frame count>` to select no codestreams on a classical server.
+`stream=<codestream count>` to select no codestreams on a classical server.
 
-After successful initialization, frame 0's main and empty tile headers are
+After successful initialization, codestream 0's main and empty tile headers are
 cached. Start a `hvc_model` cursor at zero and send each returned batch
 with:
 
@@ -71,7 +76,7 @@ Pass each restoration response to `hvc_restore_response`; it validates
 any repeated metadata against the retained bytes without modifying the cache
 or completing a pending frame request. Stop at an empty model batch, then
 resume the interrupted window. This procedure requires complete initial
-metadata and cached frame-0 headers, not just a successful channel opening.
+metadata and cached codestream-0 headers, not just a successful channel opening.
 
 ## Retirement and limits
 
@@ -89,3 +94,19 @@ pixel equivalence. This does not establish compatibility with every deployed
 classical build, heterogeneous classical movies, or files outside the C
 client's reconstruction profile. HTTP/channel handling still belongs to the
 host and requires separate integration validation.
+
+The V4 scratchpad review found a specific server-side limitation: the repository's
+`tests/merge/fixtures/expected/merged.jpx` contains embedded frames of different
+sizes. Classical `35aca93` and 1.9.0-rc1 `7ccac81` serve it correctly only at the
+lowest resolution. Higher resolutions have missing precincts and one frame
+causes a connection drop, with or without region padding. This occurs with any
+client. The new server does not have that observed failure. The host must report
+an unready normally completed window rather than display a padded reconstruction
+as if it were complete. This fixture's old-server compatibility is therefore
+limited to its lowest resolution; no general mixed-size compatibility is claimed.
+
+A response refusal is terminal for the host's source, including cache-model
+restoration refusal. Close its channel, discard persisted cache for that source,
+and create a new client if retrying. Replay verification detects conflicts in
+already-held bytes; it cannot detect changes confined to bytes not yet received.
+The immutable-target requirement still applies.

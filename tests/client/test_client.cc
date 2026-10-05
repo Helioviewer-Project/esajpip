@@ -478,11 +478,11 @@ static void cross_source() {
 }
 
 // First inspection must also work when data arrived before request planning.
-static void partial_inspection() {
+static void partial_inspection(const char *path, int budget = 2000) {
     for (bool limited : {false, true}) {
         Sources sources;
-        jpip::ImageIndex image(IMAGE);
-        check(image.Open(*sources.GetSource(IMAGE), sources, false), image.GetError());
+        jpip::ImageIndex image(path);
+        check(image.Open(*sources.GetSource(path), sources, false), image.GetError());
         jpip::DataBinServer server;
         int calls = 0;
         hvc *client = hvc_create(inspect, &calls);
@@ -496,7 +496,7 @@ static void partial_inspection() {
         frame.resolution_size = image.GetCodingParameters(0)->size;
         frame.layers = limited ? image.GetCodingParameters(0)->num_layers : 1;
         frame.has.len = limited;
-        frame.length_response = 2000;
+        frame.length_response = budget;
         Bytes body = response(server, image, sources, frame);
         int reason = hvc_response(client, body.data(), body.size());
         check(reason == (limited ? HVC_EOR_BYTE_LIMIT_REACHED : HVC_EOR_WINDOW_DONE),
@@ -508,7 +508,9 @@ static void partial_inspection() {
         Bytes before = reconstruct(client, 0);
         check(hvc_response(client, body.data(), body.size()) == reason &&
               reconstruct(client, 0) == before, "unprepared response replay");
+        options.layers = 1;
         check(hvc_prepare(client, 0, &options, &view) == 0, hvc_error(client));
+        check(view.requested_layers == view.source.layers, "unconfirmed tail requires full quality");
         submit(client, response(server, image, sources, request(view)));
         check(hvc_status(client, 0, &options, &view) == 0 && view.ready && calls == 1,
               "partial inspection continuation");
@@ -524,7 +526,40 @@ static void partial_inspection() {
     }
 }
 
+static void write_responses(const std::string &folder) {
+    Sources sources;
+    jpip::ImageIndex image(IMAGE);
+    check(image.Open(*sources.GetSource(IMAGE), sources, false), image.GetError());
+    auto save = [&](const std::string &name, const Bytes &bytes) {
+        std::ofstream file(folder + "/" + name, std::ios::binary);
+        file.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+        check(static_cast<bool>(file), "write response fixture");
+    };
+    for (const char *name : {"headers", "limited", "layers", "whole", "reduced"}) {
+        jpip::DataBinServer server;
+        jpip::ResponseRequest fields;
+        fields.AddStream(0, 0);
+        fields.layers = 0;
+        save(std::string(name) + "-header.jpp", response(server, image, sources, fields));
+        fields.layers = std::string(name) == "layers" ? 1 : image.GetCodingParameters(0)->num_layers;
+        fields.has.fsiz = true;
+        fields.resolution_size = std::string(name) == "reduced" ? jpip::Size(1, 1) : image.GetCodingParameters(0)->size;
+        fields.has.len = std::string(name) == "limited";
+        fields.length_response = 3000;
+        if (std::string(name) == "headers") continue;
+        save(std::string(name) + ".jpp", response(server, image, sources, fields));
+        if (fields.has.len) {
+            fields.has.len = false;
+            save("continuation.jpp", response(server, image, sources, fields));
+        }
+    }
+}
+
 int main(int argc, char **argv) {
+    if (argc == 3 && std::string(argv[1]) == "--write-responses") {
+        write_responses(argv[2]);
+        return 0;
+    }
     if (argc == 3 && std::string(argv[1]) == "--write-fixtures") {
         for (int layers : {1,2}) {
             Bytes bytes = fixture(layers, false);
@@ -539,6 +574,8 @@ int main(int argc, char **argv) {
     verify(MOVIE, true);
     cross_source();
     inspection_retry();
-    partial_inspection();
+    partial_inspection(IMAGE);
+    partial_inspection(GRAY);
+    partial_inspection(GRAY_LARGE, 60000);
     return 0;
 }

@@ -170,6 +170,18 @@ try {
     assert.deepEqual((await bounded.frame(0, { fit: [2048, 2048], layers: 1 })).pixels, saved.pixels);
     globalThis.fetch = trackedFetch;
 
+    // A malformed response after a valid preview retires the cache, not just
+    // the request. Already returned JavaScript pixels remain caller-owned.
+    const refused = await open();
+    const retained = await refused.frame(0, { fit: [2048, 2048], layers: 1 });
+    const retainedPixels = retained.pixels.slice();
+    globalThis.fetch = async () => new Response(new Uint8Array([0]), { status: 200 });
+    await assert.rejects(refused.frame(0, { fit: [2048, 2048] }));
+    await assert.rejects(refused.frame(0, { fit: [2048, 2048], layers: 1 }));
+    assert.equal(refused.frames, 0);
+    assert.deepEqual(retained.pixels, retainedPixels);
+    globalThis.fetch = trackedFetch;
+
     // Busy, invalid, unavailable and malformed replies must never reopen.
     for (const [code, body] of [[503, "JPIP channel is busy"], [503, "JPIP channel limit has been reached"],
                                [400, "bad request"], [404, "not found"], [500, "failure"],

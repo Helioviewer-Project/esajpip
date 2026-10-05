@@ -5,9 +5,9 @@
  * Gaps, conflicting bytes and inconsistent final sizes are rejected.
  *
  * A bin is complete once a message sets the last-byte flag. Bins stay in
- * memory for the life of the source, complete or not: the server will not
- * resend what it has sent, and it takes no notice that a client has dropped
- * something (JPIP_PROFILE.md: no subtractive cache model).
+ * memory for the life of the source, complete or not. A channel normally
+ * skips bytes it has already sent; a replacement channel may replay them.
+ * Dropping cached bytes requires a new source/channel (no subtractive model).
  * A replacement channel for the same immutable target can be synchronized
  * with hvc_cache_model without discarding the store.
  *
@@ -67,8 +67,8 @@ const hvc_bin *hvc_cache_find(const hvc_cache *cache, int bin_class,
 int hvc_cache_complete(const hvc_cache *cache, int bin_class, uint64_t codestream,
                        uint64_t bin_id);
 
-/* How many bytes of a bin the client holds, which is what the server's cache
- * model should report for it. */
+/* How many bytes of a bin the client holds. A replacement channel may know
+ * a shorter prefix until the host declares its cache model. */
 size_t hvc_cache_length(const hvc_cache *cache, int bin_class, uint64_t codestream,
                         uint64_t bin_id);
 
@@ -88,7 +88,7 @@ int hvc_cache_model(const hvc_cache *cache, size_t *cursor, char *text, size_t s
 
 /* Checks a metadata range repeated while establishing a replacement channel.
  * It must match a complete cached bin exactly over that range. Never modifies
- * the cache or relaxes hvc_cache_apply's append-only contract. */
+ * the cache. Unlike normal ingestion, it accepts only already-held metadata. */
 int hvc_cache_match_metadata(const hvc_cache *cache, const hvc_jpp_message *message);
 
 /* A nonempty diagnostic after a failed hvc_cache_apply(). */

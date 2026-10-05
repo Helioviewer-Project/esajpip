@@ -4,6 +4,7 @@
 #endif
 #include "hvc_metadata.h"
 #include "hvc_reconstruct.h"
+#include "hvc_frame.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -325,6 +326,22 @@ int hvc_prepare(hvc *client, uint64_t frame, const hvc_options *options,
                 hvc_view *view) {
     if (client->pending) return fail(client, "a frame request is already pending");
     if (hvc_status(client, frame, options, view) != 0) return -1;
+    if (view->request == HVC_FRAME && view->requested_layers < view->source.layers) {
+        const hvc_frame *coding = hvc_frame_get(&client->cache, view->codestream,
+                                                client->error, sizeof client->error);
+        if (!coding) return -1;
+        uint64_t end = coding->precinct_end[coding->resolutions - 1 - view->reduce];
+        for (uint64_t id = 0; id < end; id++) {
+            const hvc_bin *bin = hvc_cache_find(&client->cache, HVC_BIN_PRECINCT, view->codestream, id);
+            if (bin && !bin->complete && bin->length > bin->packet_bytes) {
+                /* A previous byte-limited window may have passed the requested
+                 * layer and stopped inside a later packet. Only full delivery
+                 * gives an unambiguous boundary without parsing packets. */
+                view->requested_layers = view->source.layers;
+                break;
+            }
+        }
+    }
     client->pending = view->request;
     client->codestream = view->codestream;
     client->reduce = view->reduce;

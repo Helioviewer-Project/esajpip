@@ -206,7 +206,7 @@ export class JpipChannel {
     }
 
     // Retry an interrupted operation once, after restoring a replacement
-    // channel. Protocol errors are terminal; cached frames remain usable.
+    // channel. Transport failure preserves cached frames; ingestion refusal retires the cache.
     async #request(fields) {
         if (this.#failed !== null)
             throw this.#failed;
@@ -261,8 +261,13 @@ export class JpipChannel {
         const reason = restoring ? wasm.hvc_wasm_restore_response(at, body.length)
                                  : wasm.hvc_wasm_response(at, body.length);
         wasm.hvc_wasm_free(at);
-        if (reason < 0)
-            throw new Error(this.#error());
+        if (reason < 0) {
+            const error = new Error(this.#error());
+            // Accepted messages may precede a conflicting one. Retire that cache.
+            wasm.hvc_wasm_reset();
+            this.frames = 0;
+            throw error;
+        }
         return reason;
     }
 
@@ -338,6 +343,7 @@ export class JpipChannel {
     async #fetch(index, options) {
         checkOptions(options);
         if (this.#failed !== null) {
+            if (this.frames === 0) throw this.#failed;
             const { request, requestedLayers, ...status } = this.#view(index, options);
             if (status.ready) return status;
             throw this.#failed;

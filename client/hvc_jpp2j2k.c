@@ -14,7 +14,8 @@
  *   hvc_jpp2j2k -o frame.j2k frame.jpp
  *
  * The codestream must have been delivered whole for the window requested
- * (hvc_reconstruct.h): a response limited with len or layers is refused.
+ * at full quality. Byte-limited responses may be combined through window
+ * completion. Header-only and unconfirmed layer-limited input is refused.
  * The output replaces the file named (hv_file). Exit status: 0 on success
  * (and for -h), 1 on error, 2 on usage errors. */
 #define _POSIX_C_SOURCE 200809L
@@ -28,6 +29,7 @@
 #include "hvc_cache.h"
 #include "hvc_jpp.h"
 #include "hvc_reconstruct.h"
+#include "hvc_frame.h"
 #include "jpeg2000/hv_served.h"
 #include "tools/hv_file.h"
 
@@ -73,7 +75,7 @@ static int apply(hvc_cache *cache, const char *path) {
     else if (status == HVC_JPP_EOR)
         printf("%s: %zu messages, %s\n", path, messages, reason_name(hvc_jpp_reason(&reader)));
     free(body);
-    return status == HVC_JPP_EOR ? 0 : -1;
+    return status == HVC_JPP_EOR ? hvc_jpp_reason(&reader) : -1;
 }
 
 static int write_file(const char *path, const uint8_t *bytes, size_t size) {
@@ -96,7 +98,7 @@ int main(int argc, char **argv) {
     hvc_cache cache;
     uint8_t *out = NULL;
     size_t size;
-    int i, status = 1;
+    int i, status = 1, reason = 0;
 
     for (i = 1; i < argc && argv[i][0] == '-' && argv[i][1] != 0; i++) {
         if (strcmp(argv[i], "-h") == 0) {
@@ -124,8 +126,27 @@ int main(int argc, char **argv) {
 
     hvc_cache_begin(&cache);
     for (; i < argc; i++)
-        if (apply(&cache, argv[i]) != 0)
+        if ((reason = apply(&cache, argv[i])) < 0)
             goto done;
+    hvc_frame_status available;
+    if (reason != HVC_EOR_WINDOW_DONE && reason != HVC_EOR_IMAGE_DONE) {
+        fprintf(stderr, "hvc_jpp2j2k: response sequence did not complete its window\n");
+        goto done;
+    }
+    if (hvc_reconstruct_status(&cache, codestream, &available, error, sizeof error) != 0 ||
+        !available.complete) {
+        fprintf(stderr, "hvc_jpp2j2k: no complete full-quality resolution\n");
+        goto done;
+    }
+    const hvc_frame *frame = hvc_frame_get(&cache, codestream, error, sizeof error);
+    for (size_t b = 0; b < cache.capacity; b++) {
+        const hvc_bin *bin = &cache.bins[b];
+        if (bin->used && bin->bin_class == HVC_BIN_PRECINCT && bin->codestream == codestream &&
+            bin->length && (!bin->complete || bin->bin_id >= frame->precinct_end[available.complete - 1])) {
+            fprintf(stderr, "hvc_jpp2j2k: incomplete resolution or quality data\n");
+            goto done;
+        }
+    }
     size = hvc_reconstruct(&cache, codestream, NULL, 0, error, sizeof error);
     if (size == 0 || (out = malloc(size)) == NULL ||
         hvc_reconstruct(&cache, codestream, out, size, error, sizeof error) != size) {

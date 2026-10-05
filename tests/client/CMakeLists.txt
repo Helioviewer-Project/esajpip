@@ -1,7 +1,7 @@
 # Tests of the JPIP client (client/). Protocol, reconstruction and source
 # tests link jpip to check the client against what the server writes.
 #
-#   client_cache         the store's append and completeness rules
+#   client_cache         append, identical overlap, conflicts and completeness
 #   client_jpp           bytes from jpip::DataBinWriter read back by the client
 #   client_jpp_malformed damaged versions of those bytes, all rejected
 #   client_reconstruct   the corpus, the transcoder's reference images and
@@ -39,6 +39,8 @@ target_compile_definitions(test_client_reconstruct PRIVATE
 
 client_add_test(test_client_source client_source SOURCES test_client.cc LIBRARIES jpip TIMEOUT 60)
 target_compile_definitions(test_client_source PRIVATE
+    GRAY="${ESAJPIP_CLIENT_GRAY_FIXTURE}"
+    GRAY_LARGE="${PROJECT_SOURCE_DIR}/tests/transcode/fixtures/kakadu/solo_fsi174_509x513_PCRL.jp2"
     IMAGE="${ESAJPIP_CLIENT_RGB_FIXTURE}"
     MOVIE="${ESAJPIP_CLIENT_MOVIE_FIXTURE}")
 
@@ -51,3 +53,9 @@ add_dependencies(client_tests test_client_local)
 target_compile_definitions(test_client_local PRIVATE
     IMAGE="${ESAJPIP_CLIENT_RGB_FIXTURE}"
     MOVIE="${ESAJPIP_CLIENT_MOVIE_FIXTURE}")
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+esajpip_add_test(client_converter COMMAND ${Python3_EXECUTABLE}
+    ${CMAKE_CURRENT_SOURCE_DIR}/check_converter.py $<TARGET_FILE:hvc_jpp2j2k>
+    $<TARGET_FILE:test_client_source> LABELS client cli)
+add_dependencies(client_tests hvc_jpp2j2k)

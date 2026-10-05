@@ -38,9 +38,13 @@ size_t hvc_reconstruct(const hvc_cache *cache, uint64_t codestream, uint8_t *out
 
 /* Records delivery of a whole-frame window through `layers` quality layers,
  * without the `reduce` highest resolutions. Call only after applying an entire
- * response ending WINDOW_DONE or IMAGE_DONE for that exact window, with no byte
- * limit. Calls and response ingestion must be serialized. Each covered bin's
- * current byte length is a whole-packet boundary. Returns 0, or -1 with error;
+ * response ending WINDOW_DONE or IMAGE_DONE for that exact window. Before a
+ * layer-limited request, every unfinished covered bin must be empty or end at
+ * its confirmed packet_bytes boundary. Otherwise request full quality instead:
+ * an older unconfirmed tail may extend beyond the requested layer. hvc_prepare
+ * enforces this precondition for source-API callers. A byte-limit EOR must never
+ * confirm packets. Calls and response ingestion must be serialized.
+ * Returns 0, or -1 with error;
  * a rejected confirmation changes no quality records. */
 int hvc_reconstruct_confirm(hvc_cache *cache, uint64_t codestream, int reduce, int layers,
                              char *error, size_t error_size);
