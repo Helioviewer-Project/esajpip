@@ -1,5 +1,6 @@
-#include "jpeg2000/hv_metadata.h"
 #define _XOPEN_SOURCE 700
+
+#include "jpeg2000/hv_metadata.h"
 #include <limits.h>
 #include <math.h>
 #include <stdio.h>
