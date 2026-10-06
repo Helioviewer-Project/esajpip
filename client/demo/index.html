@@ -240,6 +240,9 @@ async function open() {
         slider.value = 0;
         fetchAhead();
     } catch (error) {
+        const failed = source;
+        source = null;
+        await failed?.close().catch(() => {});
         status.textContent = error.message;
     }
     controls.disabled = false;

@@ -793,6 +793,12 @@ int main(int argc, char **argv) {
             output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
             check(static_cast<bool>(output), "write WASM layer fixture");
         }
+        // Legal palette metadata attached to RGB samples: the byte decoder
+        // must reject it because palette indices need one component.
+        Bytes bytes = fixture(1);
+        std::ofstream output(std::string(argv[2]) + "/palette-rgb.jpx", std::ios::binary);
+        output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+        check(static_cast<bool>(output), "write WASM decode failure fixture");
         return 0;
     }
     verify(IMAGE, false);

@@ -14,6 +14,7 @@ import { JpipChannel } from "../../client/js/jpip_channel.mjs";
 import { JpipSource } from "../../client/js/jpip_source.mjs";
 import { Worker } from "./worker.mjs";
 import { checkTransport } from "./check_transport.mjs";
+import { checkBoundary } from "./check_boundary.mjs";
 
 const [wasmPath, binary, writer, repository] = process.argv.slice(2);
 if (!repository) throw new Error("usage: run_wasm.mjs wasm server-binary fixture-writer repository");
@@ -27,7 +28,17 @@ async function run(command, args) {
     const [code, signal] = await once(child, "exit");
     assert.equal(code, 0, `${command} failed (${signal ?? code})`);
 }
-const host = httpServer((request, response) => response.end(wasm));
+let moduleRequests = 0, canceledBodies = 0;
+const host = httpServer((request, response) => {
+    if (request.url === "/missing.wasm") {
+        response.writeHead(404);
+        response.write("module missing"); // Keep the body open until the client cancels it.
+        response.on("close", () => { canceledBodies++; });
+    } else {
+        moduleRequests++;
+        response.end(wasm);
+    }
+});
 let processServer;
 try {
     await mkdir(images);
@@ -73,6 +84,24 @@ try {
         wasm: `http://127.0.0.1:${host.address().port}/client.wasm`, server, image: fixtures[0],
     }), { name: "Error", message: "the worker failed" });
     globalThis.Worker = Worker;
+
+    const wasmURL = `http://127.0.0.1:${host.address().port}/client.wasm`;
+    const missingURL = new URL("missing.wasm", wasmURL).href;
+    for (const open of [() => JpipChannel.open(missingURL, server, fixtures[0], { timeout: 250 }),
+                       () => JpipSource.open({ wasm: missingURL, server, image: fixtures[0] })])
+        await assert.rejects(open(), { name: "Error", message: `404 ${missingURL}` });
+    for (let i = 0; i < 50 && canceledBodies < 2; i++) await delay(10);
+    assert.equal(canceledBodies, 2, "failed module fetch bodies were not canceled");
+    globalThis.location = { href: new URL("page/index.html", wasmURL).href };
+    const downloads = moduleRequests;
+    try {
+        for (const url of ["./alias.wasm", new URL("page/alias.wasm", wasmURL).href]) {
+            const source = await JpipSource.open({ wasm: url, server, image: fixtures[0] });
+            await source.close();
+        }
+        assert.equal(moduleRequests - downloads, 1, "equivalent module URLs downloaded twice");
+    } finally { delete globalThis.location; }
+    await checkBoundary(wasm, wasmURL, server, fixtures[0], repository);
 
     // Occupy the low heap with live allocations. Merely growing memory leaves
     // small free chunks below 2 GiB that can hide signed-pointer mistakes.

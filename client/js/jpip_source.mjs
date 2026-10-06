@@ -15,11 +15,13 @@
 // esajpip_client.wasm, compiled once for all the sources of a page.
 const modules = new Map();
 function compiled(wasm) {
-    const url = String(wasm);
+    const url = new URL(wasm, globalThis.location?.href).href;
     if (!modules.has(url))
         modules.set(url, fetch(url, { signal: AbortSignal.timeout(60000) }).then(async response => {
-            if (!response.ok)
+            if (!response.ok) {
+                await response.body?.cancel().catch(() => {});
                 throw new Error(`${response.status} ${url}`);
+            }
             return WebAssembly.compile(await response.arrayBuffer());
         }).catch(error => {
             modules.delete(url);

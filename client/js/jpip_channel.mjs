@@ -25,15 +25,18 @@ function system(module, memory) {
             return 0;
         },
         fd_close: () => 0,
-        fd_prestat_get: () => 8, // WASI EBADF: no preopened directories.
+        fd_fdstat_get: () => 52, // WASI ENOTSUP: standard streams are not terminals.
+        fd_seek: () => 52,       // Standard streams cannot seek.
         proc_exit(status) {
             throw new Error(`the WebAssembly client exited with status ${status}`);
         },
     };
-    const NOT_SUPPORTED = 52;
     const imports = {};
-    for (const { module: from, name } of WebAssembly.Module.imports(module))
-        (imports[from] ??= {})[name] = calls[name] ?? (() => NOT_SUPPORTED);
+    for (const { module: from, name, kind } of WebAssembly.Module.imports(module)) {
+        if (from !== "wasi_snapshot_preview1" || kind !== "function" || !Object.hasOwn(calls, name))
+            throw new Error(`unsupported WebAssembly import: ${from}.${name} (${kind})`);
+        (imports[from] ??= {})[name] = calls[name];
+    }
     return imports;
 }
 
@@ -96,9 +99,15 @@ export class JpipChannel {
     static async open(wasm, server, image, { timeout = 60000 } = {}) {
         if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 2147483647)
             throw new RangeError("timeout must be a positive integer of milliseconds, at most 2147483647");
-        const module = wasm instanceof WebAssembly.Module ? wasm
-            : await WebAssembly.compile(typeof wasm === "string" || wasm instanceof URL
-                ? await (await fetch(wasm, { signal: AbortSignal.timeout(timeout) })).arrayBuffer() : wasm);
+        if (typeof wasm === "string" || wasm instanceof URL) {
+            const response = await fetch(wasm, { signal: AbortSignal.timeout(timeout) });
+            if (!response.ok) {
+                await response.body?.cancel().catch(() => {});
+                throw new Error(`${response.status} ${wasm}`);
+            }
+            wasm = await response.arrayBuffer();
+        }
+        const module = wasm instanceof WebAssembly.Module ? wasm : await WebAssembly.compile(wasm);
         let instance = null;
         instance = await WebAssembly.instantiate(
             module, system(module, () => instance.exports.memory));
@@ -115,7 +124,7 @@ export class JpipChannel {
         // Layer zero can refer to another codestream; #fetch resolves it.
         try {
             await channel.#request({ stream: 0, fsiz: [1, 1, "closest"] });
-            channel.frames = channel.#wasm.hvc_wasm_frames();
+            channel.frames = channel.#wasm.hvc_wasm_frames() >>> 0;
             if (channel.frames === 0)
                 throw new Error(channel.#error());
             return channel;
@@ -237,25 +246,24 @@ export class JpipChannel {
                     this.#target = channel.path ?? "jpip";
                 }
             }
-            const chunks = [];
-            let size = 0;
+            let body = new Uint8Array(0), size = 0;
             if (response.body !== null) {
                 const reader = response.body.getReader();
                 for (;;) {
                     const { value, done } = await reader.read();
                     if (done) break;
                     if (value.length !== 0) progress();
-                    chunks.push(value);
-                    size += value.length;
+                    const needed = size + value.length;
+                    if (needed > body.length) {
+                        const grown = new Uint8Array(Math.max(needed, body.length * 2));
+                        grown.set(body.subarray(0, size));
+                        body = grown;
+                    }
+                    body.set(value, size);
+                    size = needed;
                 }
             }
-            const body = new Uint8Array(size);
-            let offset = 0;
-            for (const chunk of chunks) {
-                body.set(chunk, offset);
-                offset += chunk.length;
-            }
-            return { response, body };
+            return { response, body: body.subarray(0, size) };
         } catch (error) {
             throw controller.signal.aborted ? controller.signal.reason : error;
         } finally {
@@ -338,10 +346,14 @@ export class JpipChannel {
         const at = wasm.hvc_wasm_alloc(body.length) >>> 0;
         if (at === 0)
             throw new Error("out of memory");
-        new Uint8Array(wasm.memory.buffer, at, body.length).set(body);
-        const reason = restoring ? wasm.hvc_wasm_restore_response(at, body.length)
-                                 : wasm.hvc_wasm_response(at, body.length);
-        wasm.hvc_wasm_free(at);
+        let reason;
+        try {
+            new Uint8Array(wasm.memory.buffer, at, body.length).set(body);
+            reason = restoring ? wasm.hvc_wasm_restore_response(at, body.length)
+                               : wasm.hvc_wasm_response(at, body.length);
+        } finally {
+            wasm.hvc_wasm_free(at);
+        }
         if (reason < 0) {
             const error = new Error(this.#error());
             // Accepted messages may precede a conflicting one. Retire that cache.
@@ -365,7 +377,7 @@ export class JpipChannel {
                 throw new Error("the channel is closed");
             // Selecting the first nonexistent stream avoids receiving headers
             // or precincts before all retained prefixes have been declared.
-            const fields = { stream: this.#wasm.hvc_wasm_codestreams(), layers: 0 };
+            const fields = { stream: this.#wasm.hvc_wasm_codestreams() >>> 0, layers: 0 };
             const routing = this.#cid === null ? { cnew: "http", type: "jpp-stream" }
                                                : { cid: this.#cid };
             const url = new URL(this.#url({ ...routing, ...fields, model: "" }));
@@ -376,14 +388,14 @@ export class JpipChannel {
             const at = this.#wasm.hvc_wasm_model(cursor, capacity) >>> 0;
             if (at === 0)
                 throw new Error(this.#error());
-            const bytes = new Uint8Array(this.#wasm.memory.buffer, at);
+            const bytes = new Uint8Array(this.#wasm.memory.buffer, at, Math.min(capacity, 2048));
             const model = new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
             if (model === "" && this.#cid !== null) break;
             if (model !== "") fields.model = model;
             const reason = await this.#exchange(fields, true);
             if (reason !== 1 && reason !== 2)
                 throw new Error("replacement channel did not complete cache restoration");
-            cursor = this.#wasm.hvc_wasm_model_next();
+            cursor = this.#wasm.hvc_wasm_model_next() >>> 0;
         }
     }
 
@@ -457,7 +469,7 @@ export class JpipChannel {
     }
 
     #error() {
-        const bytes = new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_error() >>> 0);
+        const bytes = new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_error() >>> 0, 256);
         return new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
     }
 }

@@ -32,7 +32,8 @@ Then open
 
 The WASM configuration needs [zig](https://ziglang.org/) (`brew install zig`): its
 C compiler builds the WebAssembly module, and carries the C library OpenJPEG
-needs. Native builds use the usual project configuration.
+needs. WASM builds default to `Release`; set `CMAKE_BUILD_TYPE` to choose
+another configuration. Native builds use the usual project configuration.
 `build-wasm/client/web/` receives everything a page needs:
 `esajpip_client.wasm`, `jpip_source.mjs`, `jpip_worker.mjs`,
 `jpip_channel.mjs`, and the demonstration page as `index.html`. Keep
@@ -310,8 +311,9 @@ options asks about full resolution and full quality.
 
 A source is one channel and one Web Worker: fetching and decoding run off the
 page's thread, and sources do not wait for each other. Open one per image or
-movie on screen. The module is downloaded and compiled once per page, whatever
-the number of sources.
+movie on screen. Each module URL, resolved against the page URL, is downloaded
+and compiled once per page, whatever the number of sources. Different query
+strings identify separate modules.
 
 ### Failures
 
@@ -381,8 +383,16 @@ chunks between one eighth and one quarter of current linear memory, with a
 64 KiB minimum, capped by remaining wasm32 address space, to limit repeated
 full-memory copies on engines that cannot
 reserve the address space. This spare capacity is separate from block sizes.
-Decoding adds, for
-its duration, a copy of the frame's codestream and OpenJPEG's working memory.
+
+A response is accumulated in one geometrically grown JavaScript buffer, whose
+capacity is less than twice its body size. Growth briefly holds both the old
+and new buffers, plus the incoming network chunk. Ingestion copies the body
+into a temporary WASM allocation, then copies its data-bin payload into the
+cache. The temporary allocation is freed after ingestion, including when the
+WASM call throws. The JavaScript buffer is outside linear memory; the staging
+allocation and cache compete for wasm32's 4 GiB address space.
+
+Decoding adds, for its duration, a copy of the frame's codestream and OpenJPEG's working memory.
 The module keeps the last decoded image until the next decode. The page gets
 its own copy. A frame's parsed geometry and prepared reconstruction header are also
 kept once first used, until the source closes. Linear memory grows to accommodate
@@ -794,15 +804,17 @@ checks below.
 | `client_converter` | Refusal of incomplete/header-only/unconfirmed quality input without overwriting output; completed continuation, reduced windows and replay |
 
 When Zig and Node.js are available, the normal native test build also builds
-the WASM module and registers `client_wasm` with CTest. This test starts private
+the scalar and SIMD WASM modules and registers `client_wasm` and
+`client_wasm_simd` with CTest. Each test starts private
 local servers and runs the JavaScript, worker, layer-mapping and recovery checks
 on the checked-in RGB, non-square and movie fixtures. It asserts that response
 bodies, XML and decoded pixels each occupy addresses above 2 GiB, and checks
 bounded growth in nine live instances without block rounding, progress timeouts,
-retryable recovery, worker import failure, and the lossless
-synthetic RGB pixels against their source formula. Set `ESAJPIP_NODE` to the
+retryable recovery, worker import failure, the module import/export contract,
+closed-client entry points, decode failure and allocation cleanup after a trap,
+and the lossless synthetic RGB pixels against their source formula. Set `ESAJPIP_NODE` to the
 Node executable at configuration time if it is not on PATH. Without Zig or Node,
-`client_wasm` remains registered and CTest reports it as skipped with the reason.
+both tests remain registered and CTest reports them as skipped with the reason.
 
 The JavaScript can also be checked against a running server:
 

@@ -13,6 +13,7 @@
 #include "hvc_openjpeg.h"
 
 #ifdef __wasm__
+_Static_assert(sizeof(size_t) == 4, "JavaScript uses the wasm32 size_t ABI");
 #define EXPORT(name) __attribute__((export_name(#name))) name
 #else
 #define EXPORT(name) name
@@ -44,16 +45,20 @@ int EXPORT(hvc_wasm_response)(const uint8_t *body, size_t size) {
 
 int EXPORT(hvc_wasm_restore_response)(const uint8_t *body, size_t size) {
     error[0] = 0;
+    if (!client) return -1;
     return hvc_restore_response(client, body, size);
 }
 
-void EXPORT(hvc_wasm_cancel_request)(void) { hvc_cancel_request(client); }
+void EXPORT(hvc_wasm_cancel_request)(void) {
+    if (client) hvc_cancel_request(client);
+}
 
 static char model[2048];
 static size_t model_next;
 
 const char *EXPORT(hvc_wasm_model)(size_t cursor, size_t capacity) {
     error[0] = 0;
+    if (!client) return NULL;
     model_next = cursor;
     if (capacity > sizeof model) capacity = sizeof model;
     if (hvc_model(client, &model_next, model, capacity) < 0) {
@@ -69,11 +74,16 @@ size_t EXPORT(hvc_wasm_model_next)(void) { return model_next; }
  * hvc_wasm_error. */
 uint32_t EXPORT(hvc_wasm_frames)(void) {
     error[0] = 0;
+    if (!client) return 0;
     size_t count = hvc_frames(client);
     return count > UINT32_MAX ? UINT32_MAX : (uint32_t)count;
 }
 
-uint32_t EXPORT(hvc_wasm_codestreams)(void) { return (uint32_t)hvc_codestreams(client); }
+uint32_t EXPORT(hvc_wasm_codestreams)(void) {
+    if (!client) return 0;
+    size_t count = hvc_codestreams(client);
+    return count > UINT32_MAX ? UINT32_MAX : (uint32_t)count;
+}
 
 /* The XML associated with a frame, good until hvc_wasm_reset:
  * its size, 0 when it has none, or -1 with hvc_wasm_error;
