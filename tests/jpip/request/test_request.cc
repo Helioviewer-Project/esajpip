@@ -104,6 +104,14 @@ static void CheckJHVRequests() {
                             "/jpip?target=a%00.jp2", "/jpip?target=a%GG.jp2"})
         Check(RejectRequest(uri), "Accepted malformed or NUL target escaping");
 
+    for (const char *route : {"cid", "cclose"}) {
+        jpip::Request malformed_path;
+        Check(!malformed_path.ParseTarget(string("/bad%GG?fsiz=1,1&") + route + "=7") &&
+                  malformed_path.channel == "7" &&
+                  (malformed_path.routing.cid || malformed_path.routing.cclose),
+              "Malformed path discarded the channel needed for cleanup");
+    }
+
     jpip::Request metadata_request;
     Check(metadata_request.ParseTarget(
               "/jpip?stream=0&metareq=[*]!!&len=2000000&cid=7"),

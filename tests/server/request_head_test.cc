@@ -188,8 +188,10 @@ static void CheckLimits() {
               "Request-line limit has the wrong boundary");
     }
     for (size_t size : {size_t(4095), size_t(4096), size_t(4097)}) {
-        string prefix = "GET /jpip?cid=7 HTTP/1.1\r\nHost: a\r\nX-Pad: ";
-        string head = prefix + string(size - prefix.size() - 4, 'x') + "\r\n\r\n";
+        string line = "GET /jpip?cid=7&pad=";
+        line += string(2048 - line.size() - strlen(" HTTP/1.1\r\n"), 'x') + " HTTP/1.1\r\n";
+        string prefix = "Host: a\r\nX-Pad: ";
+        string head = line + prefix + string(size - prefix.size() - 4, 'x') + "\r\n\r\n";
         for (bool bytewise : {false, true}) {
             RequestHeadParser parser;
             size_t consumed;

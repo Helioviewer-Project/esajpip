@@ -126,6 +126,11 @@ static void verify(const char *path, bool jpx) {
         hvc_view inspected;
         check(hvc_status(client, frame, &options, &inspected) == 0, hvc_error(client));
         check(hvc_prepare(client, frame, &options, &inspected) == -1, "pending request overwritten");
+        hvc_cancel_request(client);
+        check(hvc_status(client, frame, &options, &inspected) == 0 && !inspected.ready,
+              "cancelling a lost request confirmed quality");
+        check(hvc_prepare(client, frame, &options, &view) == 0,
+              "cancelled request prevented replanning");
         const uint8_t limited[] = {0, HVC_EOR_BYTE_LIMIT_REACHED, 0};
         check(hvc_response(client, limited, sizeof limited) == HVC_EOR_BYTE_LIMIT_REACHED,
               "limited response reason lost");

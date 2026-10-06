@@ -348,6 +348,8 @@ int hvc_status(hvc *client, uint64_t frame, const hvc_options *options,
     return 0;
 }
 
+void hvc_cancel_request(hvc *client) { client->pending = HVC_READY; }
+
 int hvc_prepare(hvc *client, uint64_t frame, const hvc_options *options,
                 hvc_view *view) {
     if (client->pending) return fail(client, "a frame request is already pending");

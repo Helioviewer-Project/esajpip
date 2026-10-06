@@ -42,7 +42,7 @@ not Annex J conformance.
 | Stateless requests | Not supported | Requests require `cnew`, `cid`, or a usable `cclose`. All cache and image state belongs to one channel. |
 | Concurrent requests | Not supported | Responses are not preempted by a newer request and requests are not served concurrently within a channel. `qid`, `wait`, and window-change cancellation are not implemented. Serial service avoids shared JPEG 2000 state and is compatible with JHelioviewer. |
 | Compression | Reduced | If a request contains `metareq` and `Accept-Encoding` contains `gzip`, the JPP response is gzip encoded. Other content codings and general HTTP content negotiation are not implemented. |
-| Errors | Reduced | Identified requests receive `400` for malformed supported fields, `404` for a missing, invalidly named, unsupported, or profile-excluded target, `431` for a request head over 4 KiB, `501` for an unsupported channel transport, `503` for an invalid or conflicting channel state, or `500` for an unreadable source and other server failures. The server also returns `503` when the channel is unknown, has ended, or already has a request waiting. Each HTTP error response has a short plain-text body identifying the failure. An error terminates the connection and any referenced channel; routing rejections leave an existing channel unchanged. The rejected request does not modify the channel cache before termination. Traffic rejected before JPIP identification is closed without an HTTP response. The complete JPIP correction-header model is not implemented. |
+| Errors | Reduced | Identified requests receive `400` for malformed supported fields, `404` for a missing, invalidly named, unsupported, or profile-excluded target, `431` for a request line over 2 KiB or headers over 4 KiB, `501` for an unsupported channel transport, `503` for an invalid or conflicting channel state, or `500` for an unreadable source and other server failures. The server also returns `503` when the channel is unknown, has ended, or already has a request waiting. Each HTTP error response has a short plain-text body identifying the failure. An error terminates the connection and any referenced channel; routing rejections leave an existing channel unchanged. The rejected request does not modify the channel cache before termination. Traffic rejected before JPIP identification is closed without an HTTP response. The complete JPIP correction-header model is not implemented. |
 
 The HTTP parser accepts at most a 2 KiB request line and passes the complete
 request target to the JPIP parser. Request paths and `target` values are
@@ -52,8 +52,8 @@ also decode percent escapes. Initial routing and full request parsing use the
 same query-field splitter. If a non-conforming request repeats a routing field,
 both stages use its last value. Client-supplied URI paths and
 `target` values containing a path segment equal to `..` are rejected. An
-established channel accepts at most 4 KiB for the complete HTTP request head,
-including the request line and all headers.
+established channel accepts at most 2 KiB for the request line and a separate
+4 KiB for all headers and their terminating blank line.
 
 Client request examples, HTTP responses, connection replacement, timeout, and
 recovery rules are documented in

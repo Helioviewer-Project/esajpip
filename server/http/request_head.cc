@@ -12,7 +12,7 @@ using namespace std;
 namespace {
 
 const size_t MAX_INITIAL_REQUEST_LINE = 2048;
-const size_t MAX_REQUEST_HEAD = 4096;
+const size_t MAX_REQUEST_HEADERS = 4096;
 
 bool HasToken(const string &value, const char *token) {
     size_t position = 0;
@@ -179,7 +179,8 @@ RequestHeadParser::Result RequestHeadParser::Parse(const char *data,
     CountBytes(data, *consumed);
 
     if ((!line_complete && line_size >= MAX_INITIAL_REQUEST_LINE) ||
-        line_size > MAX_INITIAL_REQUEST_LINE || head_size > MAX_REQUEST_HEAD)
+        line_size > MAX_INITIAL_REQUEST_LINE ||
+        (line_complete && head_size - line_size > MAX_REQUEST_HEADERS))
         return TOO_LARGE;
     if (result == HPE_PAUSED)
         return COMPLETE;

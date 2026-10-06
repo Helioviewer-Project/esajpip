@@ -379,15 +379,13 @@ namespace jpip {
         if (error_message != NULL)
             error_message->clear();
         size_t question = uri.find('?');
-        if (!Decode(GetObject(uri, question), &object)) {
-            SetError(error_message, "Invalid escaped target path");
-            return false;
-        }
+        bool valid = Decode(GetObject(uri, question), &object);
+        if (!valid) SetError(error_message, "Invalid escaped target path");
 
         if (question == string::npos)
-            return true;
+            return valid;
 
-        bool valid = true;
+        // Even a malformed path must leave query routing available for cleanup.
         Query query = ParseTargetQuery(uri);
         const string *tid = FindParameter(query, "tid");
         bool accept_model = tid == NULL || *tid == "0";

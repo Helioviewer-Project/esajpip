@@ -85,6 +85,7 @@ export class JpipChannel {
     #closing = false;
     #controller = null;     // the HTTP exchange under way, including its body
     #timeout;
+    #needsRecovery = false; // transport failure; the retained cache is still valid
     frames = 0;             // JPX layers, or one implicit layer for JP2
     received = 0;           // bytes of response bodies so far
 
@@ -204,23 +205,31 @@ export class JpipChannel {
         return closed;
     }
 
-    async #release() {
+    async #release(wait = true) {
         if (this.#cid === null) return;
         const url = this.#url({ cid: this.#cid, cclose: this.#cid });
         this.#cid = null;
         try {
-            await this.#download(url);
+            if (wait) await this.#download(url);
+            else fetch(url, { signal: AbortSignal.timeout(this.#timeout) })
+                .then(response => response.body?.cancel()).catch(() => {});
         } catch { }
     }
 
-    // The deadline covers both response headers and the complete body. Record
-    // an assigned channel before reading its body so a failed open can close it.
+    // Bound silence, not transfer duration. Each received body chunk restarts
+    // the timer. Record an assigned channel before reading its body.
     async #download(url, assignChannel = false) {
         const controller = new AbortController();
         this.#controller = controller;
-        const timer = setTimeout(() => controller.abort(new Error("JPIP request timed out")), this.#timeout);
+        let timer;
+        const progress = () => {
+            clearTimeout(timer);
+            timer = setTimeout(() => controller.abort(new Error("JPIP request timed out")), this.#timeout);
+        };
+        progress();
         try {
             const response = await fetch(url, { signal: controller.signal });
+            progress();
             if (assignChannel && response.ok) {
                 const channel = header(response.headers.get("JPIP-cnew"));
                 if (channel.cid !== undefined) {
@@ -228,7 +237,25 @@ export class JpipChannel {
                     this.#target = channel.path ?? "jpip";
                 }
             }
-            return { response, body: new Uint8Array(await response.arrayBuffer()) };
+            const chunks = [];
+            let size = 0;
+            if (response.body !== null) {
+                const reader = response.body.getReader();
+                for (;;) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    if (value.length !== 0) progress();
+                    chunks.push(value);
+                    size += value.length;
+                }
+            }
+            const body = new Uint8Array(size);
+            let offset = 0;
+            for (const chunk of chunks) {
+                body.set(chunk, offset);
+                offset += chunk.length;
+            }
+            return { response, body };
         } catch (error) {
             throw controller.signal.aborted ? controller.signal.reason : error;
         } finally {
@@ -254,17 +281,29 @@ export class JpipChannel {
     async #request(fields) {
         if (this.#failed !== null)
             throw this.#failed;
+        let restoring = this.#needsRecovery;
         try {
+            if (restoring) {
+                await this.#recover();
+                this.#needsRecovery = false;
+                restoring = false;
+                return await this.#exchange(fields);
+            }
             try {
                 return await this.#exchange(fields);
             } catch (error) {
-                if (!error.recoverable || this.frames === 0 || this.#closing)
+                if (!error.recoverable || error.timedOut || this.frames === 0 || this.#closing)
                     throw error;
+                restoring = true;
                 await this.#recover();
+                restoring = false;
                 return await this.#exchange(fields);
             }
         } catch (error) {
-            this.#failed = error;
+            if ((error.recoverable || restoring) && this.frames !== 0 && !this.#closing) {
+                this.#needsRecovery = true;
+                this.#wasm.hvc_wasm_cancel_request();
+            } else this.#failed = error;
             throw error;
         }
     }
@@ -281,6 +320,7 @@ export class JpipChannel {
                 : new Error(cause.message === "JPIP request timed out"
                     ? cause.message : "JPIP transport interrupted", { cause });
             error.recoverable = !this.#closing;
+            error.timedOut = cause.message === "JPIP request timed out";
             throw error;
         }
         if (!response.ok) {
@@ -315,7 +355,7 @@ export class JpipChannel {
     async #recover() {
         // The old channel may still exist if only its response was lost.
         // Closing it is best effort; restoration itself must succeed in full.
-        await this.#release();
+        await this.#release(false);
         if (this.#closing)
             throw new Error("the channel is closed");
         this.#target = this.#image;

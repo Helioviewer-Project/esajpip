@@ -386,6 +386,21 @@ int main() {
           "Oversized request did not end its channel");
     close(oversized_retry);
 
+    for (const char *route : {"cid", "cclose"}) {
+        int malformed = Connect(port);
+        SendRequest(malformed, "/image.jp2?cnew=http&stream=0&fsiz=1,1&len=128");
+        string malformed_channel = ChannelId(ReadResponse(malformed).headers);
+        SendRequest(malformed, string("/bad%GG?") + route + "=" + malformed_channel);
+        Check(ReadResponse(malformed).headers.find("400 Bad Request") != string::npos,
+              "Malformed escape did not return 400");
+        close(malformed);
+        int retry = Connect(port);
+        SendRequest(retry, "/jpip?cid=" + malformed_channel + "&len=128");
+        Check(ReadResponse(retry).headers.find("503 Service Unavailable") != string::npos,
+              "Malformed escape did not end its referenced channel");
+        close(retry);
+    }
+
     int rejected = Connect(port);
     Check(rejected >= 0, "Could not connect for rejected-request test");
     SendRequest(rejected,

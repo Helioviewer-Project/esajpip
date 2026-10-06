@@ -123,7 +123,7 @@ These are all HTTP status codes emitted by the server:
 | `200 OK` | A channel is created, a channel request is served, or `cclose` succeeds. Image responses use `Transfer-Encoding: chunked` and `Content-Type: image/jpp-stream`; `cclose` has `Content-Length: 0`. | The channel remains available after an image response. A successful `cclose` ends it. |
 | `400 Bad Request` | The HTTP request head, body framing, supported JPIP fields, cache model, codestream selection, or window is invalid. The response body identifies the invalid field or constraint. | The connection and any referenced channel are closed. The rejected request does not modify the channel cache before termination. |
 | `404 Not Found` | A `cnew` request names a target that is missing, has an invalid client-supplied path, uses an unsupported file type, or is not accepted by the supported JPEG 2000 served profile. | No usable channel is created; the connection is closed. Correct the requested target or repository source. |
-| `431 Request Header Fields Too Large` | An identified connection sends more than 4 KiB for one complete HTTP request head. | The connection and any channel identified by the request target are closed. |
+| `431 Request Header Fields Too Large` | An identified connection sends more than 2 KiB for the request line or 4 KiB for the headers. | The connection and any channel identified by the request target are closed. |
 | `501 Not Implemented` | A valid `cnew` request lists no transport the server implements. The response has no `JPIP-cnew` header. | No usable channel is created; the connection is closed. Retry with `http` in the transport list. |
 | `500 Internal Server Error` | The selected source is unreadable, or the server encounters another internal failure such as being unable to generate a channel ID. The response body identifies the failure category. | The connection and channel are closed. An unreadable source normally requires correcting repository access or storage. |
 | `503 Service Unavailable` | A request names an unknown or ended channel, both request slots for a channel are occupied, a channel wait expires, or the active-channel limit has been reached. The response body distinguishes these cases. | A routing rejection leaves any existing channel unchanged. After an ended or unknown-channel response, create a new channel. |
@@ -161,7 +161,8 @@ The parser limits a request line to 2 KiB and identifies only lines containing
 sending a few bytes does not extend `connections.initial_timeout`. Rejected
 connections do not allocate a channel or JPEG 2000 state.
 
-After identification, the complete HTTP request head is limited to 4 KiB.
+After identification, the request line is limited to 2 KiB and the headers
+(including their terminating blank line) to a separate 4 KiB.
 `connections.timeout` sets an absolute deadline to complete that head. After a
 response, it also bounds the wait for the next request, including its head.
 Incoming bytes do not restart either deadline. The same setting limits
@@ -227,7 +228,7 @@ selected channel: active slot or one waiting slot
 ```
 
 llhttp consumes each request head once. A 2 KiB request-line limit and 4 KiB
-complete-head limit bound parser storage. Rejected and expired connections do
+header-section limit bound parser storage to 6 KiB in total. Rejected and expired connections do
 not allocate JPEG 2000 state.
 
 For `cnew`, the control thread reserves an opaque channel ID and queues the

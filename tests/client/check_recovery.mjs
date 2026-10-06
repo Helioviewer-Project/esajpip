@@ -138,8 +138,9 @@ try {
         if (!lost && !new URL(url).searchParams.has("cclose")) {
             lost = true;
             await response.arrayBuffer();
-            return { ok: response.ok, headers: response.headers,
-                     arrayBuffer: async () => { throw new TypeError("lost body"); } };
+            return new Response(new ReadableStream({
+                start(controller) { controller.error(new TypeError("lost body")); },
+            }), { status: response.status, headers: response.headers });
         }
         return response;
     };
@@ -148,8 +149,8 @@ try {
     globalThis.fetch = trackedFetch;
     console.log("Interrupted body: new channel resumes from bytes actually retained");
 
-    // Both the original and resumed request fail: one recovery, no loop. Cache
-    // hits still work, and subsequent uncached calls reject without a request.
+    // Both the original and resumed request fail: one recovery, no loop.
+    // Cache hits still work; a later call can recover when service returns.
     const bounded = await open();
     const saved = await bounded.frame(0, { fit: [2048, 2048], layers: 1 });
     requests = [];
@@ -166,10 +167,10 @@ try {
     assert.equal(failures, 2);
     assert.equal(cnews().length, 1);
     const count = requests.length;
-    await assert.rejects(bounded.frame(0, { fit: [2048, 2048] }), /503/);
-    assert.equal(requests.length, count);
     assert.deepEqual((await bounded.frame(0, { fit: [2048, 2048], layers: 1 })).pixels, saved.pixels);
+    assert.equal(requests.length, count);
     globalThis.fetch = trackedFetch;
+    assert.deepEqual((await bounded.frame(0, { fit: [2048, 2048] })).pixels, expected.pixels);
 
     // A malformed response after a valid preview retires the cache, not just
     // the request. Already returned JavaScript pixels remain caller-owned.

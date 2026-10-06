@@ -80,5 +80,9 @@ if(ESAJPIP_ZIG AND ESAJPIP_NODE)
         $<TARGET_FILE:esajpip> $<TARGET_FILE:test_client_source> ${PROJECT_SOURCE_DIR}
         LABELS client wasm TIMEOUT 180)
 else()
-    message(STATUS "WASM client tests need Zig and Node.js; native client tests remain enabled")
+    set(wasm_skip "SKIP: WASM client tests require Zig and Node.js (Zig=${ESAJPIP_ZIG}, Node=${ESAJPIP_NODE})")
+    message(STATUS "${wasm_skip}")
+    esajpip_add_test(client_wasm COMMAND ${CMAKE_COMMAND} -E echo "${wasm_skip}"
+        LABELS client wasm)
+    set_tests_properties(client_wasm PROPERTIES SKIP_REGULAR_EXPRESSION "SKIP:")
 endif()

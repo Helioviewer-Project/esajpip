@@ -116,6 +116,10 @@ int hvc_status(hvc *client, uint64_t frame, const hvc_options *options,
 int hvc_prepare(hvc *client, uint64_t frame, const hvc_options *options,
                 hvc_view *view);
 
+/* Abandon a prepared request after a transport failure, retaining cached bytes
+ * and confirmed quality. A later prepare recomputes the next request. */
+void hvc_cancel_request(hvc *client);
+
 /* Replacement channel for the same immutable target: declare these batches
  * with stream=codestream count,layers=0; the host handles cnew/cid and HTTP errors.
  * Start cursor at zero, repeat until an empty batch. Do not ingest normal

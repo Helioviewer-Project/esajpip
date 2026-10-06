@@ -321,7 +321,8 @@ A call that fails rejects its promise with an `Error` whose message says why.
 | --- | --- | --- |
 | `index` is not a frame, or the display options are not valid | `RangeError`; no request is made | Fix the call |
 | A transport interruption, or the server reports that the channel has ended or does not exist | Restore a replacement channel from the retained cache and retry the request once | No application action if recovery succeeds |
-| Recovery fails or another HTTP error occurs | The call rejects. Later calls needing a request reject with the same error; valid cached frames remain usable | Close the source and open the image again |
+| Recovery fails without an ingestion refusal, or its resumed request loses transport | The call rejects and retains the cache. A later call needing data tries a fresh replacement channel | Retry the call when service returns |
+| Another HTTP error occurs | The call rejects. Later calls needing a request reject with the same error; valid cached frames remain usable | Close the source and open the image again |
 | JPP ingestion refuses a response | The cache is retired. Frame, cache, XML and palette calls report the refusal | Close the source and open the image again |
 | "the server did not complete the requested quality layers" | The call rejects because the response ended without completing the requested quality | |
 | A call after `close()` | Rejects with "the source is closed" | |
@@ -330,13 +331,18 @@ If loading or compiling the WASM module fails, a later `JpipSource.open` with
 the same module URL tries again. A successfully compiled module is shared by
 sources on the page.
 
-Each JPIP HTTP exchange has a deadline covering its headers and body. Pass
-`timeout` in milliseconds to `JpipSource.open` (default 60000), or as the fourth
-argument of `JpipChannel.open`: `{ timeout: 60000 }`. A timeout follows the same
-single recovery attempt as a transport interruption. Shared WASM module downloads
-have a 60-second deadline; direct channel downloads use the configured timeout.
+`timeout` limits silence while waiting for headers or the next body chunk; a
+response that continues arriving can run longer. Pass it in milliseconds to
+`JpipSource.open` (default 60000), or as the fourth argument of `JpipChannel.open`:
+`{ timeout: 60000 }`. A timeout rejects the current call without an immediate
+retry. The next call needing data attempts recovery with the retained cache.
+Old-channel cleanup runs independently and cannot add another wait to recovery.
+Shared WASM module downloads still have a 60-second total deadline; direct channel
+module downloads use the configured timeout as a total deadline.
 `close()` aborts the active JPIP exchange, releases the local cache, and attempts
-server cleanup within the configured deadline; cleanup failure does not reject `close()`. A failed open also closes any assigned channel.
+server cleanup within the configured idle timeout; cleanup failure does not
+reject `close()`. A failed open awaits bounded cleanup of any assigned channel
+before ending its worker and rejecting.
 
 `server` may be relative to the page URL. `image` is an unescaped path below the
 server's image directory; the client escapes each filename component.
@@ -350,8 +356,9 @@ Recovery opens the original target with no frame selected and declares retained
 complete bins and exact partial byte prefixes in bounded `model` batches. It
 never declares partial `M0`. Metadata repeated during restoration is checked
 against the retained bytes. Normal responses also accept identical overlap and
-append only new bytes to each bin. Once restoration finishes, the interrupted request resumes; another failure
-ends recovery. Transport failure leaves valid cached frames usable. A refused
+append only new bytes to each bin. Once restoration finishes, the interrupted
+request resumes. A transport failure ends that attempt; a later uncached call
+starts restoration again. Transport failure leaves valid cached frames usable. A refused
 JPP or restoration response retires the cache; even previously ready frames
 cannot be fetched from it. Pixels already returned to JavaScript remain owned
 by the caller. Closing a source prevents it from reopening a channel.
@@ -369,7 +376,12 @@ send data twice on a channel, and takes no note of a client that drops some. A
 movie fetched whole at full size retains its codestream payload, allocation
 headers and alignment, and the tables that index the data-bins. Partial bins
 reserve room geometrically until completed. The WASM build links WASI libc's
-`dlmalloc`, avoiding Zig's power-of-two allocation rounding. Decoding adds, for
+`dlmalloc`, avoiding Zig's power-of-two allocation rounding. System growth uses
+chunks between one eighth and one quarter of current linear memory, with a
+64 KiB minimum, capped by remaining wasm32 address space, to limit repeated
+full-memory copies on engines that cannot
+reserve the address space. This spare capacity is separate from block sizes.
+Decoding adds, for
 its duration, a copy of the frame's codestream and OpenJPEG's working memory.
 The module keeps the last decoded image until the next decode. The page gets
 its own copy. A frame's parsed geometry and prepared reconstruction header are also
@@ -784,10 +796,13 @@ checks below.
 When Zig and Node.js are available, the normal native test build also builds
 the WASM module and registers `client_wasm` with CTest. This test starts private
 local servers and runs the JavaScript, worker, layer-mapping and recovery checks
-on the checked-in RGB, non-square and movie fixtures. It also checks allocations
-above 2 GiB, allocator block growth, worker import failure, and the lossless
+on the checked-in RGB, non-square and movie fixtures. It asserts that response
+bodies, XML and decoded pixels each occupy addresses above 2 GiB, and checks
+bounded growth in nine live instances without block rounding, progress timeouts,
+retryable recovery, worker import failure, and the lossless
 synthetic RGB pixels against their source formula. Set `ESAJPIP_NODE` to the
-Node executable at configuration time if it is not on PATH.
+Node executable at configuration time if it is not on PATH. Without Zig or Node,
+`client_wasm` remains registered and CTest reports it as skipped with the reason.
 
 The JavaScript can also be checked against a running server:
 

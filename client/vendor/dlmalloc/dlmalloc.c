@@ -3,6 +3,11 @@
 
 #include <stddef.h>
 #include <malloc.h>
+#include <stdint.h>
+#include <unistd.h>
+
+static void *wasm_morecore(intptr_t increment);
+#define MORECORE wasm_morecore
 
 // Define configuration macros for dlmalloc.
 
@@ -61,6 +66,25 @@ static size_t dlmalloc_usable_size(void*);
 
 // Include the upstream dlmalloc's malloc.c.
 #include "malloc.c"
+
+// Increase system-allocation granularity with the heap, keeping spare capacity
+// below a quarter of its size. This bounds repeated memory.grow copies on
+// engines that cannot reserve the full address range. Blocks keep exact sizes.
+static void *wasm_morecore(intptr_t increment) {
+    void *memory = sbrk(increment);
+    if (increment > 0 && memory != (void *)-1) {
+        size_t pages = __builtin_wasm_memory_size(0);
+        size_t granularity_pages = 1;
+        while (granularity_pages < pages / 8) granularity_pages *= 2;
+        // Do not let spare-capacity growth prevent using the remaining wasm32
+        // address space. At the limit, retain the one-page minimum.
+        size_t remaining_pages = 65536 - pages;
+        while (granularity_pages > remaining_pages && granularity_pages > 1)
+            granularity_pages /= 2;
+        mparams.granularity = granularity_pages * 65536;
+    }
+    return memory;
+}
 
 // Export the public names.
 

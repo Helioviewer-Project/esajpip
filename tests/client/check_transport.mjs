@@ -1,5 +1,6 @@
 // Real HTTP regressions: stalled headers/bodies, failed opens and cleanup.
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 import { createServer } from "node:http";
 import { JpipChannel } from "../../client/js/jpip_channel.mjs";
 import { JpipSource } from "../../client/js/jpip_source.mjs";
@@ -8,6 +9,7 @@ import { Worker } from "./worker.mjs";
 export async function checkTransport(wasm, server, image) {
     let mode = "pass", entered, stalled;
     const requests = [], assigned = [], closed = [];
+    const cleanup = new Map();
     const pending = new Set();
     const proxy = createServer(async (request, response) => {
         const url = new URL(request.url, server);
@@ -20,6 +22,11 @@ export async function checkTransport(wasm, server, image) {
             if (mode === "cleanup-stalls") { pending.add(response); return; }
         }
         try {
+            if (mode === "recovery-unavailable" && url.searchParams.has("model")) {
+                response.writeHead(503);
+                response.end("temporary service outage");
+                return;
+            }
             if (mode === "headers" && !cid && !url.searchParams.has("model")) {
                 pending.add(response);
                 entered?.();
@@ -35,13 +42,28 @@ export async function checkTransport(wasm, server, image) {
                 response.write(body.subarray(0, 1));
                 pending.add(response);
                 entered?.();
+            } else if (mode === "progress" && !cid && !url.searchParams.has("model")) {
+                const step = Math.ceil(body.length / 8);
+                for (let offset = 0; offset < body.length; offset += step) {
+                    response.write(body.subarray(offset, offset + step));
+                    await delay(75);
+                }
+                response.end();
+            } else if (mode === "recovery-stalls" && url.searchParams.has("model")) {
+                response.write(body.subarray(0, 1));
+                pending.add(response);
+            } else if (mode === "all-stalls") {
+                pending.add(response);
             } else if (mode === "refuse-open" && cnew) {
                 response.end(new Uint8Array([0]));
             } else if (mode === "unexpected-limit" && url.searchParams.has("model")) {
                 assert.deepEqual([...body.slice(-3)], [0, 2, 0]);
                 body[body.length - 2] = 4;
                 response.end(body);
-            } else response.end(body);
+            } else {
+                response.end(body);
+                if (cid) cleanup.set(cid, true);
+            }
         } catch (error) {
             response.destroy(error);
         }
@@ -56,16 +78,53 @@ export async function checkTransport(wasm, server, image) {
             const channel = await open(); sources.push(channel);
             requests.length = 0;
             mode = setting;
-            // The original and resumed data request time out. The queued call
-            // then rejects with the same terminal error, without more HTTP.
-            const first = channel.frame(0);
-            const next = channel.frame(0);
-            await Promise.all([assert.rejects(first, /timed out/), assert.rejects(next, /timed out/)]);
-            assert.equal(requests.filter(url => !url.searchParams.has("cclose") &&
-                !url.searchParams.has("model")).length, 2);
-            assert.equal(requests.filter(url => url.searchParams.has("cnew")).length, 1);
+            // Each silent request costs one idle deadline, with no immediate
+            // timeout retry. A later call can recover without losing the cache.
+            const started = performance.now();
+            await assert.rejects(channel.frame(0), /timed out/);
+            assert.ok(performance.now() - started < 500, "silent data request used multiple deadlines");
+            assert.equal(requests.filter(url => url.searchParams.has("cnew")).length, 0);
+            mode = "pass";
+            assert.ok((await channel.frame(0)).pixels.length > 0, "timeout poisoned future recovery");
             await channel.close();
         }
+        mode = "pass";
+        const progressing = await open(); sources.push(progressing);
+        mode = "progress";
+        const started = performance.now();
+        assert.ok((await progressing.frame(0)).pixels.length > 0);
+        assert.ok(performance.now() - started > 500, "progress test did not exceed the idle timeout");
+        await progressing.close();
+
+        mode = "pass";
+        const recovering = await open(); sources.push(recovering);
+        await fetch(`${server}/jpip?cid=${assigned.at(-1)}&cclose=${assigned.at(-1)}`);
+        mode = "recovery-stalls";
+        await assert.rejects(recovering.frame(0), /timed out/);
+        mode = "pass";
+        assert.ok((await recovering.frame(0)).pixels.length > 0, "failed recovery poisoned the retained cache");
+        await recovering.close();
+
+        mode = "pass";
+        const unavailable = await open(); sources.push(unavailable);
+        const retained = unavailable.cached(0, { reduce: Infinity });
+        await fetch(`${server}/jpip?cid=${assigned.at(-1)}&cclose=${assigned.at(-1)}`);
+        mode = "recovery-unavailable";
+        await assert.rejects(unavailable.frame(0), /503/);
+        assert.deepEqual(unavailable.cached(0, { reduce: Infinity }), retained);
+        mode = "pass";
+        assert.ok((await unavailable.frame(0)).pixels.length > 0, "HTTP outage during recovery poisoned the cache");
+        await unavailable.close();
+
+        mode = "pass";
+        const silent = await open(); sources.push(silent);
+        mode = "all-stalls";
+        const silence = performance.now();
+        await assert.rejects(silent.frame(0), /timed out/);
+        assert.ok(performance.now() - silence < 500, "silent server cost three deadlines");
+        mode = "pass";
+        await silent.close();
+
         mode = "pass";
         const closing = await open(); sources.push(closing);
         mode = "body";
@@ -84,9 +143,13 @@ export async function checkTransport(wasm, server, image) {
         for (const setting of ["open-body", "refuse-open"]) {
             mode = setting;
             const count = assigned.length;
+            const started = performance.now();
             await assert.rejects(open());
+            if (setting === "open-body")
+                assert.ok(performance.now() - started < 500, "failed open waited for cleanup after timing out");
             assert.equal(assigned.length, count + 1);
-            assert.ok(closed.includes(assigned.at(-1)), "failed open leaked its assigned channel");
+            for (let attempt = 0; attempt < 50 && !cleanup.has(assigned.at(-1)); attempt++) await delay(10);
+            assert.ok(cleanup.has(assigned.at(-1)), "failed open leaked its assigned channel");
             const reply = await fetch(`${server}/jpip?cid=${assigned.at(-1)}&stream=0`);
             assert.equal(reply.status, 503, "failed open left the server channel alive");
         }
@@ -118,7 +181,8 @@ export async function checkTransport(wasm, server, image) {
         await assert.rejects(JpipSource.open({ wasm: `${address}/client.wasm`, server: "../..", image, timeout: 250 }),
                              /timed out/);
         assert.equal(assigned.length, beforeFailedOpen + 1);
-        assert.ok(closed.includes(assigned.at(-1)), "failed worker open leaked its channel");
+        for (let attempt = 0; attempt < 50 && !cleanup.has(assigned.at(-1)); attempt++) await delay(10);
+        assert.ok(cleanup.has(assigned.at(-1)), "failed worker open leaked its channel");
         mode = "pass";
         const source = await JpipSource.open({ wasm: `${address}/client.wasm`, server: "../..", image, timeout: 250 });
         try {

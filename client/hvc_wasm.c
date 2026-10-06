@@ -47,6 +47,8 @@ int EXPORT(hvc_wasm_restore_response)(const uint8_t *body, size_t size) {
     return hvc_restore_response(client, body, size);
 }
 
+void EXPORT(hvc_wasm_cancel_request)(void) { hvc_cancel_request(client); }
+
 static char model[2048];
 static size_t model_next;
 
