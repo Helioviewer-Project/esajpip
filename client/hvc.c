@@ -11,11 +11,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+typedef struct {
+    uint8_t *table;
+    int entries, channels, ready;
+} hvc_palette_table;
+
 struct hvc {
 #ifndef __wasi__
     hv_local *local;
 #endif
     hvc_info *info;
+    hvc_palette_table *palettes;
+    size_t palette_count;
     hvc_inspect_fn inspect;
     void *decoder;
     hv_presentation presentation;
@@ -207,6 +214,8 @@ void hvc_destroy(hvc *client) {
     hv_local_close(client->local);
 #endif
     free(client->info);
+    for (size_t i = 0; i < client->palette_count; i++) free(client->palettes[i].table);
+    free(client->palettes);
     hv_presentation_free(&client->presentation);
     hv_metadata_close(&client->metadata);
     hvc_cache_release(&client->cache);
@@ -399,10 +408,7 @@ int hvc_xml(hvc *client, uint64_t frame, const uint8_t **xml, size_t *size) {
                                   xml, size, client->error, sizeof client->error);
 }
 
-int hvc_palette(hvc *client, uint64_t frame, int *channels, uint8_t *table, size_t capacity) {
-    size_t codestream;
-    *channels = 0;
-    if (frame_codestream(client, frame, &codestream)) return -1;
+static int read_palette(hvc *client, size_t codestream, int *channels, uint8_t *table, size_t capacity) {
 #ifndef __wasi__
     if (client->local)
         return hv_local_palette(client->local, codestream, channels, table, capacity,
@@ -411,6 +417,42 @@ int hvc_palette(hvc *client, uint64_t frame, int *channels, uint8_t *table, size
     if (metadata(client)) return -1;
     return hv_metadata_palette(&client->metadata, codestream, channels, table, capacity,
                                client->error, sizeof client->error);
+}
+
+/* Palettes belong to immutable codestream metadata, shared by every layer
+ * that uses that codestream. Cache absence too; failed reads remain retryable. */
+int hvc_palette(hvc *client, uint64_t frame, int *channels, uint8_t *table, size_t capacity) {
+    size_t codestream;
+    *channels = 0;
+    if (frame_codestream(client, frame, &codestream)) return -1;
+    if (!client->palettes) {
+        size_t count = hvc_codestreams(client);
+        if (!count) return -1;
+        client->palettes = calloc(count, sizeof *client->palettes);
+        if (!client->palettes) return fail(client, "out of memory");
+        client->palette_count = count;
+    }
+    hvc_palette_table *palette = &client->palettes[codestream];
+    if (!palette->ready) {
+        int count = 0;
+        int entries = read_palette(client, codestream, &count, NULL, 0);
+        if (entries < 0) return -1;
+        size_t size = (size_t)entries * count;
+        uint8_t *bytes = NULL;
+        if (size) {
+            bytes = malloc(size);
+            if (!bytes) return fail(client, "out of memory");
+            if (read_palette(client, codestream, &count, bytes, size) < 0) {
+                free(bytes);
+                return -1;
+            }
+        }
+        *palette = (hvc_palette_table){bytes, entries, count, 1};
+    }
+    *channels = palette->channels;
+    size_t size = (size_t)palette->entries * palette->channels;
+    if (size && capacity >= size) memcpy(table, palette->table, size);
+    return palette->entries;
 }
 
 size_t hvc_codestream(hvc *client, uint64_t frame, uint8_t *out, size_t capacity) {

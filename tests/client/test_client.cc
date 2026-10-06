@@ -367,6 +367,30 @@ static Bytes read_input(const hvc_input *input) {
     return bytes;
 }
 
+static Bytes check_palette(hvc *client, size_t frame) {
+    int channels = 0;
+    int entries = hvc_palette(client, frame, &channels, nullptr, 0);
+    check(entries >= 0, hvc_error(client));
+    Bytes expected(static_cast<size_t>(entries) * channels);
+    check(hvc_palette(client, frame, &channels, expected.data(), expected.size()) == entries,
+          "palette after size query");
+    for (int repeat = 0; repeat < 3; repeat++) {
+        Bytes copy(expected.size() + 1, 0xEE);
+        int copied_channels = -1;
+        if (!expected.empty()) {
+            check(hvc_palette(client, frame, &copied_channels, copy.data(), expected.size()-1) == entries &&
+                  copied_channels == channels && copy == Bytes(copy.size(), 0xEE),
+                  "undersized palette buffer remains untouched");
+        }
+        check(hvc_palette(client, frame, &copied_channels, copy.data(), expected.size()) == entries &&
+              copied_channels == channels && copy.back() == 0xEE &&
+              std::equal(expected.begin(), expected.end(), copy.begin()), "repeat palette bytes");
+        // Mutating the caller's copy must not alter the retained table.
+        std::fill(copy.begin(), copy.end(), 0);
+    }
+    return expected;
+}
+
 static void equivalent(const char *path, bool jpx) {
     Sources sources;
     jpip::ImageIndex image(path);
@@ -386,6 +410,8 @@ static void equivalent(const char *path, bool jpx) {
     check(frames == hvc_frames(remote) && frames > 0 &&
           hvc_codestreams(local) == hvc_codestreams(remote), "local/remote identity counts");
     for (size_t frame = 0; frame < frames; frame++) {
+        Bytes palette = check_palette(local, frame);
+        check(check_palette(remote, frame) == palette, "local/remote palette bytes");
         hv_render a, b;
         check(hvc_render_read(local, frame, 3, &a) == 0, hvc_error(local));
         check(hvc_render_read(remote, frame, 3, &b) == 0, hvc_error(remote));
@@ -422,6 +448,8 @@ static void equivalent(const char *path, bool jpx) {
         check(hvc_prepare(remote, frame, nullptr, &view) == 0 && view.request == HVC_FRAME, "mapped data request");
         submit(remote, response(server, image, sources, request(view)));
         check(read_input(snapshot.source) == original_snapshot, "open input mutated by refinement");
+        check(check_palette(local, frame) == palette && check_palette(remote, frame) == palette,
+              "palette survives XML indexing and data refinement");
         Input local_input(local, frame), remote_input(remote, frame);
         Bytes left = read_input(local_input.source), right = read_input(remote_input.source);
         for (int reduce = 0; reduce < before.source.resolutions; reduce++) {

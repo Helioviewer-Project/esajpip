@@ -125,6 +125,7 @@ int hvc_model(hvc *client, size_t *cursor, char *text, size_t capacity);
 int hvc_restore_response(hvc *client, const uint8_t *body, size_t size);
 
 /* XML is borrowed until destroy; palette is copied into the supplied buffer.
+ * Palette conversion is lazy and retained until destroy, including absence.
  * codestream follows the size-query/caller-buffer convention,
  * preserving sample precision for the host's decoder. */
 int hvc_xml(hvc *client, uint64_t frame, const uint8_t **xml, size_t *size);
