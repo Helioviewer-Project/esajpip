@@ -143,8 +143,20 @@ static void verify(const char *path, bool jpx) {
         restore.AddStream(static_cast<int>(frames), static_cast<int>(frames));
         restore.layers = 0;
         Bytes replay = response(replacement, image, sources, restore);
-        check(hvc_restore_response(client, limited, sizeof limited) == -1,
-              "limited restoration accepted");
+        jpip::DataBinServer limited_replacement;
+        restore.has.len = true;
+        restore.length_response = 128;
+        int reason, chunks = 0;
+        do {
+            Bytes chunk = response(limited_replacement, image, sources, restore);
+            reason = hvc_restore_response(client, chunk.data(), chunk.size());
+            check(reason == HVC_EOR_BYTE_LIMIT_REACHED || reason == HVC_EOR_WINDOW_DONE ||
+                  reason == HVC_EOR_IMAGE_DONE, hvc_error(client));
+            check(++chunks < 10000, "restoration made no progress");
+        } while (reason == HVC_EOR_BYTE_LIMIT_REACHED);
+        check(chunks > 1, "restoration did not exercise continuation");
+        check(hvc_prepare(client, frame, &options, &inspected) == -1,
+              "restoration completed a pending frame request");
         check(hvc_restore_response(client, replay.data(), replay.size()) >= 0,
               hvc_error(client));
         hvc_jpp_reader reader;

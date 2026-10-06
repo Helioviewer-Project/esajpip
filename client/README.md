@@ -485,8 +485,10 @@ declarations in bounded batches; start its cursor at zero and stop at an empty
 batch. Select no codestreams (`stream` equal to `hvc_codestreams(source)`, `layers=0`).
 The first batch opens a replacement channel on the original target; later
 batches use its `cid`. Submit these responses with `hvc_restore_response`,
-which checks repeated metadata and requires a normal EOR. Then retry the
-original pending request. Restoration retains geometry, quality and metadata
+which checks repeated metadata without changing cached bytes. On
+`BYTE_LIMIT_REACHED`, continue the same window without its `model` field until
+`WINDOW_DONE` or `IMAGE_DONE`. Send each model batch only once: partial-bin
+amounts are additive on older servers. Then retry the original pending request. Restoration retains geometry, quality and metadata
 pointers and does not complete the pending frame request. Use it only after a
 successful initial metadata exchange, for the same immutable target.
 
@@ -698,12 +700,15 @@ for either source. A NULL inspector uses that profile for JPIP status; local sta
 inspector. Metadata and byte access need no inspector.
 
 `hvc_render_read` supplies the same channel instructions and exact palette
-samples for either source. Local headers are mapped; the JPIP adapter reads
+samples for either source. Local headers are retained in owned memory; the JPIP adapter reads
 inline headers and validates codestream placeholders without modifying metadata.
 Presentation headers partitioned into separate data-bins remain unsupported.
 
 `hvc_input_open(source, frame, reduce)` returns an immutable native decoder
-input. Local reads use mapped extents, including fragmented codestreams. JPIP
+input. Local reads use buffered files, including fragmented codestreams. JP2 files close
+after metadata loading and each inspection/decode. The main JPX file remains
+open; seek/read operations are synchronized. Each input owns at most one
+external fragment handle, opened on demand and closed with that input. JPIP
 reconstructs in one pass into owned native memory, copying only resolutions
 needed by `reduce`. Higher-resolution packets are empty, preserving the original
 header and exact decoder grids. Subsequent reads and seeks never reconstruct

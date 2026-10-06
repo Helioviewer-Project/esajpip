@@ -62,17 +62,40 @@ cached. Start a `hvc_model` cursor at zero and send each returned batch
 with:
 
 ```text
-stream=0&model=[0]Hm,[0]H0,<batch>&len=2000000
+stream=0&model=M0,[0]Hm,[0]H0,<batch>&len=2000000
 ```
 
 Add `cnew=http&type=jpp-stream&tid=0` and the original target for the first
 batch, then the returned `cid` for later batches. Omit window fields. The
-explicit complete header declarations suppress unsolicited header replay
-before their descriptors appear in later model batches. Keep `len` after
+explicit complete root-metadata and header declarations suppress unsolicited
+replay before their descriptors appear in later model batches. The metadata
+initialization loop must have completed before declaring `M0`; otherwise the
+server would withhold missing metadata. This also prevents a large classical
+metadata bin from exhausting the restoration response budget. Keep `len` after
 `model`: the classical parser can lose a terminal descriptor at query EOF.
 The model's partial precinct amounts are additive, so send each batch once.
+The classical HTTP parser truncates the complete request URI to 1,023 bytes.
+Size each model buffer for the space left after the path, query fields, separators
+and trailing `len`. An oversized URI can lose `len` and return an empty HTTP body
+without EOR. This was reproduced against live ROB; do not accept that empty body
+as a successful restoration.
 
-Pass each restoration response to `hvc_restore_response`; it validates
+The current new server limits the complete request line to 2,048 bytes and the
+complete request head to 4,096 bytes (`server/http/request_head.cc`). For
+`GET <URI> HTTP/1.1\r\n`, that leaves 2,033 URI bytes. It rejects oversized
+requests with HTTP 431 rather than truncating them. When classical support is
+retired, recheck those limits and update JHV's `JPIPSocket.MAX_URI` together
+with `extra/test/j2k/JPIPSocketTest.testModelBudget`. Keep exact batch sizing
+and the outgoing length check. JHV also carries these retirement instructions
+next to the constant, so removal does not depend on finding this document.
+
+A restoration response can exhaust `len` on movies with many separate metadata
+bins even when `M0` is declared complete. On `BYTE_LIMIT_REACHED`, continue with
+`cid=<cid>&stream=0&len=2000000` until `WINDOW_DONE` or `IMAGE_DONE`. Do not repeat
+`model`: partial-bin amounts would be added twice. Finish this replay before
+sending the next model batch or resuming image requests.
+
+Pass each restoration response, including continuations, to `hvc_restore_response`; it validates
 any repeated metadata against the retained bytes without modifying the cache
 or completing a pending frame request. Stop at an empty model batch, then
 resume the interrupted window. This procedure requires complete initial

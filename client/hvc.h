@@ -75,7 +75,7 @@ typedef int (*hvc_inspect_fn)(hvc *client, size_t frame, void *context,
  * With no inspector, JPIP uses its restricted coding profile's geometry;
  * local sources allow metadata/bytes but cannot supply status. */
 hvc *hvc_create(hvc_inspect_fn inspect, void *context);
-/* Native mapped-file source. NULL with error on failure. */
+/* Native local-file source. NULL with error on failure. */
 hvc *hvc_open_local(const char *path, hvc_inspect_fn inspect, void *context,
                      char *error, size_t error_size);
 /* create returns NULL on allocation failure. Other calls require a live
@@ -120,7 +120,9 @@ int hvc_prepare(hvc *client, uint64_t frame, const hvc_options *options,
  * with stream=codestream count,layers=0; the host handles cnew/cid and HTTP errors.
  * Start cursor at zero, repeat until an empty batch. Do not ingest normal
  * responses between batches. Restoration preserves the pending frame request.
- * restore_response checks metadata replay and requires a normal EOR. */
+ * restore_response checks metadata replay without changing the cache. On
+ * BYTE_LIMIT_REACHED, continue the same window without repeating the model;
+ * finish restoration at WINDOW_DONE or IMAGE_DONE before resuming frames. */
 int hvc_model(hvc *client, size_t *cursor, char *text, size_t capacity);
 int hvc_restore_response(hvc *client, const uint8_t *body, size_t size);
 

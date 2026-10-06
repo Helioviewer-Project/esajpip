@@ -9,14 +9,15 @@ extern "C" {
 #endif
 
 typedef struct hv_local hv_local;
-/* Maps regular files and closes their descriptors. Files must remain immutable
+/* Reads regular files. JP2 operations close their files when finished; the main
+ * JPX file remains open until close. Files must remain immutable
  * until close. Kind is detected from content. Supports top-level JP2C/FTBL,
  * mixed sources, local MDAT fragments, and referenced local files. Relative
  * locations resolve against path's directory; file:// uses the project's path
  * convention. Other schemes/queries are unsupported when referenced.
  * JPX codestream extensions (J2CX) are unsupported. Other box bodies are opaque.
  * This is codestream access, not conformance validation or movie presentation.
- * NULL on failure with error; all acquired resources are released. POSIX I/O. */
+ * NULL on failure with error; all acquired resources are released. Paths are UTF-8. */
 hv_local *hv_local_open(const char *path, char *error, size_t error_size);
 void hv_local_close(hv_local *source); /* accepts NULL */
 size_t hv_local_codestreams(const hv_local *source);
@@ -39,9 +40,19 @@ size_t hv_local_copy(const hv_local *source, size_t codestream, uint8_t *out,
  * fragments; no whole-stream assembly or retained read position. Caller owns
  * out. Returns bytes read, 0 at the exact end or for capacity=0, or 0 with error.
  * Offset past the end, invalid index or NULL out with nonzero capacity fail
- * before writing. Source mappings must outlive reads; files remain immutable. */
+ * before writing. Source must outlive reads; files remain immutable. */
 size_t hv_local_read(const hv_local *source, size_t codestream, size_t offset,
                      uint8_t *out, size_t capacity, char *error, size_t error_size);
+/* One decoder's local input. The source must outlive it. Owns a JP2 handle
+ * or the current external fragment handle; borrows the retained JPX main file.
+ * Separate inputs can read concurrently. Close after inspection/decoding.
+ * Read has the same bounds/error contract as hv_local_read. */
+typedef struct hv_local_input hv_local_input;
+hv_local_input *hv_local_input_open(const hv_local *source, size_t codestream,
+                                    char *error, size_t error_size);
+void hv_local_input_close(hv_local_input *input);
+size_t hv_local_input_read(hv_local_input *input, size_t offset, uint8_t *out,
+                            size_t capacity, char *error, size_t error_size);
 /* Read the codestream's SIZ fields using hv_read_siz's caller-buffer contract.
  * Reads only its bounded header, including across fragments. No metadata or
  * coding-feature checks; failure leaves copying available. These are reference

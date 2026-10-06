@@ -9,13 +9,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include "jpeg2000/hv_reader.h"
 #include "jpeg2000/hv_render.h"
 
-static int fail_alloc = -1, allocations, fail_io, io_index, io_calls, descriptors, mappings;
+static int fail_alloc = -1, allocations, fail_io, io_index, io_calls, descriptors, opens;
 static int alloc_fails(void) { allocations++; return fail_alloc >= 0 && fail_alloc-- == 0; }
 static void *test_calloc(size_t n, size_t s) { return alloc_fails() ? NULL : calloc(n,s); }
 static void *test_malloc(size_t n) { return alloc_fails() ? NULL : malloc(n); }
@@ -27,35 +26,40 @@ static int io_fails(int kind) {
 static int test_open(const char *p, int flags) {
     int fd;
     if (io_fails(1)) return -1;
-    fd = open(p,flags); if (fd >= 0) descriptors++; return fd;
+    fd = open(p,flags); if (fd >= 0) { descriptors++; opens++; } return fd;
 }
 static int test_close(int fd) { descriptors--; return close(fd); }
 static int test_fstat(int fd, struct stat *st) { return io_fails(2) ? -1 : fstat(fd,st); }
-static void *test_mmap(void *p,size_t n,int prot,int flags,int fd,off_t off) {
-    void *result;
-    if (io_fails(3)) return MAP_FAILED;
-    result = mmap(p,n,prot,flags,fd,off); if (result != MAP_FAILED) mappings++; return result;
+static FILE *test_fdopen(int fd, const char *mode) { return io_fails(3) ? NULL : fdopen(fd,mode); }
+static int test_fclose(FILE *file) { descriptors--; return fclose(file); }
+static size_t test_fread(void *out,size_t size,size_t count,FILE *file) {
+    return io_fails(4) ? 0 : fread(out,size,count,file);
 }
-static int test_munmap(void *p,size_t n) { mappings--; return munmap(p,n); }
 #define calloc test_calloc
 #define malloc test_malloc
 #define realloc test_realloc
 #define open test_open
 #define close test_close
 #define fstat test_fstat
-#define mmap test_mmap
-#define munmap test_munmap
+#define fdopen test_fdopen
+#define fclose test_fclose
+#define fread test_fread
 #include "jpeg2000/hv_reader.c"
 #include "jpeg2000/hv_metadata.c"
+#define hv_decode_BoxHeader local_decode_BoxHeader
+#define open_file local_open_file
 #include "jpeg2000/hv_local.c"
+#undef open_file
+#undef hv_decode_BoxHeader
 #undef calloc
 #undef malloc
 #undef realloc
 #undef open
 #undef close
 #undef fstat
-#undef mmap
-#undef munmap
+#undef fdopen
+#undef fclose
+#undef fread
 
 static int failures;
 static void check(int ok,const char *name) { if (!ok) { fprintf(stderr,"FAIL: %s\n",name); failures++; } }
@@ -166,7 +170,7 @@ static void siz_checks(const char *path,const char *part,const uint8_t *cs,size_
             check(hv_local_siz(source,SIZE_MAX,&fixed,NULL,0,error,sizeof error)==-1,"SIZ invalid stream index");
             hv_local_close(source);
         }
-        check(descriptors==0 && mappings==0,"SIZ source cleanup");
+        check(descriptors==0,"SIZ source cleanup");
     }
     fragment_split=0;
 }
@@ -228,7 +232,7 @@ static void opaque_codestream_checks(const char *path,const char *part,const uin
                 }
                 hv_local_close(source);
             }
-            check(mappings==0 && descriptors==0,"opaque source resource cleanup");
+            check(descriptors==0,"opaque source resource cleanup");
         }
     }
 }
@@ -236,9 +240,29 @@ static void opaque_codestream_checks(const char *path,const char *part,const uin
 static void expect_bytes(const char *path,const uint8_t *cs,size_t n,size_t count) {
     char error[512]; uint8_t out[8192]; hv_local *source=hv_local_open(path,error,sizeof error);
     if (!source) { fprintf(stderr,"%s\n",error); check(0,"source open"); return; }
-    check(descriptors==0,"mapped descriptors closed immediately");
-    check(mappings==(count==1?1:2),"only used files mapped once per reference");
+    hv_boxes inventory; hv_ftyp type; size_t at;
+    check(hv_container_open(source->headers,source->header_size,&inventory,&type,&at)==NULL,
+          "retained container header");
+    int keep = hv_ftyp_is_jpx(&type);
+    check(descriptors==keep && (source->file!=NULL)==keep,"only the JPX main file stays open");
     check(hv_local_codestreams(source)==count,"codestream count");
+    /* Independent decoder inputs reuse their file across callbacks. */
+    int idle = descriptors;
+    hv_local_input *first = hv_local_input_open(source,0,error,sizeof error);
+    hv_local_input *second = hv_local_input_open(source,0,error,sizeof error);
+    check(first && second,"decode inputs open");
+    check(descriptors==idle+(keep?0:2),"JP2 handles belong to inputs, JPX handle is shared");
+    int opened = opens;
+    if (first && second) for (size_t offset=0;offset<n;offset++) {
+        size_t other=n-offset-1;
+        check(hv_local_input_read(first,offset,out,1,error,sizeof error)==1 && out[0]==cs[offset],
+              "forward reader position");
+        check(hv_local_input_read(second,other,out,1,error,sizeof error)==1 && out[0]==cs[other],
+              "independent reverse reader position");
+    }
+    check(opens==opened,"no reopening per decoder callback");
+    hv_local_input_close(first); hv_local_input_close(second);
+    check(descriptors==idle,"decode handles close promptly");
     for (size_t i=0;i<count;i++) {
         check(hv_local_copy(source,i,NULL,0,error,sizeof error)==n,"size query");
         { SizFixed fixed;
@@ -272,7 +296,7 @@ static void expect_bytes(const char *path,const uint8_t *cs,size_t n,size_t coun
     check(hv_local_read(source,SIZE_MAX,0,out,sizeof out,error,sizeof error)==0,"read invalid codestream index");
     hv_local_close(source);
     check(memcmp(out,cs,n)==0,"caller bytes survive destruction");
-    check(descriptors==0 && mappings==0,"source resources released");
+    check(descriptors==0,"source resources released");
 }
 
 static void association(bytes *b,unsigned kind,unsigned index,char value) {
@@ -407,7 +431,7 @@ static void presentation_checks(const char *path, const uint8_t *cs, size_t n) {
     check(hv_local_presentation(source,&data,&presentation,error,sizeof error)==0 &&
           data==saved_data && presentation==saved_presentation && before==allocations,
           "presentation view reused without allocation");
-    /* The mapped view remains usable after pathname removal. */
+    /* Retained metadata remains usable after pathname removal. */
     check(unlink(path)==0,"presentation pathname removal");
     for (size_t i=0;i<3;i++) {
         check(hv_render_read(data,presentation,i,1,&render,&at)==NULL &&
@@ -419,7 +443,7 @@ static void presentation_checks(const char *path, const uint8_t *cs, size_t n) {
               sample.bits==4 && sample.is_signed,"borrowed signed palette sample");
     }
     hv_local_close(source);
-    check(mappings==0 && descriptors==0,"presentation source cleanup");
+    check(descriptors==0,"presentation source cleanup");
 
     /* An invalid presentation does not prevent original codestream access. */
     b=(bytes){0}; signature(&b,1); box(&b,"jp2c",cs,n);
@@ -438,7 +462,7 @@ static void presentation_checks(const char *path, const uint8_t *cs, size_t n) {
               "invalid presentation preserves exact bytes");
         hv_local_close(source);
     }
-    check(mappings==0 && descriptors==0,"invalid presentation cleanup");
+    check(descriptors==0,"invalid presentation cleanup");
 }
 
 static void metadata_checks(const char *path,const uint8_t *cs,size_t n) {
@@ -476,7 +500,7 @@ static void metadata_checks(const char *path,const uint8_t *cs,size_t n) {
           table[0]==10 && table[1]==20,"default palette");
     check(hv_local_palette(source,1,&channels,table,2,error,sizeof error)==2 && channels==1 &&
           table[0]==30 && table[1]==40,"codestream palette override with inherited mapping");
-    hv_local_close(source); check(mappings==0 && descriptors==0,"metadata source cleanup");
+    hv_local_close(source); check(descriptors==0,"metadata source cleanup");
 
     b=(bytes){0}; signature(&b,1); box(&b,"jp2c",cs,n); association(&b,2,0,'L');
     at=begin(&b,"grp "); box(&b,"xml ","F",1); end(&b,at); save(path,&b);
@@ -523,7 +547,7 @@ static void metadata_checks(const char *path,const uint8_t *cs,size_t n) {
             check(hv_local_copy(source,0,NULL,0,error,sizeof error)==n,"malformed metadata leaves copying available");
             hv_local_close(source);
         }
-        check(mappings==0 && descriptors==0,"malformed metadata resources released");
+        check(descriptors==0,"malformed metadata resources released");
     }
     { hv_metadata metadata={0};
       check(hv_metadata_read(NULL,0,SIZE_MAX,0,NULL,NULL,&metadata,error,sizeof error)==-1 &&
@@ -554,29 +578,59 @@ int main(int argc,char **argv) {
         }
         test_reference=NULL; b=movie(base.data+stream.payload,n,0); save(path,&b);
     }
-    /* Original view is retained after pathname removal, with no live descriptors. */
-    source=hv_local_open(path,error,sizeof error); check(source!=NULL,"lifetime source open");
+    /* Reopen failures release their handles and permit retry after the file
+     * is restored. Metadata stays usable without either file being open. */
+    save(path,&base);
+    source=hv_local_open(path,error,sizeof error); check(source!=NULL,"JP2 reopen source");
     if (source) {
-        uint8_t out[8192]; unlink(part);
-        check(hv_local_copy(source,1,out,sizeof out,error,sizeof error)==n && memcmp(out,base.data+stream.payload,n)==0,"mapped companion lifetime");
-        hv_local_close(source); save(part,&companion);
+        unlink(path);
+        check(hv_local_input_open(source,0,error,sizeof error)==NULL && descriptors==0,
+              "missing JP2 reopen releases handles");
+        b=base; put(&b,"x",1); save(path,&b);
+        check(hv_local_input_open(source,0,error,sizeof error)==NULL && descriptors==0 &&
+              strstr(error,"size changed"),"changed JP2 rejected without leaking a handle");
+        save(path,&base);
+        uint8_t out[8192];
+        check(hv_local_copy(source,0,out,sizeof out,error,sizeof error)==n &&
+              memcmp(out,base.data+stream.payload,n)==0,"JP2 reopen retry");
+        hv_local_close(source);
     }
+    b=movie(base.data+stream.payload,n,0); save(path,&b);
+    source=hv_local_open(path,error,sizeof error); check(source!=NULL,"linked reopen source");
+    if (source) {
+        hv_local_input *reader=hv_local_input_open(source,1,error,sizeof error);
+        check(reader!=NULL,"linked input open");
+        if (reader) {
+            uint8_t out[8192]; unlink(part);
+            check(hv_local_input_read(reader,0,out,sizeof out,error,sizeof error)==0 && descriptors==1,
+                  "missing companion leaves only the JPX handle");
+            b=companion; put(&b,"x",1); save(part,&b);
+            check(hv_local_input_read(reader,0,out,sizeof out,error,sizeof error)==0 && descriptors==1 &&
+                  strstr(error,"size changed"),"changed companion rejected without leaking a handle");
+            save(part,&companion);
+            check(hv_local_input_read(reader,0,out,sizeof out,error,sizeof error)==n &&
+                  memcmp(out,base.data+stream.payload,n)==0,"same linked input retries after reopen failure");
+            hv_local_input_close(reader);
+        }
+        hv_local_close(source);
+    }
+    check(descriptors==0,"reopen cleanup");
     for (int bad=1;bad<=11;bad++) {
         b=movie(base.data+stream.payload,n,bad); save(path,&b);
         source=hv_local_open(path,error,sizeof error); check(source==NULL,"malformed/unsupported source rejected"); hv_local_close(source);
-        check(descriptors==0 && mappings==0,"failed source cleanup");
+        check(descriptors==0,"failed source cleanup");
     }
     b=movie(base.data+stream.payload,n,0); save(path,&b);
     allocations=0; source=hv_local_open(path,error,sizeof error); calls=allocations; check(source!=NULL,"allocation baseline"); hv_local_close(source);
     for (int i=0;i<calls;i++) {
         fail_alloc=i; source=hv_local_open(path,error,sizeof error); fail_alloc=-1;
         check(source==NULL,"allocation failure injected"); hv_local_close(source);
-        check(descriptors==0 && mappings==0,"allocation failure cleanup");
+        check(descriptors==0,"allocation failure cleanup");
     }
-    for (int kind=1;kind<=3;kind++) for (int index=0;index<2;index++) {
+    for (int kind=1;kind<=4;kind++) for (int index=0;index<2;index++) {
         fail_io=kind; io_index=index; io_calls=0; source=hv_local_open(path,error,sizeof error); fail_io=0;
         check(source==NULL,"main/companion I/O failure injected"); hv_local_close(source);
-        check(descriptors==0 && mappings==0,"I/O failure cleanup");
+        check(descriptors==0,"I/O failure cleanup");
     }
     for (int i=0;i<20;i++) expect_bytes(path,base.data+stream.payload,n,2);
     mkfifo(fifo,0600); source=hv_local_open(fifo,error,sizeof error); check(source==NULL,"nonregular file rejected without blocking"); hv_local_close(source);
@@ -635,7 +689,7 @@ int main(int argc,char **argv) {
                       memcmp(out,expected,length)==0,"real JPX original codestream bytes");
             }
             hv_local_close(source); hv_served_sources_free(&index);
-            check(descriptors==0 && mappings==0,"real JPX resources released");
+            check(descriptors==0,"real JPX resources released");
         }
     }
     opaque_codestream_checks(path,part,base.data+stream.payload,n);
@@ -644,7 +698,7 @@ int main(int argc,char **argv) {
     presentation_checks(path,base.data+stream.payload,n);
     metadata_checks(path,base.data+stream.payload,n);
     hv_local_close(NULL);
-    check(descriptors==0 && mappings==0,"final resource accounting");
+    check(descriptors==0,"final resource accounting");
     unlink(path); unlink(part); unlink(big); unlink(fifo); rmdir(temp);
     if (!failures) puts("all local-source checks passed");
     return failures!=0;

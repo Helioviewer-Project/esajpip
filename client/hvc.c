@@ -157,9 +157,9 @@ const hvc_info *hvc_info_read(hvc *client, uint64_t frame) {
 
 struct hvc_input {
 #ifndef __wasi__
-    const hv_local *local;
+    hv_local_input *local;
 #endif
-    size_t codestream, size;
+    size_t size;
     uint8_t *bytes;
 };
 
@@ -169,10 +169,10 @@ hvc_input *hvc_input_open(hvc *client, uint64_t frame, int reduce) {
     if (frame_codestream(client, frame, &codestream)) return NULL;
     hvc_input *input = calloc(1, sizeof *input);
     if (!input) { fail(client, "out of memory"); return NULL; }
-    input->codestream = codestream;
 #ifndef __wasi__
     if (client->local) {
-        input->local = client->local;
+        input->local = hv_local_input_open(client->local, codestream, client->error, sizeof client->error);
+        if (!input->local) goto fail;
         input->size = hv_local_copy(client->local, codestream, NULL, 0, client->error, sizeof client->error);
         if (input->size) return input;
         goto fail;
@@ -188,7 +188,12 @@ fail:
 }
 
 void hvc_input_close(hvc_input *input) {
-    if (input) { free(input->bytes); free(input); }
+    if (!input) return;
+#ifndef __wasi__
+    hv_local_input_close(input->local);
+#endif
+    free(input->bytes);
+    free(input);
 }
 size_t hvc_input_size(const hvc_input *input) { return input->size; }
 const uint8_t *hvc_input_data(const hvc_input *input) { return input->bytes; }
@@ -200,7 +205,7 @@ size_t hvc_input_read(const hvc_input *input, size_t offset, uint8_t *out, size_
 #ifndef __wasi__
     if (input->local) {
         char error[256];
-        size_t read = hv_local_read(input->local, input->codestream, offset, out, count, error, sizeof error);
+        size_t read = hv_local_input_read(input->local, offset, out, count, error, sizeof error);
         return read == count ? count : SIZE_MAX;
     }
 #endif
@@ -384,7 +389,7 @@ int hvc_restore_response(hvc *client, const uint8_t *body, size_t size) {
     if (client->local) return fail(client, "JPIP operations require a remote source");
 #endif
     int reason = ingest(client, body, size, 1);
-    if (reason >= 0 && !completed(reason))
+    if (reason >= 0 && !completed(reason) && reason != HVC_EOR_BYTE_LIMIT_REACHED)
         return fail(client, "replacement channel did not complete cache restoration");
     return reason;
 }

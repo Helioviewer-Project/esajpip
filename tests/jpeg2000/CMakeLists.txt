@@ -71,7 +71,7 @@ esajpip_configure_target(test_rules)
 target_link_libraries(test_rules PRIVATE jpeg2000)
 esajpip_add_test(rules COMMAND test_rules LABELS tools)
 
-# Owning local access: real mappings and injected allocation/I/O failures.
+# Owning local access: file lifetimes and injected allocation/I/O failures.
 add_executable(test_local test_local.c)
 esajpip_configure_target(test_local)
 target_link_libraries(test_local PRIVATE jpeg2000)

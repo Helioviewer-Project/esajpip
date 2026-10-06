@@ -17,21 +17,22 @@ int hvc_render_read(hvc *client, uint64_t frame, size_t output_components, hv_re
 const hvc_info *hvc_info_read(hvc *client, uint64_t frame);
 
 typedef struct hvc_input hvc_input;
-/* Immutable native input for one decode. Local inputs borrow mapped extents;
+/* Immutable native input for one decode. Local inputs own file readers;
  * JPIP inputs own one reconstruction through the requested reduction. Higher
  * resolutions contain empty packets, preserving the original header geometry. Later
  * responses cannot change an open input. Open/close around the decoder lifetime,
  * and close all inputs before destroying client. Open is serialized with client
- * calls; read/size/data do not access its mutable cache and can run independently.
+ * calls; read/size/data do not access its mutable cache. Serialize reads on one
+ * input; distinct inputs may read concurrently.
  * NULL with hvc_error on failure. No bytes pass through the host language. */
 /* reduce=0 retains every resolution; INT_MAX retains only the lowest.
- * Local inputs remain mapped and let the decoder apply the reduction. */
+ * Local inputs read original bytes and let the decoder apply the reduction. */
 hvc_input *hvc_input_open(hvc *client, uint64_t frame, int reduce);
 void hvc_input_close(hvc_input *input);
 size_t hvc_input_size(const hvc_input *input);
 /* EOF returns 0, invalid arguments or a failed read return SIZE_MAX. */
 size_t hvc_input_read(const hvc_input *input, size_t offset, uint8_t *out, size_t capacity);
-/* Optional contiguous view, NULL for mapped/fragmented inputs. Borrowed until
+/* Optional contiguous view, NULL for local file inputs. Borrowed until
  * input close. Decoders using read need no source-specific path. */
 const uint8_t *hvc_input_data(const hvc_input *input);
 #ifdef __cplusplus
