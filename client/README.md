@@ -345,12 +345,17 @@ internal server errors are not retried.
 
 A source keeps every byte it receives until `close()`: the server does not
 send data twice on a channel, and takes no note of a client that drops some. A
-movie fetched whole at full size therefore takes about the size of its
-codestreams, plus the tables that index them. Decoding adds, for its duration,
-a copy of the frame's codestream and OpenJPEG's working memory. The module
-keeps the last decoded image until the next decode; the page gets its own
-copy. A frame's parsed geometry and prepared reconstruction header are also
-kept once first used, until the source closes.
+movie fetched whole at full size retains its codestream payload, allocation
+headers and alignment, and the tables that index the data-bins. Partial bins
+reserve room geometrically until completed. The WASM build links WASI libc's
+`dlmalloc`, avoiding Zig's power-of-two allocation rounding. Decoding adds, for
+its duration, a copy of the frame's codestream and OpenJPEG's working memory.
+The module keeps the last decoded image until the next decode. The page gets
+its own copy. A frame's parsed geometry and prepared reconstruction header are also
+kept once first used, until the source closes. Linear memory grows to accommodate
+peak demand and does not shrink when allocations are freed; the allocator can
+reuse that space. A worker's memory is released when the source closes and the
+worker terminates.
 
 ### Reference
 
@@ -755,11 +760,18 @@ checks below.
 | `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality; frames exported and imported between sources, their replay by the server, and refused blocks leaving the source unchanged |
 | `client_converter` | Refusal of incomplete/header-only/unconfirmed quality input without overwriting output; completed continuation, reduced windows and replay |
 
-The JavaScript is checked by a script that needs Node.js, the built module and
-a running server:
+When Zig and Node.js are available, the normal native test build also builds
+the WASM module and registers `client_wasm` with CTest. This test starts private
+local servers and runs the JavaScript, worker, layer-mapping and recovery checks
+on the checked-in RGB, non-square and movie fixtures. It also checks allocations
+above 2 GiB, allocator block growth, worker import failure, and the lossless
+synthetic RGB pixels against their source formula. Set `ESAJPIP_NODE` to the
+Node executable at configuration time if it is not on PATH.
+
+The JavaScript can also be checked against a running server:
 
 ```sh
-node tests/client/check.mjs build/client/web/esajpip_client.wasm \
+node tests/client/check.mjs build-wasm/client/web/esajpip_client.wasm \
   http://localhost:8900 movie.jpx
 ```
 
@@ -767,22 +779,23 @@ It checks argument validation, error types, cache reuse and closing, through
 `JpipChannel` and through `JpipSource` with its worker. It decodes the first
 frame at every resolution and the others at their lowest, and prints for each
 the size, the bytes received, a checksum of the pixels, and the sizes of the
-XML and the color table. The checksums are for comparing runs, not checked
-against a reference.
+XML and the color table. The printed checksums are for comparing runs. The
+automated `client_wasm` test separately checks the synthetic fixture against its
+known pixel values.
 
 Layer mapping has a separate live WASM check. Generate the one-layer and
 swapped-layer JPX fixtures in the test server's image directory:
 
 ```sh
 build/tests/client/test_client_source --write-fixtures /path/to/images
-node tests/client/check_layers.mjs build/client/web/esajpip_client.wasm http://localhost:8900
+node tests/client/check_layers.mjs build-wasm/client/web/esajpip_client.wasm http://localhost:8900
 ```
 
 Recovery has a separate live check that starts and stops its own server with a
 short idle timeout:
 
 ```sh
-node tests/client/check_recovery.mjs build/client/web/esajpip_client.wasm \
+node tests/client/check_recovery.mjs build-wasm/client/web/esajpip_client.wasm \
   build/esajpip /path/to/images movie.jpx other-movie.jpx
 ```
 
@@ -794,6 +807,9 @@ module-load retries, concurrent independent movies, expiry, restart and close
 during recovery. The second image is optional; omit it to open two independent
 sources for the same image. Use images with several resolution levels and
 quality layers. A large preview also exercises several cache-model batches.
+Restoration declares the retained bins sequentially, using the space available
+within the server's 2 KiB request-line limit. Metadata not declared in the first
+batch is replayed and compared with the cache to detect a changed target.
 
 ## How it works
 

@@ -57,7 +57,7 @@ export class JpipSource {
             ({ frames: source.frames, received: source.received } =
                 await source.#call("open", module, server, image));
         } catch (error) {
-            source.#worker.terminate();
+            source.#end(error);
             throw error;
         }
         return source;

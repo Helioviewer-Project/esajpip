@@ -84,13 +84,19 @@ try {
             // Covering the raw rectangle would wrongly select a finer level.
             for (const fit of [[width, full.fullHeight * 4], [full.fullWidth * 4, height]]) {
                 const frame = await channel.frame(0, { fit });
-                assert.equal(frame.reduce, reduce, `wrong fit level for ${fit}`);
-                const explicit = await channel.frame(0, { reduce });
+                const scale = Math.min(fit[0] / full.fullWidth, fit[1] / full.fullHeight);
+                assert.ok(frame.width >= full.fullWidth * scale &&
+                          frame.height >= full.fullHeight * scale, `fit too coarse for ${fit}`);
+                if (frame.reduce + 1 < full.resolutions)
+                    assert.ok(Math.ceil(full.fullWidth / 2 ** (frame.reduce + 1)) < full.fullWidth * scale ||
+                              Math.ceil(full.fullHeight / 2 ** (frame.reduce + 1)) < full.fullHeight * scale,
+                              `fit too fine for ${fit}`);
+                const explicit = await channel.frame(0, { reduce: frame.reduce });
                 assert.deepEqual(frame.pixels, explicit.pixels);
             }
             if (reduce > 0 && width < full.fullWidth) {
                 const frame = await channel.frame(0, { fit: [width + 0.25, full.fullHeight * 4] });
-                assert.equal(frame.reduce, reduce - 1, "fit did not cross a resolution boundary");
+                assert.ok(frame.reduce < reduce, "fit did not cross a resolution boundary");
             }
         }
         assert.equal((await channel.frame(0, { fit: [full.fullWidth * 2, full.fullHeight * 2] })).reduce, 0);

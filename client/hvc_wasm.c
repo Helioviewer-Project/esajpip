@@ -47,7 +47,7 @@ int EXPORT(hvc_wasm_restore_response)(const uint8_t *body, size_t size) {
     return hvc_restore_response(client, body, size);
 }
 
-static char model[1024];
+static char model[2048];
 static size_t model_next;
 
 const char *EXPORT(hvc_wasm_model)(size_t cursor, size_t capacity) {
@@ -113,7 +113,25 @@ const uint8_t *EXPORT(hvc_wasm_palette_table)(void) {
 
 /* Inspect or prepare a frame request. JavaScript reads the fixed-width view;
  * the client owns the pending request and confirms its completed response. */
-_Static_assert(offsetof(hvc_view, codestream) == 184, "JavaScript view layout");
+#define VIEW_OFFSET(field, offset) \
+    _Static_assert(offsetof(hvc_view, field) == offset, "JavaScript view layout: " #field)
+_Static_assert(sizeof(int) == 4, "JavaScript reads 32-bit ints");
+VIEW_OFFSET(source.width, 0);
+VIEW_OFFSET(source.height, 4);
+VIEW_OFFSET(source.components, 8);
+VIEW_OFFSET(source.resolutions, 12);
+VIEW_OFFSET(source.complete, 16);
+VIEW_OFFSET(source.layers, 20);
+VIEW_OFFSET(source.quality, 24);
+VIEW_OFFSET(reduce, 156);
+VIEW_OFFSET(width, 160);
+VIEW_OFFSET(height, 164);
+VIEW_OFFSET(layers, 168);
+VIEW_OFFSET(ready, 172);
+VIEW_OFFSET(request, 176);
+VIEW_OFFSET(requested_layers, 180);
+VIEW_OFFSET(codestream, 184);
+#undef VIEW_OFFSET
 const hvc_view *EXPORT(hvc_wasm_view)(uint32_t frame, int reduce,
                                           double width, double height, int layers, int prepare) {
     error[0] = 0;

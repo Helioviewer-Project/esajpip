@@ -20,7 +20,10 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
         generated/asn1crt_encoding_uper.c generated/j2k-headers.c generated/j2k-codestream.c
         generated/jp2-boxes.c generated/jpeg2000-io.c)
     list(TRANSFORM jpeg2000_srcs PREPEND ${PROJECT_SOURCE_DIR}/jpeg2000/)
-    add_executable(esajpip_client_wasm ${esajpip_client_wasm_srcs} ${jpeg2000_srcs})
+    # WASI libc's allocator avoids Zig's power-of-two block rounding.
+    add_executable(esajpip_client_wasm ${esajpip_client_wasm_srcs} ${jpeg2000_srcs}
+        vendor/dlmalloc/dlmalloc.c)
+    set_source_files_properties(vendor/dlmalloc/dlmalloc.c PROPERTIES COMPILE_OPTIONS -w)
     target_link_options(esajpip_client_wasm PRIVATE
         -mexec-model=reactor -s -Wl,-z,stack-size=1048576)
     set(esajpip_web ${CMAKE_CURRENT_BINARY_DIR}/web)

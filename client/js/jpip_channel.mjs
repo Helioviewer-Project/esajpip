@@ -154,7 +154,7 @@ export class JpipChannel {
         const size = this.#wasm.hvc_wasm_xml_size(index);
         if (size < 0)
             throw new Error(this.#error());
-        const at = this.#wasm.hvc_wasm_xml();
+        const at = this.#wasm.hvc_wasm_xml() >>> 0;
         return at === 0 ? null
             : new TextDecoder().decode(new Uint8Array(this.#wasm.memory.buffer, at, size));
     }
@@ -173,7 +173,7 @@ export class JpipChannel {
         const channels = this.#wasm.hvc_wasm_palette_channels();
         return {
             entries, channels,
-            table: new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_palette_table(),
+            table: new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_palette_table() >>> 0,
                                   entries * channels).slice(),
         };
     }
@@ -254,7 +254,7 @@ export class JpipChannel {
         this.received += body.length;
 
         const wasm = this.#wasm;
-        const at = wasm.hvc_wasm_alloc(body.length);
+        const at = wasm.hvc_wasm_alloc(body.length) >>> 0;
         if (at === 0)
             throw new Error("out of memory");
         new Uint8Array(wasm.memory.buffer, at, body.length).set(body);
@@ -292,10 +292,10 @@ export class JpipChannel {
                                                : { cid: this.#cid };
             const url = new URL(this.#url({ ...routing, ...fields, model: "" }));
             const line = `GET ${url.pathname}${url.search} HTTP/1.1\r\n`;
-            const capacity = Math.min(1024, 2048 - new TextEncoder().encode(line).length);
+            const capacity = 2048 - new TextEncoder().encode(line).length;
             if (capacity <= 0)
                 throw new Error("target path leaves no room for cache declarations");
-            const at = this.#wasm.hvc_wasm_model(cursor, capacity);
+            const at = this.#wasm.hvc_wasm_model(cursor, capacity) >>> 0;
             if (at === 0)
                 throw new Error(this.#error());
             const bytes = new Uint8Array(this.#wasm.memory.buffer, at);
@@ -325,7 +325,7 @@ export class JpipChannel {
         const at = this.#wasm.hvc_wasm_view(index,
             Math.min(options.reduce ?? 0, 2147483647),
             options.fit?.[0] ?? 0, options.fit?.[1] ?? 0,
-            Math.min(options.layers ?? 0, 2147483647), prepare ? 1 : 0);
+            Math.min(options.layers ?? 0, 2147483647), prepare ? 1 : 0) >>> 0;
         if (at === 0)
             throw new Error(this.#error());
         const [fullWidth, fullHeight, components, resolutions, , totalLayers] =
@@ -373,13 +373,13 @@ export class JpipChannel {
         const components = wasm.hvc_wasm_components();
         return {
             ...status, width, height, components,
-            pixels: new Uint8Array(wasm.memory.buffer, wasm.hvc_wasm_pixels(),
+            pixels: new Uint8Array(wasm.memory.buffer, wasm.hvc_wasm_pixels() >>> 0,
                                    width * height * components).slice(),
         };
     }
 
     #error() {
-        const bytes = new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_error());
+        const bytes = new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_error() >>> 0);
         return new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
     }
 }

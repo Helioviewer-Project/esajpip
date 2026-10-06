@@ -59,3 +59,26 @@ esajpip_add_test(client_converter COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/check_converter.py $<TARGET_FILE:hvc_jpp2j2k>
     $<TARGET_FILE:test_client_source> LABELS client cli)
 add_dependencies(client_tests hvc_jpp2j2k)
+
+# Build and exercise the actual module when its toolchain is available.
+find_program(ESAJPIP_ZIG zig)
+find_program(ESAJPIP_NODE node)
+if(ESAJPIP_ZIG AND ESAJPIP_NODE)
+    set(client_wasm_build ${CMAKE_CURRENT_BINARY_DIR}/wasm)
+    set(client_wasm_module ${client_wasm_build}/client/web/esajpip_client.wasm)
+    add_custom_target(client_wasm_tests ALL
+        COMMAND ${CMAKE_COMMAND} -S ${PROJECT_SOURCE_DIR} -B ${client_wasm_build}
+            -DCMAKE_TOOLCHAIN_FILE=${PROJECT_SOURCE_DIR}/client/wasm-toolchain.cmake
+            -DESAJPIP_ZIG=${ESAJPIP_ZIG}
+        COMMAND ${CMAKE_COMMAND} --build ${client_wasm_build} --target esajpip_client_wasm
+        BYPRODUCTS ${client_wasm_module}
+        USES_TERMINAL
+        VERBATIM)
+    add_dependencies(client_tests client_wasm_tests esajpip)
+    esajpip_add_test(client_wasm COMMAND ${ESAJPIP_NODE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/run_wasm.mjs ${client_wasm_module}
+        $<TARGET_FILE:esajpip> $<TARGET_FILE:test_client_source> ${PROJECT_SOURCE_DIR}
+        LABELS client wasm TIMEOUT 180)
+else()
+    message(STATUS "WASM client tests need Zig and Node.js; native client tests remain enabled")
+endif()
