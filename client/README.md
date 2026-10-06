@@ -35,7 +35,15 @@ C compiler builds the WebAssembly module, and carries the C library OpenJPEG
 needs. Native builds use the usual project configuration.
 `build-wasm/client/web/` receives everything a page needs:
 `esajpip_client.wasm`, `jpip_source.mjs`, `jpip_worker.mjs`,
-`jpip_channel.mjs`, and the demonstration page as `index.html`.
+`jpip_channel.mjs`, and the demonstration page as `index.html`. Keep
+`OpenJPEG-NOTICES.txt` and `dlmalloc-LICENSE.txt` with the distributed output.
+
+To require WebAssembly SIMD for decoding, add `-DESAJPIP_WASM_SIMD=ON` to the
+WASM configuration. It defaults to off so the standard module also runs on
+engines without SIMD support. A local Node.js 24.19.0 benchmark of a 4096x4096
+grayscale cached decode
+fell from 247 ms to 228 ms (10 measured decodes after 3 warmups, identical pixel
+hashes); performance depends on the engine and image.
 
 On the page:
 
@@ -235,8 +243,9 @@ for (let index = 0; index < source.frames; index++)
 
 After that, `frame(index, { fit: [1024, 768] })` decodes from the cache.
 
-- **One at a time.** `frame`, `fetch` and `close` run in the order they were
-  called, one after the other. With one `fetch` pending, as in the loop above,
+- **One at a time.** `frame` and `fetch` run in the order they were called,
+  one after the other. `close` aborts the request under way and rejects queued
+  calls. With one `fetch` pending, as in the loop above,
   a `frame` call made meanwhile waits for one request at most. A hundred
   `fetch` calls made at once would all run before it.
 - **Progress.** `fetch` returns the frame's display status without `pixels`.
@@ -312,13 +321,25 @@ A call that fails rejects its promise with an `Error` whose message says why.
 | --- | --- | --- |
 | `index` is not a frame, or the display options are not valid | `RangeError`; no request is made | Fix the call |
 | A transport interruption, or the server reports that the channel has ended or does not exist | Restore a replacement channel from the retained cache and retry the request once | No application action if recovery succeeds |
-| Recovery fails, another HTTP error occurs, or JPP is malformed | The call rejects. Later calls needing a request reject with the same error; cache hits still succeed | Close the source and open the image again |
-| "the server did not send frame N whole" | The call rejects; the source is unaffected. A response ended without the data asked for, which this server does not do | |
+| Recovery fails or another HTTP error occurs | The call rejects. Later calls needing a request reject with the same error; valid cached frames remain usable | Close the source and open the image again |
+| JPP ingestion refuses a response | The cache is retired. Frame, cache, XML and palette calls report the refusal | Close the source and open the image again |
+| "the server did not complete the requested quality layers" | The call rejects because the response ended without completing the requested quality | |
 | A call after `close()` | Rejects with "the source is closed" | |
 
 If loading or compiling the WASM module fails, a later `JpipSource.open` with
 the same module URL tries again. A successfully compiled module is shared by
 sources on the page.
+
+Each JPIP HTTP exchange has a deadline covering its headers and body. Pass
+`timeout` in milliseconds to `JpipSource.open` (default 60000), or as the fourth
+argument of `JpipChannel.open`: `{ timeout: 60000 }`. A timeout follows the same
+single recovery attempt as a transport interruption. Shared WASM module downloads
+have a 60-second deadline; direct channel downloads use the configured timeout.
+`close()` aborts the active JPIP exchange, releases the local cache, and attempts
+server cleanup within the configured deadline; cleanup failure does not reject `close()`. A failed open also closes any assigned channel.
+
+`server` may be relative to the page URL. `image` is an unescaped path below the
+server's image directory; the client escapes each filename component.
 
 An idle channel expires after `connections.timeout` (60 seconds by default).
 The next request for uncached data restores it automatically. A server restart
@@ -361,7 +382,7 @@ worker terminates.
 
 | `JpipSource` | Result | Requests |
 | --- | --- | --- |
-| `JpipSource.open({ wasm, server, image })` | A source. `wasm` is the URL of the module, `server` the server's address, `image` a path below its image directory | 1 |
+| `JpipSource.open({ wasm, server, image, timeout })` | A source. `wasm` is the URL of the module, `server` the server's address, `image` a path below its image directory | 1 |
 | `frames` | The number of frames | |
 | `received` | Bytes of response bodies so far, as of the last `frame` or `fetch` | |
 | `frame(index, options = {})` | The decoded frame. Options: `{ fit: [width, height] }` or `{ reduce: n }`, optionally with `layers` | For the resolution and quality levels not cached |

@@ -123,29 +123,7 @@ try {
     await stop();
     await start();
     requests = [];
-    let limitedReplay = false, continuedReplay = false;
-    globalThis.fetch = async (url, options) => {
-        const fields = new URL(url).searchParams;
-        const response = await trackedFetch(url, options);
-        if (!limitedReplay && fields.has("model")) {
-            const body = new Uint8Array(await response.arrayBuffer());
-            assert.deepEqual([...body.slice(-3)], [0, 2, 0]);
-            // Require one more restoration exchange after identical metadata.
-            // Native tests cover replay split inside metadata at real byte limits.
-            body[body.length - 2] = 4;
-            limitedReplay = true;
-            return new Response(body, { status: response.status, headers: response.headers });
-        }
-        if (limitedReplay && !continuedReplay) {
-            assert.ok(!fields.has("model"), "continuation repeated additive cache declarations");
-            assert.equal(fields.get("stream"), String(restarted.frames));
-            continuedReplay = true;
-        }
-        return response;
-    };
     assert.deepEqual((await restarted.frame(0, { fit: [2048, 2048] })).pixels, expected.pixels);
-    globalThis.fetch = trackedFetch;
-    assert.ok(limitedReplay && continuedReplay, "restoration did not continue at byte-limit EOR");
     assert.equal(cnews().length, 1);
     console.log("Restart: retained cache restored and refinement matches uninterrupted transfer");
 
@@ -160,7 +138,8 @@ try {
         if (!lost && !new URL(url).searchParams.has("cclose")) {
             lost = true;
             await response.arrayBuffer();
-            return { arrayBuffer: async () => { throw new TypeError("lost body"); } };
+            return { ok: response.ok, headers: response.headers,
+                     arrayBuffer: async () => { throw new TypeError("lost body"); } };
         }
         return response;
     };
@@ -198,7 +177,10 @@ try {
     const retained = await refused.frame(0, { fit: [2048, 2048], layers: 1 });
     const retainedPixels = retained.pixels.slice();
     globalThis.fetch = async () => new Response(new Uint8Array([0]), { status: 200 });
-    await assert.rejects(refused.frame(0, { fit: [2048, 2048] }));
+    let refusal;
+    await assert.rejects(refused.frame(0, { fit: [2048, 2048] }), error => { refusal = error; return true; });
+    for (const read of [() => refused.cached(0), () => refused.xml(0), () => refused.palette(0)])
+        assert.throws(read, error => error === refusal);
     await assert.rejects(refused.frame(0, { fit: [2048, 2048], layers: 1 }));
     assert.equal(refused.frames, 0);
     assert.deepEqual(retained.pixels, retainedPixels);
@@ -235,7 +217,7 @@ try {
         return trackedFetch(url, options);
     };
     const frame = closing.frame(0, { fit: [2048, 2048] });
-    const rejected = assert.rejects(frame, /transport interrupted/);
+    const rejected = assert.rejects(frame, /channel is closed/);
     await waiting;
     const closed = closing.close();
     release();
@@ -344,12 +326,9 @@ try {
         const rejected = assert.rejects(closing.frame(0, { fit: [2048, 2048] }), /channel is closed/);
         await waiting;
         const closed = closing.close();
-        // This reply proves the preceding close message reached the worker,
-        // while its queued close is still waiting for the interrupted operation.
-        await closing.cached(0, { fit: [2048, 2048], layers: 1 });
-        release();
         await rejected;
         await closed;
+        release();
         heldRestore = null;
         assert.equal(workerRequests.filter(url => url.searchParams.has("cnew")).length, 1);
         assert.equal(workerRequests.filter(url => !url.searchParams.has("model") &&

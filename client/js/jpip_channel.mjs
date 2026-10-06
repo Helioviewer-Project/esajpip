@@ -40,7 +40,7 @@ function system(module, memory) {
 // A JPIP request is a set of fields (T.808 Annex C), written as the query
 // of a URL: { stream: 3, fsiz: [512, 512, "closest"] } is
 // "stream=3&fsiz=512,512,closest". The server reads them as they are,
-// without percent-decoding.
+// without percent-decoding the JPIP grammar fields.
 function query(fields) {
     return Object.entries(fields)
         .map(([name, value]) => `${name}=${Array.isArray(value) ? value.join(",") : value}`)
@@ -83,6 +83,8 @@ export class JpipChannel {
     #last = Promise.resolve();
     #failed = null;         // why the channel can make no more requests
     #closing = false;
+    #controller = null;     // the HTTP exchange under way, including its body
+    #timeout;
     frames = 0;             // JPX layers, or one implicit layer for JP2
     received = 0;           // bytes of response bodies so far
 
@@ -90,10 +92,12 @@ export class JpipChannel {
     // channel. `wasm` is esajpip_client.wasm: compiled (a
     // WebAssembly.Module), its bytes, or a URL to fetch it from. `server`
     // is the server's address, such as http://localhost:8900.
-    static async open(wasm, server, image) {
+    static async open(wasm, server, image, { timeout = 60000 } = {}) {
+        if (!Number.isInteger(timeout) || timeout <= 0 || timeout > 2147483647)
+            throw new RangeError("timeout must be a positive integer of milliseconds, at most 2147483647");
         const module = wasm instanceof WebAssembly.Module ? wasm
             : await WebAssembly.compile(typeof wasm === "string" || wasm instanceof URL
-                ? await (await fetch(wasm)).arrayBuffer() : wasm);
+                ? await (await fetch(wasm, { signal: AbortSignal.timeout(timeout) })).arrayBuffer() : wasm);
         let instance = null;
         instance = await WebAssembly.instantiate(
             module, system(module, () => instance.exports.memory));
@@ -101,17 +105,23 @@ export class JpipChannel {
 
         const channel = new JpipChannel();
         channel.#wasm = instance.exports;
-        channel.#server = server.replace(/\/+$/, "");
-        channel.#image = image.replace(/^\/+/, "");
+        channel.#timeout = timeout;
+        channel.#server = new URL(server, globalThis.location?.href).href.replace(/\/+$/, "");
+        channel.#image = image.replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
         channel.#target = channel.#image;
         // The metadata comes with the first response, whatever it asks for:
         // this one asks for the lowest resolution of codestream zero.
         // Layer zero can refer to another codestream; #fetch resolves it.
-        await channel.#request({ stream: 0, fsiz: [1, 1, "closest"] });
-        channel.frames = channel.#wasm.hvc_wasm_frames();
-        if (channel.frames === 0)
-            throw new Error(channel.#error());
-        return channel;
+        try {
+            await channel.#request({ stream: 0, fsiz: [1, 1, "closest"] });
+            channel.frames = channel.#wasm.hvc_wasm_frames();
+            if (channel.frames === 0)
+                throw new Error(channel.#error());
+            return channel;
+        } catch (error) {
+            await channel.close();
+            throw error;
+        }
     }
 
     // A frame fitted into options.fit [width, height] in physical pixels,
@@ -178,19 +188,53 @@ export class JpipChannel {
         };
     }
 
-    // Closes the channel on the server, after the calls under way, and
-    // forgets its data.
+    // Aborts the request under way, forgets the cache, and attempts to close
+    // the server channel. A failed server cleanup does not prevent local release.
     close() {
+        if (this.#closing) return this.#last;
         this.#closing = true;
+        this.#controller?.abort(new Error("the channel is closed"));
         const closed = this.#last.then(async () => {
             this.#failed = new Error("the channel is closed");
             this.#wasm.hvc_wasm_reset();
-            if (this.#cid !== null)
-                await fetch(this.#url({ cid: this.#cid, cclose: this.#cid }));
-            this.#cid = null;
+            this.frames = 0;
+            await this.#release();
         });
-        this.#last = closed.catch(() => {});
+        this.#last = closed;
         return closed;
+    }
+
+    async #release() {
+        if (this.#cid === null) return;
+        const url = this.#url({ cid: this.#cid, cclose: this.#cid });
+        this.#cid = null;
+        try {
+            await this.#download(url);
+        } catch { }
+    }
+
+    // The deadline covers both response headers and the complete body. Record
+    // an assigned channel before reading its body so a failed open can close it.
+    async #download(url, assignChannel = false) {
+        const controller = new AbortController();
+        this.#controller = controller;
+        const timer = setTimeout(() => controller.abort(new Error("JPIP request timed out")), this.#timeout);
+        try {
+            const response = await fetch(url, { signal: controller.signal });
+            if (assignChannel && response.ok) {
+                const channel = header(response.headers.get("JPIP-cnew"));
+                if (channel.cid !== undefined) {
+                    this.#cid = channel.cid;
+                    this.#target = channel.path ?? "jpip";
+                }
+            }
+            return { response, body: new Uint8Array(await response.arrayBuffer()) };
+        } catch (error) {
+            throw controller.signal.aborted ? controller.signal.reason : error;
+        } finally {
+            clearTimeout(timer);
+            this.#controller = null;
+        }
     }
 
     // A channel serves one request at a time: each call waits for the one
@@ -226,15 +270,17 @@ export class JpipChannel {
     }
 
     async #exchange(fields, restoring = false) {
+        if (this.#closing) throw new Error("the channel is closed");
         let response, body;
         try {
-            response = await fetch(this.#url(this.#cid === null
+            ({ response, body } = await this.#download(this.#url(this.#cid === null
                 ? { cnew: "http", type: "jpp-stream", ...fields }
-                : { cid: this.#cid, ...fields }));
-            body = new Uint8Array(await response.arrayBuffer());
+                : { cid: this.#cid, ...fields }), true));
         } catch (cause) {
-            const error = new Error("JPIP transport interrupted", { cause });
-            error.recoverable = true;
+            const error = this.#closing ? new Error("the channel is closed")
+                : new Error(cause.message === "JPIP request timed out"
+                    ? cause.message : "JPIP transport interrupted", { cause });
+            error.recoverable = !this.#closing;
             throw error;
         }
         if (!response.ok) {
@@ -243,11 +289,6 @@ export class JpipChannel {
             error.recoverable = response.status === 503 &&
                 (message === "JPIP channel does not exist" || message === "JPIP channel has ended");
             throw error;
-        }
-        const channel = header(response.headers.get("JPIP-cnew"));
-        if (channel.cid !== undefined) {
-            this.#cid = channel.cid;
-            this.#target = channel.path ?? "jpip";
         }
         if (this.#cid === null)
             throw new Error("the server did not assign a channel (JPIP-cnew)");
@@ -274,12 +315,9 @@ export class JpipChannel {
     async #recover() {
         // The old channel may still exist if only its response was lost.
         // Closing it is best effort; restoration itself must succeed in full.
-        try {
-            await fetch(this.#url({ cid: this.#cid, cclose: this.#cid }));
-        } catch { }
+        await this.#release();
         if (this.#closing)
             throw new Error("the channel is closed");
-        this.#cid = null;
         this.#target = this.#image;
         let cursor = 0;
         for (;;) {
@@ -302,10 +340,7 @@ export class JpipChannel {
             const model = new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
             if (model === "" && this.#cid !== null) break;
             if (model !== "") fields.model = model;
-            let reason = await this.#exchange(fields, true);
-            delete fields.model; // Partial-bin amounts must be declared only once.
-            while (reason === 4)
-                reason = await this.#exchange(fields, true);
+            const reason = await this.#exchange(fields, true);
             if (reason !== 1 && reason !== 2)
                 throw new Error("replacement channel did not complete cache restoration");
             cursor = this.#wasm.hvc_wasm_model_next();
@@ -316,6 +351,8 @@ export class JpipChannel {
     // levels, 0 until its header has arrived, and `complete`, how many of
     // the levels, from the lowest, are cached whole.
     #checkIndex(index) {
+        if (this.#closing) throw new Error("the channel is closed");
+        if (this.frames === 0 && this.#failed !== null) throw this.#failed;
         if (!Number.isInteger(index) || index < 0 || index >= this.frames)
             throw new RangeError(`no frame ${index}: the image has ${this.frames}`);
     }
@@ -345,6 +382,7 @@ export class JpipChannel {
     // The C client chooses each request and confirms its successful response.
     async #fetch(index, options) {
         checkOptions(options);
+        if (this.#closing) throw new Error("the channel is closed");
         if (this.#failed !== null) {
             if (this.frames === 0) throw this.#failed;
             const { request, requestedLayers, ...status } = this.#view(index, options);

@@ -24,11 +24,18 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
     add_executable(esajpip_client_wasm ${esajpip_client_wasm_srcs} ${jpeg2000_srcs}
         vendor/dlmalloc/dlmalloc.c)
     set_source_files_properties(vendor/dlmalloc/dlmalloc.c PROPERTIES COMPILE_OPTIONS -w)
+    option(ESAJPIP_WASM_SIMD "Require WebAssembly SIMD for the client decoder" OFF)
+    if(ESAJPIP_WASM_SIMD)
+        target_compile_options(esajpip_client_wasm PRIVATE -msimd128)
+        target_link_options(esajpip_client_wasm PRIVATE -msimd128)
+    endif()
     target_link_options(esajpip_client_wasm PRIVATE
         -mexec-model=reactor -s -Wl,-z,stack-size=1048576)
     set(esajpip_web ${CMAKE_CURRENT_BINARY_DIR}/web)
     set_target_properties(esajpip_client_wasm PROPERTIES
         OUTPUT_NAME esajpip_client SUFFIX .wasm RUNTIME_OUTPUT_DIRECTORY ${esajpip_web})
+    configure_file(vendor/openjpeg/NOTICES ${esajpip_web}/OpenJPEG-NOTICES.txt COPYONLY)
+    configure_file(vendor/dlmalloc/LICENSE-MIT ${esajpip_web}/dlmalloc-LICENSE.txt COPYONLY)
     foreach(file js/jpip_source.mjs js/jpip_worker.mjs js/jpip_channel.mjs demo/index.html)
         get_filename_component(name ${file} NAME)
         configure_file(${file} ${esajpip_web}/${name} COPYONLY)

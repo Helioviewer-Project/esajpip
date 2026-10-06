@@ -218,10 +218,10 @@ Three properties of the server itself also matter for deployment:
   protect the server's own logs the same way whenever `logging.requests` is
   enabled.
 - Client-supplied paths are constrained but the image directory is trusted. The
-  server rejects any client path containing a `..` segment and does not
-  percent-decode paths or `target` values, so clients must send the literal
-  file name. A `file://` reference stored inside a JPX is trusted, however, and
-  may address anything the server's account can read.
+  server percent-decodes paths and `target` values once, rejects malformed
+  escaping and NUL, and rejects any decoded client path containing a `..`
+  segment. Clients must percent-encode reserved characters in file names.
+  A `file://` reference stored inside a JPX is trusted, however, and may address anything the server's account can read.
 - The server follows filesystem symbolic links. Run it under an account whose
   read permission covers only the intended image data.
 

@@ -83,7 +83,10 @@ function draw(frame, text, palette) {
     for (let from = 0, to = 0; to < rgba.length; from += components, to += 4) {
         if (colors !== null) {
             const index = Math.min(pixels[from], palette.entries - 1);
-            rgba.set(colors.subarray(3 * index, 3 * index + 3), to);
+            const color = 3 * index;
+            rgba[to] = colors[color];
+            rgba[to + 1] = colors[color + 1];
+            rgba[to + 2] = colors[color + 2];
         } else {
             rgba[to] = pixels[from];
             rgba[to + 1] = pixels[components === 3 ? from + 1 : from];

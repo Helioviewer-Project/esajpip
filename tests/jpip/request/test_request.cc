@@ -90,6 +90,20 @@ static void CheckJHVRequests() {
               quoted_target_request.target == "a\"b.jp2",
           "Changed the request while preparing it for logging");
 
+    jpip::Request escaped_target;
+    Check(escaped_target.ParseTarget("/dir/a%20%23%3F%25%26%2B%22%C3%A9.jp2?cnew=http") &&
+              escaped_target.object == "/dir/a #?%&+\"é.jp2",
+          "Did not decode an escaped target path");
+    Check(escaped_target.ParseTarget("/jpip?target=a%3Fb%26c+%2520.jp2&cnew=http") &&
+              escaped_target.target == "a?b&c+%20.jp2",
+          "Target decoding changed plus or decoded percent twice");
+    Check(escaped_target.ParseTarget("/%2e%2e/secret.jp2?cnew=http") &&
+              escaped_target.object == "/../secret.jp2",
+          "Escaped parent path bypassed file-manager validation");
+    for (const char *uri : {"/a%00.jp2?cnew=http", "/a%2.jp2?cnew=http",
+                            "/jpip?target=a%00.jp2", "/jpip?target=a%GG.jp2"})
+        Check(RejectRequest(uri), "Accepted malformed or NUL target escaping");
+
     jpip::Request metadata_request;
     Check(metadata_request.ParseTarget(
               "/jpip?stream=0&metareq=[*]!!&len=2000000&cid=7"),
@@ -301,8 +315,8 @@ static void CheckJHVRequests() {
     jpip::Request encoded_target_request;
     Check(encoded_target_request.ParseTarget(
               "/jpip?target=movie%20name.jpx&cnew=http") &&
-              encoded_target_request.target == "movie%20name.jpx",
-          "Unexpectedly decoded a target value");
+              encoded_target_request.target == "movie name.jpx",
+          "Did not decode an escaped target value");
     Check(RejectRequest("/jpip?len=12junk&cid=7"),
           "Accepted a response length with trailing data");
 }

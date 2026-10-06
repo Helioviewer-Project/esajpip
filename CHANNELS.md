@@ -26,8 +26,9 @@ connection. esajpip implements the smaller model it needs: the channel is the
 session, and it owns the state for one target and one serial request stream.
 
 The examples below omit optional JPIP fields for clarity. Target paths are
-relative to the configured image directory. They are not generally URI-decoded,
-so clients should send the literal file name known to the server.
+relative to the configured image directory. Paths and `target` values are
+percent-decoded once; clients should escape reserved characters in file names.
+Malformed escapes, NUL and decoded `..` path segments are rejected.
 
 ## Create a channel
 

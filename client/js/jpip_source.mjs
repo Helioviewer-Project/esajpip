@@ -17,7 +17,7 @@ const modules = new Map();
 function compiled(wasm) {
     const url = String(wasm);
     if (!modules.has(url))
-        modules.set(url, fetch(url).then(async response => {
+        modules.set(url, fetch(url, { signal: AbortSignal.timeout(60000) }).then(async response => {
             if (!response.ok)
                 throw new Error(`${response.status} ${url}`);
             return WebAssembly.compile(await response.arrayBuffer());
@@ -38,7 +38,8 @@ export class JpipSource {
     // Opens `image` (a path below the server's image directory) on a JPIP
     // channel of `server` (such as http://localhost:8900). `wasm` is the
     // URL of esajpip_client.wasm.
-    static async open({ wasm, server, image }) {
+    static async open({ wasm, server, image, timeout = 60000 }) {
+        server = new URL(server, globalThis.location?.href).href;
         const source = new JpipSource();
         const module = await compiled(wasm);
         source.#worker = new Worker(new URL("./jpip_worker.mjs", import.meta.url),
@@ -55,7 +56,7 @@ export class JpipSource {
         source.#worker.onerror = () => source.#end(new Error("the worker failed"));
         try {
             ({ frames: source.frames, received: source.received } =
-                await source.#call("open", module, server, image));
+                await source.#call("open", module, server, image, { timeout }));
         } catch (error) {
             source.#end(error);
             throw error;
@@ -112,9 +113,10 @@ export class JpipSource {
         return this.#call("palette", index);
     }
 
-    // Closes the channel on the server, after the calls under way, and
-    // ends the worker.
+    // Aborts the request under way, releases the source and its worker, and
+    // attempts to close the server channel.
     async close() {
+        if (this.#worker === null) return;
         try {
             await this.#call("close");
         } finally {

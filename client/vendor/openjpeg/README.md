@@ -42,3 +42,7 @@ for f in client/vendor/openjpeg/*.[ch]; do
     cmp $f /path/to/openjpeg/src/lib/openjp2/$(basename $f)
 done
 ```
+
+`NOTICES` preserves the leading copyright and license comments from the vendored
+C sources and headers, together with `LICENSE`. Update it when updating the vendor
+sources. The WASM web output includes it as `OpenJPEG-NOTICES.txt`.

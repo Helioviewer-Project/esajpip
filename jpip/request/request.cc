@@ -379,7 +379,10 @@ namespace jpip {
         if (error_message != NULL)
             error_message->clear();
         size_t question = uri.find('?');
-        object = GetObject(uri, question);
+        if (!Decode(GetObject(uri, question), &object)) {
+            SetError(error_message, "Invalid escaped target path");
+            return false;
+        }
 
         if (question == string::npos)
             return true;
@@ -395,7 +398,10 @@ namespace jpip {
 
             if (name == "target") {
                 routing.target = true;
-                target = value;
+                if (!Decode(value, &target)) {
+                    valid = false;
+                    SetError(error_message, "Invalid escaped target parameter");
+                }
             } else if (name == "cid") {
                 routing.cid = true;
             } else if (name == "cnew") {

@@ -5,7 +5,7 @@ import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promi
 import { createServer as httpServer } from "node:http";
 import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { JpipChannel } from "../../client/js/jpip_channel.mjs";
 import { JpipSource } from "../../client/js/jpip_source.mjs";
 import { Worker } from "./worker.mjs";
+import { checkTransport } from "./check_transport.mjs";
 
 const [wasmPath, binary, writer, repository] = process.argv.slice(2);
 if (!repository) throw new Error("usage: run_wasm.mjs wasm server-binary fixture-writer repository");
@@ -32,6 +33,8 @@ try {
     await mkdir(images);
     for (const name of fixtures)
         await copyFile(join(repository, "tests/transcode/fixtures/kakadu", name), join(images, name));
+    const escapedImage = 'space #?%20&+"é.jp2';
+    await copyFile(join(images, fixtures[0]), join(images, escapedImage));
     await copyFile(join(repository, "tests/merge/fixtures/expected/merged.jpx"), join(images, "movie.jpx"));
     const reservation = createServer();
     await new Promise((resolve, reject) => {
@@ -123,6 +126,16 @@ try {
         await source.close();
     }
     console.log("High addresses, independent pixels and worker load failure passed");
+
+    const escaped = await JpipChannel.open(wasm, server, escapedImage);
+    try { assert.deepEqual((await escaped.frame(0)).pixels, expected); }
+    finally { await escaped.close(); }
+    // Distribution notices include the additional copyrights in HTJ2K sources.
+    const notices = await readFile(join(dirname(resolve(wasmPath)), "OpenJPEG-NOTICES.txt"), "utf8");
+    for (const name of ["Aous Naman", "Kakadu Software", "University of New South Wales"])
+        assert.ok(notices.includes(name));
+    assert.ok((await readFile(join(dirname(resolve(wasmPath)), "dlmalloc-LICENSE.txt"), "utf8")).includes("Permission"));
+    await checkTransport(wasm, server, fixtures[0]);
 
     for (const image of [...fixtures, "movie.jpx"])
         await run(process.execPath, [fileURLToPath(new URL("./check.mjs", import.meta.url)), wasmPath, server, image]);

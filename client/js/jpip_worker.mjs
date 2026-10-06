@@ -9,8 +9,8 @@ let channel = null;
 // Each gives its result and the buffers to move, not copy, to the page.
 const calls = {
     // The arguments of JpipChannel.open.
-    async open(wasm, server, image) {
-        channel = await JpipChannel.open(wasm, server, image);
+    async open(wasm, server, image, options) {
+        channel = await JpipChannel.open(wasm, server, image, options);
         return [{ frames: channel.frames, received: channel.received }, []];
     },
     // The arguments of JpipChannel.frame.

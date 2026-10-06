@@ -45,10 +45,10 @@ not Annex J conformance.
 | Errors | Reduced | Identified requests receive `400` for malformed supported fields, `404` for a missing, invalidly named, unsupported, or profile-excluded target, `431` for a request head over 4 KiB, `501` for an unsupported channel transport, `503` for an invalid or conflicting channel state, or `500` for an unreadable source and other server failures. The server also returns `503` when the channel is unknown, has ended, or already has a request waiting. Each HTTP error response has a short plain-text body identifying the failure. An error terminates the connection and any referenced channel; routing rejections leave an existing channel unchanged. The rejected request does not modify the channel cache before termination. Traffic rejected before JPIP identification is closed without an HTTP response. The complete JPIP correction-header model is not implemented. |
 
 The HTTP parser accepts at most a 2 KiB request line and passes the complete
-request target to the JPIP parser. Request paths and `target` values are not
-subject to general URI decoding, so clients should use the literal file names
-known to the server. Percent escapes are decoded only within the supported
-`model` and `context` grammars. Initial routing and full request parsing use the
+request target to the JPIP parser. Request paths and `target` values are
+percent-decoded once, rejecting malformed escapes and NUL; clients must escape
+reserved characters in file names. The supported `model` and `context` grammars
+also decode percent escapes. Initial routing and full request parsing use the
 same query-field splitter. If a non-conforming request repeats a routing field,
 both stages use its last value. Client-supplied URI paths and
 `target` values containing a path segment equal to `..` are rejected. An
