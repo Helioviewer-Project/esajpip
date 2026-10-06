@@ -6,6 +6,9 @@ import { JpipSource } from "../../client/js/jpip_source.mjs";
 
 export async function checkBoundary(wasm, wasmURL, server, image, repository) {
     const module = await WebAssembly.compile(wasm);
+    for (const invalid of [module, wasm, {}])
+        await assert.rejects(JpipSource.open({ wasm: invalid, server, image }),
+                             { name: "TypeError", message: "wasm must be a URL or URL string" });
     const functions = ["_initialize", "hvc_wasm_alloc", "hvc_wasm_free", "hvc_wasm_response",
         "hvc_wasm_restore_response", "hvc_wasm_cancel_request", "hvc_wasm_model", "hvc_wasm_model_next",
         "hvc_wasm_frames", "hvc_wasm_codestreams", "hvc_wasm_xml_size", "hvc_wasm_xml",
@@ -29,7 +32,7 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
     }
 
     const instantiate = WebAssembly.instantiate;
-    let exports, initialized = 0, trap = false, staged = null, freed = null, decodeFailures = 0, unsignedFrames = false;
+    let exports, initialized = 0, trap = false, staged = null, freed = null, decodeFailures = 0, unsignedFrames = false, resolutions = null, tailError = null;
     WebAssembly.instantiate = async (...args) => {
         const instance = await instantiate(...args);
         exports = instance.exports;
@@ -43,7 +46,15 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
                 if (trap) throw new WebAssembly.RuntimeError("injected ingestion trap");
                 return exports.hvc_wasm_response(...args);
             },
+            hvc_wasm_error() { return tailError ?? exports.hvc_wasm_error(); },
+            hvc_wasm_view(...args) {
+                const at = exports.hvc_wasm_view(...args);
+                if (resolutions !== null && at)
+                    new DataView(exports.memory.buffer).setUint32((at >>> 0) + 12, resolutions, true);
+                return at;
+            },
             hvc_wasm_decode(...args) {
+                if (tailError !== null) return -1;
                 const result = exports.hvc_wasm_decode(...args);
                 if (result < 0) decodeFailures++;
                 return result;
@@ -54,6 +65,23 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
     try {
         channel = await JpipChannel.open(module, server, image);
         assert.equal(initialized, 1, "reactor initialization was not called exactly once");
+        resolutions = 33;
+        assert.equal(channel.cached(0).quality.length, 33);
+        resolutions = 34;
+        assert.throws(() => channel.cached(0), /invalid WebAssembly resolution count/);
+        resolutions = 0xffffffff;
+        assert.throws(() => channel.cached(0), /invalid WebAssembly resolution count/);
+        resolutions = null;
+        await channel.fetch(0);
+        const tail = new Uint8Array(exports.memory.buffer, exports.memory.buffer.byteLength - 17, 17);
+        const saved = tail.slice();
+        tail.set(new TextEncoder().encode("client is closed\0"));
+        tailError = tail.byteOffset;
+        try { await assert.rejects(channel.frame(0), { name: "Error", message: "client is closed" }); }
+        finally { tail.set(saved); tailError = null; }
+        // A different source still needs a response allocation for trap testing.
+        await channel.close();
+        channel = await JpipChannel.open(module, server, image);
         trap = true;
         freed = null;
         await assert.rejects(channel.frame(0), { name: "RuntimeError", message: "injected ingestion trap" });

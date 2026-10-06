@@ -7,8 +7,8 @@ import { JpipSource } from "../../client/js/jpip_source.mjs";
 import { Worker } from "./worker.mjs";
 
 export async function checkTransport(wasm, server, image) {
-    let mode = "pass", entered, stalled;
-    const requests = [], assigned = [], closed = [];
+    let mode = "pass", entered, stalled, repeatedReply;
+    const requests = [], assigned = [], closed = [], limitedReasons = [];
     const cleanup = new Map();
     const pending = new Set();
     const proxy = createServer(async (request, response) => {
@@ -32,10 +32,35 @@ export async function checkTransport(wasm, server, image) {
                 entered?.();
                 return;
             }
-            const upstream = await fetch(server + request.url);
+            const upstreamURL = new URL(request.url, server);
+            const restoring = !cid && url.searchParams.get("layers") === "0" &&
+                !url.searchParams.has("fsiz");
+            if (restoring && mode === "repeating-limit" && repeatedReply) {
+                response.writeHead(repeatedReply.status, repeatedReply.headers);
+                response.end(repeatedReply.body);
+                return;
+            }
+            if (restoring && ["byte-limit", "empty-limit", "repeating-limit"].includes(mode)) {
+                // Exercise real server limits. Make it replay metadata even
+                // when the host advertises M0, as another server may do.
+                const model = upstreamURL.searchParams.get("model");
+                if (model !== null) {
+                    const bins = model.split(",").filter(bin => !/^M0(?:$|:)/.test(bin));
+                    if (bins.length) upstreamURL.searchParams.set("model", bins.join(","));
+                    else upstreamURL.searchParams.delete("model");
+                }
+                // The writer reserves 60 bytes, so 96 permits small contributions.
+                upstreamURL.searchParams.set("len", mode === "empty-limit" ? "3" : "96");
+            }
+            const upstream = await fetch(upstreamURL);
             const cnew = /(?:^|,)cid=([^,]+)/.exec(upstream.headers.get("JPIP-cnew") ?? "");
             if (cnew) assigned.push(cnew[1]);
             const body = new Uint8Array(await upstream.arrayBuffer());
+            if (restoring && mode === "byte-limit") limitedReasons.push(body.at(-2));
+            if (restoring && mode === "repeating-limit") {
+                assert.equal(body.at(-2), 4);
+                repeatedReply = { status: upstream.status, headers: Object.fromEntries(upstream.headers), body };
+            }
             response.writeHead(upstream.status, Object.fromEntries(upstream.headers));
             if ((mode === "body" && !cid && !url.searchParams.has("model")) ||
                 (mode === "open-body" && cnew)) {
@@ -56,10 +81,6 @@ export async function checkTransport(wasm, server, image) {
                 pending.add(response);
             } else if (mode === "refuse-open" && cnew) {
                 response.end(new Uint8Array([0]));
-            } else if (mode === "unexpected-limit" && url.searchParams.has("model")) {
-                assert.deepEqual([...body.slice(-3)], [0, 2, 0]);
-                body[body.length - 2] = 4;
-                response.end(body);
             } else {
                 response.end(body);
                 if (cid) cleanup.set(cid, true);
@@ -155,17 +176,58 @@ export async function checkTransport(wasm, server, image) {
         }
 
         mode = "pass";
-        const unexpected = await open(); sources.push(unexpected);
+        const limited = await open(); sources.push(limited);
+        const preview = await limited.frame(0, { reduce: Infinity });
+        const limitedRetained = limited.cached(0, { reduce: Infinity });
+        const metadata = limited.xml(0);
         const cid = assigned.at(-1);
         await fetch(`${server}/jpip?cid=${cid}&cclose=${cid}`);
-        mode = "unexpected-limit";
+        mode = "byte-limit";
         requests.length = 0;
-        await assert.rejects(unexpected.frame(0), /did not complete cache restoration/);
-        assert.equal(requests.filter(url => url.searchParams.has("model")).length, 1,
-                     "unexpected byte-limit response started a continuation loop");
-        assert.ok(requests.every(url => !url.searchParams.has("len")));
+        limitedReasons.length = 0;
+        assert.ok((await limited.frame(0)).pixels.length > 0);
+        const restoration = requests.filter(url => url.searchParams.get("layers") === "0" &&
+            !url.searchParams.has("fsiz"));
+        assert.ok(restoration.length > 2, "server limit did not require continuation");
+        assert.ok(limitedReasons.includes(4), "server did not produce a real byte-limit EOR");
+        assert.equal(limitedReasons.at(-1), 2);
+        assert.equal(restoration.filter(url => url.searchParams.has("model")).length, 1,
+                     "continuations repeated additive model declarations");
+        assert.ok(restoration.every(url => url.searchParams.get("stream") === "1"));
+        assert.equal(new Set(restoration.slice(1).map(url => url.searchParams.get("cid"))).size, 1);
+        assert.equal(limited.xml(0), metadata);
+        assert.deepEqual((await limited.frame(0, { reduce: Infinity })).pixels, preview.pixels);
+        assert.ok(limited.cached(0, { reduce: Infinity }).ready && limitedRetained.ready);
         mode = "pass";
-        await unexpected.close();
+        await limited.close();
+
+        const empty = await open(); sources.push(empty);
+        await fetch(`${server}/jpip?cid=${assigned.at(-1)}&cclose=${assigned.at(-1)}`);
+        mode = "empty-limit";
+        requests.length = 0;
+        await assert.rejects(empty.frame(0), /did not make progress during cache restoration/);
+        assert.equal(requests.filter(url => url.searchParams.get("layers") === "0" &&
+            !url.searchParams.has("fsiz")).length, 1, "empty byte-limit reply looped");
+        mode = "pass";
+        assert.ok((await empty.frame(0)).pixels.length > 0, "empty restoration reply poisoned the cache");
+        await empty.close();
+
+        const repeating = await open(); sources.push(repeating);
+        const replayBudget = repeating.received;
+        await fetch(`${server}/jpip?cid=${assigned.at(-1)}&cclose=${assigned.at(-1)}`);
+        mode = "repeating-limit";
+        repeatedReply = null;
+        requests.length = 0;
+        // Replay a real capped reply unchanged to simulate a server that
+        // responds forever without advancing its metadata offset.
+        await assert.rejects(repeating.frame(0), /did not make progress during cache restoration/);
+        const repeats = requests.filter(url => url.searchParams.get("layers") === "0" &&
+            !url.searchParams.has("fsiz"));
+        assert.ok(repeats.length > 1 && repeats.length <= replayBudget + 1,
+                  "repeating limited replies exceeded the metadata continuation bound");
+        mode = "pass";
+        assert.ok((await repeating.frame(0)).pixels.length > 0);
+        await repeating.close();
 
         const boundedCleanup = await open(); sources.push(boundedCleanup);
         mode = "cleanup-stalls";
@@ -197,7 +259,7 @@ export async function checkTransport(wasm, server, image) {
             await source.close();
             delete globalThis.location;
         }
-        console.log("HTTP deadlines, abort, open/close cleanup, relative worker recovery and unexpected EOR passed");
+        console.log("HTTP deadlines, abort, open/close cleanup, relative worker recovery and real byte-limit restoration passed");
     } finally {
         mode = "cleanup-fails";
         for (const channel of sources) await channel.close();

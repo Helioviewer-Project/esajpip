@@ -15,6 +15,8 @@
 // esajpip_client.wasm, compiled once for all the sources of a page.
 const modules = new Map();
 function compiled(wasm) {
+    if (typeof wasm !== "string" && !(wasm instanceof URL))
+        throw new TypeError("wasm must be a URL or URL string");
     const url = new URL(wasm, globalThis.location?.href).href;
     if (!modules.has(url))
         modules.set(url, fetch(url, { signal: AbortSignal.timeout(60000) }).then(async response => {
@@ -47,8 +49,10 @@ export class JpipSource {
         source.#worker = new Worker(new URL("./jpip_worker.mjs", import.meta.url),
                                     { type: "module" });
         source.#worker.onmessage = ({ data: { id, result, error } }) => {
-            const { resolve, reject } = source.#waiting.get(id);
+            const waiting = source.#waiting.get(id);
+            if (waiting === undefined) return;
             source.#waiting.delete(id);
+            const { resolve, reject } = waiting;
             if (error === undefined)
                 resolve(result);
             else
@@ -130,8 +134,10 @@ export class JpipSource {
         return new Promise((resolve, reject) => {
             if (this.#worker === null)
                 throw new Error("the source is closed");
-            this.#waiting.set(++this.#calls, { resolve, reject });
-            this.#worker.postMessage({ id: this.#calls, call: name, args });
+            const id = ++this.#calls;
+            // Replies arrive asynchronously; register only after cloning succeeds.
+            this.#worker.postMessage({ id, call: name, args });
+            this.#waiting.set(id, { resolve, reject });
         });
     }
 

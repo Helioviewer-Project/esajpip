@@ -128,6 +128,7 @@ const uint8_t *EXPORT(hvc_wasm_palette_table)(void) {
 #define VIEW_OFFSET(field, offset) \
     _Static_assert(offsetof(hvc_view, field) == offset, "JavaScript view layout: " #field)
 _Static_assert(sizeof(int) == 4, "JavaScript reads 32-bit ints");
+_Static_assert(sizeof(((hvc_view *)0)->source.quality) == 33 * 4, "JavaScript quality capacity");
 VIEW_OFFSET(source.width, 0);
 VIEW_OFFSET(source.height, 4);
 VIEW_OFFSET(source.components, 8);

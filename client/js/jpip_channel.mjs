@@ -249,18 +249,23 @@ export class JpipChannel {
             let body = new Uint8Array(0), size = 0;
             if (response.body !== null) {
                 const reader = response.body.getReader();
-                for (;;) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    if (value.length !== 0) progress();
-                    const needed = size + value.length;
-                    if (needed > body.length) {
-                        const grown = new Uint8Array(Math.max(needed, body.length * 2));
-                        grown.set(body.subarray(0, size));
-                        body = grown;
+                try {
+                    for (;;) {
+                        const { value, done } = await reader.read();
+                        if (done) break;
+                        if (value.length !== 0) progress();
+                        const needed = size + value.length;
+                        if (needed > body.length) {
+                            const grown = new Uint8Array(Math.max(needed, body.length * 2));
+                            grown.set(body.subarray(0, size));
+                            body = grown;
+                        }
+                        body.set(value, size);
+                        size = needed;
                     }
-                    body.set(value, size);
-                    size = needed;
+                } finally {
+                    await reader.cancel().catch(() => {});
+                    reader.releaseLock();
                 }
             }
             return { response, body: body.subarray(0, size) };
@@ -392,7 +397,18 @@ export class JpipChannel {
             const model = new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
             if (model === "" && this.#cid !== null) break;
             if (model !== "") fields.model = model;
-            const reason = await this.#exchange(fields, true);
+            // Only metadata can be replayed in this window. Its size cannot
+            // exceed all bytes received before restoration; allow at most one
+            // continuation per such byte, and reject an empty limited reply.
+            let remaining = this.received, before = this.received;
+            let reason = await this.#exchange(fields, true);
+            delete fields.model; // Partial-bin declarations are additive.
+            while (reason === 4) {
+                if (this.received - before <= 3 || --remaining < 0)
+                    throw new Error("replacement channel did not make progress during cache restoration");
+                before = this.received;
+                reason = await this.#exchange(fields, true);
+            }
             if (reason !== 1 && reason !== 2)
                 throw new Error("replacement channel did not complete cache restoration");
             cursor = this.#wasm.hvc_wasm_model_next() >>> 0;
@@ -419,6 +435,8 @@ export class JpipChannel {
             throw new Error(this.#error());
         const [fullWidth, fullHeight, components, resolutions, , totalLayers] =
             new Uint32Array(this.#wasm.memory.buffer, at, 6);
+        if (resolutions > 33)
+            throw new Error("invalid WebAssembly resolution count");
         const quality = Array.from(new Uint32Array(this.#wasm.memory.buffer, at + 24, resolutions));
         const [reduce, width, height, layers, ready, request, requestedLayers] =
             new Uint32Array(this.#wasm.memory.buffer, at + 156, 7);
@@ -469,7 +487,9 @@ export class JpipChannel {
     }
 
     #error() {
-        const bytes = new Uint8Array(this.#wasm.memory.buffer, this.#wasm.hvc_wasm_error() >>> 0, 256);
+        const at = this.#wasm.hvc_wasm_error() >>> 0;
+        const buffer = this.#wasm.memory.buffer;
+        const bytes = new Uint8Array(buffer, at, Math.min(256, buffer.byteLength - at));
         return new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
     }
 }

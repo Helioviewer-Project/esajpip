@@ -357,8 +357,11 @@ records and precinct data-bins remain in the client. Cache hits need no live cha
 Recovery opens the original target with no frame selected and declares retained
 complete bins and exact partial byte prefixes in bounded `model` batches. It
 never declares partial `M0`. Metadata repeated during restoration is checked
-against the retained bytes. Normal responses also accept identical overlap and
-append only new bytes to each bin. Once restoration finishes, the interrupted
+against the retained bytes. A byte-limit EOR continues that restoration window
+without repeating its model declarations. Empty limited replies are rejected;
+continuations per batch are capped by the number of bytes already received, an
+upper bound on replayable metadata. Normal responses also accept identical overlap
+and append only new bytes to each bin. Once restoration finishes, the interrupted
 request resumes. A transport failure ends that attempt; a later uncached call
 starts restoration again. Transport failure leaves valid cached frames usable. A refused
 JPP or restoration response retires the cache; even previously ready frames
@@ -657,8 +660,7 @@ data-bin access. Each header documents its calls' results. Calls that take `erro
 - **Threads.** A store has no locking: use it from one thread at a time.
 - **Pixels.** `image.pixels` is allocated with `malloc`; the caller frees it.
 
-`hvc_wasm.c` and `js/jpip_channel.mjs` together are such a program, and the
-shortest complete example.
+`hvc_wasm.c` and `js/jpip_channel.mjs` together provide a complete host example.
 
 ## Limits
 
@@ -811,7 +813,9 @@ on the checked-in RGB, non-square and movie fixtures. It asserts that response
 bodies, XML and decoded pixels each occupy addresses above 2 GiB, and checks
 bounded growth in nine live instances without block rounding, progress timeouts,
 retryable recovery, worker import failure, the module import/export contract,
-closed-client entry points, decode failure and allocation cleanup after a trap,
+closed-client entry points, bounded string/quality reads, duplicate worker replies,
+clone and receive-buffer allocation failures, real byte-limit restoration,
+decode failure and allocation cleanup after a trap,
 and the lossless synthetic RGB pixels against their source formula. Set `ESAJPIP_NODE` to the
 Node executable at configuration time if it is not on PATH. Without Zig or Node,
 both tests remain registered and CTest reports them as skipped with the reason.

@@ -15,6 +15,7 @@ import { JpipSource } from "../../client/js/jpip_source.mjs";
 import { Worker } from "./worker.mjs";
 import { checkTransport } from "./check_transport.mjs";
 import { checkBoundary } from "./check_boundary.mjs";
+import { checkHost } from "./check_host.mjs";
 
 const [wasmPath, binary, writer, repository] = process.argv.slice(2);
 if (!repository) throw new Error("usage: run_wasm.mjs wasm server-binary fixture-writer repository");
@@ -102,6 +103,7 @@ try {
         assert.equal(moduleRequests - downloads, 1, "equivalent module URLs downloaded twice");
     } finally { delete globalThis.location; }
     await checkBoundary(wasm, wasmURL, server, fixtures[0], repository);
+    await checkHost(wasm, wasmURL, server, fixtures[0]);
 
     // Occupy the low heap with live allocations. Merely growing memory leaves
     // small free chunks below 2 GiB that can hide signed-pointer mistakes.
