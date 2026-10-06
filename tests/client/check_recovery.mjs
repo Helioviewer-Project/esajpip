@@ -123,7 +123,29 @@ try {
     await stop();
     await start();
     requests = [];
+    let limitedReplay = false, continuedReplay = false;
+    globalThis.fetch = async (url, options) => {
+        const fields = new URL(url).searchParams;
+        const response = await trackedFetch(url, options);
+        if (!limitedReplay && fields.has("model")) {
+            const body = new Uint8Array(await response.arrayBuffer());
+            assert.deepEqual([...body.slice(-3)], [0, 2, 0]);
+            // Require one more restoration exchange after identical metadata.
+            // Native tests cover replay split inside metadata at real byte limits.
+            body[body.length - 2] = 4;
+            limitedReplay = true;
+            return new Response(body, { status: response.status, headers: response.headers });
+        }
+        if (limitedReplay && !continuedReplay) {
+            assert.ok(!fields.has("model"), "continuation repeated additive cache declarations");
+            assert.equal(fields.get("stream"), String(restarted.frames));
+            continuedReplay = true;
+        }
+        return response;
+    };
     assert.deepEqual((await restarted.frame(0, { fit: [2048, 2048] })).pixels, expected.pixels);
+    globalThis.fetch = trackedFetch;
+    assert.ok(limitedReplay && continuedReplay, "restoration did not continue at byte-limit EOR");
     assert.equal(cnews().length, 1);
     console.log("Restart: retained cache restored and refinement matches uninterrupted transfer");
 

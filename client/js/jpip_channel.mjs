@@ -302,7 +302,10 @@ export class JpipChannel {
             const model = new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
             if (model === "" && this.#cid !== null) break;
             if (model !== "") fields.model = model;
-            const reason = await this.#exchange(fields, true);
+            let reason = await this.#exchange(fields, true);
+            delete fields.model; // Partial-bin amounts must be declared only once.
+            while (reason === 4)
+                reason = await this.#exchange(fields, true);
             if (reason !== 1 && reason !== 2)
                 throw new Error("replacement channel did not complete cache restoration");
             cursor = this.#wasm.hvc_wasm_model_next();
