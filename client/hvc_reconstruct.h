@@ -36,6 +36,12 @@ extern "C" {
 size_t hvc_reconstruct(const hvc_cache *cache, uint64_t codestream, uint8_t *out,
                        size_t capacity, char *error, size_t error_size);
 
+/* Single-pass owned snapshot. Higher resolutions are represented by empty
+ * packets. Clamps reduce to the lowest level. Caller frees *out on success;
+ * failure returns 0 with *out NULL. */
+size_t hvc_reconstruct_alloc(const hvc_cache *cache, uint64_t codestream, int reduce,
+                             uint8_t **out, char *error, size_t error_size);
+
 /* Records delivery of a whole-frame window through `layers` quality layers,
  * without the `reduce` highest resolutions. Call only after applying an entire
  * response ending WINDOW_DONE or IMAGE_DONE for that exact window. Before a

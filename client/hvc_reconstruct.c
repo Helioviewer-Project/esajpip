@@ -1,6 +1,7 @@
 /* hvc_reconstruct.c: see hvc_reconstruct.h. */
 #include "hvc_reconstruct.h"
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "hvc_frame.h"
@@ -9,23 +10,34 @@
 typedef struct {
     uint8_t *out;
     size_t capacity, size;
+    int allocate, failed;
 } output;
 
 static void put(output *o, const void *bytes, size_t n) {
-    if (o->size <= o->capacity && n <= o->capacity - o->size)
-        memcpy(o->out + o->size, bytes, n);
-    o->size += n;
+    if (o->failed) return;
+    if (n > SIZE_MAX - o->size) { o->failed = 1; return; }
+    size_t size = o->size + n;
+    if (o->allocate && size > o->capacity) {
+        size_t capacity = o->capacity <= SIZE_MAX / 2 ? o->capacity * 2 : SIZE_MAX;
+        if (capacity < 4096) capacity = 4096;
+        if (capacity < size) capacity = size;
+        uint8_t *out = realloc(o->out, capacity);
+        if (!out) { o->failed = 1; return; }
+        o->out = out;
+        o->capacity = capacity;
+    }
+    if (size <= o->capacity && n) memcpy(o->out + o->size, bytes, n);
+    o->size = size;
 }
 
-size_t hvc_reconstruct(const hvc_cache *cache, uint64_t codestream, uint8_t *out,
-                       size_t capacity, char *error, size_t error_size) {
+static size_t reconstruct(const hvc_cache *cache, uint64_t codestream, int reduce,
+                           output *o, char *error, size_t error_size) {
     static const uint8_t tile_part[] = {
         0xFF, 0x90, 0, 10, 0, 0, 0, 0, 0, 0, 0, 1,     /* SOT: tile 0, to EOC, part 0 of 1 */
         0xFF, 0x93};                                    /* SOD */
     static const uint8_t empty[] = {0x00, 0xFF, 0x92};  /* empty packet, EPH */
     static const uint8_t eoc[] = {0xFF, 0xD9};
     const hvc_bin *tile_header = hvc_cache_find(cache, HVC_BIN_TILE_HEADER, codestream, 0);
-    output o = {out, out != NULL ? capacity : 0, 0};
     const hvc_frame *frame;
     uint64_t precincts, id, layer;
 
@@ -35,27 +47,50 @@ size_t hvc_reconstruct(const hvc_cache *cache, uint64_t codestream, uint8_t *out
         hv_fail(error, error_size, "tile header data-bin is not empty");
         return 0;
     }
-    put(&o, frame->header, frame->header_size);
+    put(o, frame->header, frame->header_size);
     precincts = frame->precinct_end[frame->resolutions - 1];
+    if (reduce >= frame->resolutions) reduce = frame->resolutions - 1;
+    uint64_t retained = frame->precinct_end[frame->resolutions - 1 - reduce];
 
     /* A precinct's bin identifier is c + s * components, s its number among
      * the precincts of its component, from the lowest resolution, in raster
      * order (T.808 A.3.2.1). With one precinct grid for all components,
      * increasing identifiers are the RPCL order. */
-    put(&o, tile_part, sizeof tile_part);
+    put(o, tile_part, sizeof tile_part);
     for (id = 0; id < precincts; id++) {
-        const hvc_bin *bin = hvc_cache_find(cache, HVC_BIN_PRECINCT, codestream, id);
+        const hvc_bin *bin = id < retained ? hvc_cache_find(cache, HVC_BIN_PRECINCT, codestream, id) : NULL;
         if (bin != NULL && bin->complete) {
-            put(&o, bin->data, bin->length);
+            put(o, bin->data, bin->length);
         } else {
             int received = bin != NULL ? bin->layers : 0;
-            if (received != 0) put(&o, bin->data, bin->packet_bytes);
+            if (received != 0) put(o, bin->data, bin->packet_bytes);
             for (layer = (uint64_t)received; layer < (uint64_t)frame->layers; layer++)
-                put(&o, empty, frame->eph ? 3 : 1);
+                put(o, empty, frame->eph ? 3 : 1);
         }
     }
-    put(&o, eoc, sizeof eoc);
-    return o.size;
+    put(o, eoc, sizeof eoc);
+    if (o->failed) {
+        hv_fail(error, error_size, "codestream allocation or size overflow");
+        return 0;
+    }
+    return o->size;
+}
+
+size_t hvc_reconstruct(const hvc_cache *cache, uint64_t codestream, uint8_t *out,
+                       size_t capacity, char *error, size_t error_size) {
+    output o = {out, out ? capacity : 0, 0, 0, 0};
+    return reconstruct(cache, codestream, 0, &o, error, error_size);
+}
+
+size_t hvc_reconstruct_alloc(const hvc_cache *cache, uint64_t codestream, int reduce,
+                             uint8_t **out, char *error, size_t error_size) {
+    *out = NULL;
+    if (reduce < 0) { hv_fail(error, error_size, "negative input reduction"); return 0; }
+    output o = {NULL, 0, 0, 1, 0};
+    size_t size = reconstruct(cache, codestream, reduce, &o, error, error_size);
+    if (!size) free(o.out);
+    else *out = o.out;
+    return size;
 }
 
 int hvc_reconstruct_confirm(hvc_cache *cache, uint64_t codestream, int reduce, int layers,

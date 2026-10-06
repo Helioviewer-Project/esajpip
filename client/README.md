@@ -466,7 +466,7 @@ for (;;) {
     if (hvc_response(source, body, body_size) < 0)
         goto failed;
 }
-hvc_input *input = hvc_input_open(source, frame);
+hvc_input *input = hvc_input_open(source, frame, view.reduce);
 if (!input)
     goto failed;
 /* Decode with hvc_input_size and hvc_input_read, then close the decoder. */
@@ -689,6 +689,8 @@ It opens decoder input, calls `hvc_render_read` with the decoder's output
 component count, and checks that its decoder supports those channel instructions.
 It returns exact dimensions at each reduction and the usable resolution/quality
 counts. Successful inspection is cached per frame; failures can be retried.
+`hvc_info_read` returns this immutable geometry without scanning readiness.
+It requires an inspector and an available frame header.
 Remote inspection waits for the main header. Its geometry must agree with the
 restricted JPIP coding profile, which supplies request geometry and cache quality.
 Local `hvc_prepare` returns READY immediately, so the same request loop works
@@ -700,9 +702,12 @@ samples for either source. Local headers are mapped; the JPIP adapter reads
 inline headers and validates codestream placeholders without modifying metadata.
 Presentation headers partitioned into separate data-bins remain unsupported.
 
-`hvc_input_open` returns an immutable native decoder input. Local reads use
-mapped extents, including fragmented codestreams. JPIP reconstructs once into
-owned native memory; subsequent reads and seeks never reconstruct again.
+`hvc_input_open(source, frame, reduce)` returns an immutable native decoder
+input. Local reads use mapped extents, including fragmented codestreams. JPIP
+reconstructs in one pass into owned native memory, copying only resolutions
+needed by `reduce`. Higher-resolution packets are empty, preserving the original
+header and exact decoder grids. Subsequent reads and seeks never reconstruct
+again. Use `reduce=0` for all resolutions and `INT_MAX` for header inspection.
 Receiving more data does not change an open input. Close the decoder and input
 before destroying the client. Input reads can run independently of serialized
 client calls. A decoder using `hvc_input_read` needs no source-specific branch.

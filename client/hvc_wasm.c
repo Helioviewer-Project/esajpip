@@ -135,7 +135,7 @@ int EXPORT(hvc_wasm_decode)(uint32_t frame, int reduce) {
     free(image.pixels);
     image.pixels = NULL;
     if (entries < 0) return -1;
-    hvc_input *input = hvc_input_open(client, frame);
+    hvc_input *input = hvc_input_open(client, frame, reduce);
     if (!input) return -1;
     int status = hvc_openjpeg_decode(hvc_input_data(input), hvc_input_size(input), reduce,
                                      entries ? HVC_IMAGE_INDICES : HVC_IMAGE_SAMPLES,

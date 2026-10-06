@@ -20,7 +20,7 @@ static int inspect(hvc *source, size_t frame, void *context,
     uint8_t prefix[6];
     state->calls++;
     if (state->mode == 1) { snprintf(error, error_size, "decoder failure"); return -1; }
-    hvc_input *input = hvc_input_open(source, frame);
+    hvc_input *input = hvc_input_open(source, frame, 0);
     if (!input) { snprintf(error, error_size, "%s", hvc_error(source)); return -1; }
     check(hvc_input_read(input, 0, prefix, sizeof prefix) == 6 &&
           prefix[0] == 0xff && prefix[1] == 0x4f, "inspector reads source");
@@ -38,7 +38,7 @@ static int inspect(hvc *source, size_t frame, void *context,
     return 0;
 }
 static size_t read_frame(hvc *client, uint64_t frame, size_t offset, uint8_t *out, size_t size) {
-    hvc_input *input = hvc_input_open(client, frame);
+    hvc_input *input = hvc_input_open(client, frame, 0);
     if (!input) return 0;
     size_t result = hvc_input_read(input, offset, out, size);
     hvc_input_close(input);
@@ -149,6 +149,10 @@ int main(void) {
     hvc *client = hvc_open_local(IMAGE, inspect, &state, error, sizeof error);
     check(client != NULL, error);
     check(hvc_frames(client) == 1 && state.calls == 0, "local count needs no decoder");
+    const hvc_info *info = hvc_info_read(client, 0);
+    check(info && info->resolutions == 3 && info->width[1] == 64 && info->height[1] == 65 &&
+          hvc_info_read(client, 0) == info && state.calls == 1, "immutable exact geometry without status");
+    check(hvc_input_open(client, 0, -1) == NULL, "negative input reduction rejected");
     hvc_view view; hvc_options options = {0};
     check(hvc_status(client, 0, NULL, &view) == 0 && view.ready && view.request == HVC_READY &&
           view.width == 129 && view.height == 131 && view.requested_layers == 7 &&

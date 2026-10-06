@@ -231,7 +231,7 @@ static void verify(const char *path, bool jpx) {
 struct Input {
     hvc_input *source;
     size_t position = 0;
-    explicit Input(hvc *client, size_t frame) : source(hvc_input_open(client, frame)) {
+    explicit Input(hvc *client, size_t frame, int reduce = 0) : source(hvc_input_open(client, frame, reduce)) {
         check(source != nullptr, hvc_error(client));
     }
     ~Input() { hvc_input_close(source); }
@@ -414,7 +414,10 @@ static void equivalent(const char *path, bool jpx) {
         check(hvc_status(remote, frame, nullptr, &view) == 0, hvc_error(remote));
         check(before.width == view.width && before.height == view.height &&
               before.source.resolutions == view.source.resolutions, "common decoder geometry");
-        Input snapshot(remote, frame);
+        const hvc_info *info = hvc_info_read(remote, frame);
+        check(info && info->width[0] == view.width && info->height[0] == view.height &&
+              hvc_info_read(remote, frame) == info, "immutable decoder information");
+        Input snapshot(remote, frame, before.source.resolutions - 1);
         Bytes original_snapshot = read_input(snapshot.source);
         check(hvc_prepare(remote, frame, nullptr, &view) == 0 && view.request == HVC_FRAME, "mapped data request");
         submit(remote, response(server, image, sources, request(view)));
@@ -431,7 +434,14 @@ static void equivalent(const char *path, bool jpx) {
             size_t count = static_cast<size_t>(x.width)*x.height*x.components;
             check(x.width==view.width && x.height==view.height && x.width==y.width && x.height==y.height &&
                   x.components==y.components && std::memcmp(x.pixels,y.pixels,count)==0, "decoded pixels/geometry");
-            free(x.pixels); free(y.pixels);
+            Input reduced(remote, frame, reduce);
+            Bytes limited = read_input(reduced.source);
+            check(limited.size() <= right.size(), "reduced snapshot grew");
+            hvc_image z;
+            check(hvc_openjpeg_decode(limited.data(),limited.size(),reduce,HVC_IMAGE_SAMPLES,&z,error,sizeof error)==0,error);
+            check(z.width==x.width && z.height==x.height && z.components==x.components &&
+                  std::memcmp(z.pixels,x.pixels,count)==0, "reduced snapshot pixels differ");
+            free(z.pixels); free(x.pixels); free(y.pixels);
         }
         check(local_inspections == static_cast<int>(frame+1) && remote_inspections == local_inspections, "cached inspection count");
     }

@@ -97,7 +97,7 @@ int hvc_render_read(hvc *client, uint64_t frame, size_t output_components, hv_re
     return reason ? fail(client, reason) : 0;
 }
 
-static const hvc_info *decoder_info(hvc *client, size_t frame, const hvc_frame_status *profile) {
+static const hvc_info *decoder_info(hvc *client, size_t frame, size_t codestream) {
     if (!client->inspect) { fail(client, "status requires decoder information"); return NULL; }
     if (!client->info) {
         size_t count = hvc_frames(client);
@@ -118,6 +118,14 @@ static const hvc_info *decoder_info(hvc *client, size_t frame, const hvc_frame_s
             (r && (result.width[r] > result.width[r-1] || result.height[r] > result.height[r-1]))) {
             fail(client, "invalid decoder dimensions"); return NULL;
         }
+    const hvc_frame *profile = NULL;
+#ifndef __wasi__
+    if (!client->local)
+#endif
+    {
+        profile = hvc_frame_get(&client->cache, codestream, client->error, sizeof client->error);
+        if (!profile) return NULL;
+    }
     if (profile) {
         /* Serving admits zero-origin, matching grids with uniform coding.
          * An inspector must not silently change request geometry. */
@@ -134,6 +142,12 @@ static const hvc_info *decoder_info(hvc *client, size_t frame, const hvc_frame_s
     return info;
 }
 
+const hvc_info *hvc_info_read(hvc *client, uint64_t frame) {
+    size_t codestream;
+    if (frame_codestream(client, frame, &codestream)) return NULL;
+    return decoder_info(client, (size_t)frame, codestream);
+}
+
 struct hvc_input {
 #ifndef __wasi__
     const hv_local *local;
@@ -142,7 +156,8 @@ struct hvc_input {
     uint8_t *bytes;
 };
 
-hvc_input *hvc_input_open(hvc *client, uint64_t frame) {
+hvc_input *hvc_input_open(hvc *client, uint64_t frame, int reduce) {
+    if (reduce < 0) { fail(client, "negative input reduction"); return NULL; }
     size_t codestream;
     if (frame_codestream(client, frame, &codestream)) return NULL;
     hvc_input *input = calloc(1, sizeof *input);
@@ -156,12 +171,9 @@ hvc_input *hvc_input_open(hvc *client, uint64_t frame) {
         goto fail;
     }
 #endif
-    input->size = hvc_reconstruct(&client->cache, codestream, NULL, 0, client->error, sizeof client->error);
+    input->size = hvc_reconstruct_alloc(&client->cache, codestream, reduce, &input->bytes,
+                                        client->error, sizeof client->error);
     if (!input->size) goto fail;
-    input->bytes = malloc(input->size);
-    if (!input->bytes) { fail(client, "out of memory"); goto fail; }
-    if (hvc_reconstruct(&client->cache, codestream, input->bytes, input->size,
-                         client->error, sizeof client->error) != input->size) goto fail;
     return input;
 fail:
     hvc_input_close(input);
@@ -285,7 +297,7 @@ int hvc_status(hvc *client, uint64_t frame, const hvc_options *options,
     }
     const uint32_t *widths = NULL, *heights = NULL;
     if (local || client->inspect) {
-        const hvc_info *info = decoder_info(client, (size_t)frame, local ? NULL : &view->source);
+        const hvc_info *info = decoder_info(client, (size_t)frame, codestream);
         if (!info) return -1;
         view->source.width = info->width[0];
         view->source.height = info->height[0];

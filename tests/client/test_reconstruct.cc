@@ -95,6 +95,10 @@ static Bytes reconstruct(const hvc_cache &cache, int stream, const std::string &
     check(hvc_reconstruct(&cache, stream, out.data(), size, error, sizeof error) == size &&
           out[size] == 0xAA, name + ": wrote other than its size");
     out.pop_back();
+    uint8_t *snapshot = nullptr;
+    check(hvc_reconstruct_alloc(&cache, stream, 0, &snapshot, error, sizeof error) == size &&
+          std::memcmp(snapshot, out.data(), size) == 0, name + ": single-pass snapshot differs");
+    free(snapshot);
     return out;
 }
 
