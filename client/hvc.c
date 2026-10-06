@@ -410,3 +410,74 @@ size_t hvc_codestream(hvc *client, uint64_t frame, uint8_t *out, size_t capacity
 #endif
     return hvc_reconstruct(&client->cache, codestream, out, capacity, client->error, sizeof client->error);
 }
+
+/* Appends a complete bin as one message of codestream 0. */
+static void export_bin(const hvc_cache *cache, int bin_class, uint64_t codestream, uint64_t id,
+                       uint8_t *out, size_t capacity, size_t *size) {
+    const hvc_bin *bin = hvc_cache_find(cache, bin_class, codestream, id);
+    if (!bin || !bin->complete) return;
+    hvc_jpp_message message = {bin_class, 0, id, 0, bin->length, 1, bin->data};
+    size_t room = *size < capacity ? capacity - *size : 0;
+    *size += hvc_jpp_write(&message, room ? out + *size : NULL, room);
+}
+
+size_t hvc_export(hvc *client, uint64_t frame, uint8_t *out, size_t capacity) {
+    size_t codestream, size = 0;
+#ifndef __wasi__
+    if (client->local) { fail(client, "JPIP operations require a remote source"); return 0; }
+#endif
+    if (frame_codestream(client, frame, &codestream)) return 0;
+    const hvc_frame *coding = hvc_frame_get(&client->cache, codestream, client->error, sizeof client->error);
+    if (!coding) return 0;
+    if (!out) capacity = 0;
+    export_bin(&client->cache, HVC_BIN_MAIN_HEADER, codestream, 0, out, capacity, &size);
+    export_bin(&client->cache, HVC_BIN_TILE_HEADER, codestream, 0, out, capacity, &size);
+    for (uint64_t id = 0; id < coding->precinct_end[coding->resolutions - 1]; id++)
+        export_bin(&client->cache, HVC_BIN_PRECINCT, codestream, id, out, capacity, &size);
+    return size;
+}
+
+/* One pass over a block: check, or apply. */
+static int import_pass(hvc *client, uint64_t codestream, const uint8_t *block, size_t size, int apply) {
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
+    uint64_t next = 0;
+    hvc_jpp_begin(&reader, block, size);
+    do {
+        if (hvc_jpp_next(&reader, &message) != HVC_JPP_MESSAGE || message.offset || !message.last_byte)
+            return fail(client, "not an exported frame");
+        /* Export order: no bin twice. */
+        uint64_t order;
+        switch (message.bin_class) {
+        case HVC_BIN_MAIN_HEADER: order = 0; break;
+        case HVC_BIN_TILE_HEADER: order = 1; break;
+        case HVC_BIN_PRECINCT: order = message.bin_id + 2; break;
+        default: return fail(client, "not an exported frame");
+        }
+        if (order < next || (order < 2 && message.bin_id))
+            return fail(client, "not an exported frame");
+        next = order + 1;
+        message.codestream = codestream;
+        if (apply) {
+            if (!hvc_cache_apply(&client->cache, &message))
+                return fail(client, hvc_cache_error(&client->cache));
+            continue;
+        }
+        const hvc_bin *bin = hvc_cache_find(&client->cache, message.bin_class, codestream, message.bin_id);
+        if (bin && (bin->length > message.length || (bin->complete && bin->length != message.length) ||
+                    (bin->length && memcmp(bin->data, message.data, bin->length))))
+            return fail(client, "exported frame differs from the cached data-bins");
+    } while (reader.position < size);
+    return 0;
+}
+
+int hvc_import(hvc *client, uint64_t frame, const uint8_t *block, size_t size) {
+    size_t codestream;
+#ifndef __wasi__
+    if (client->local) return fail(client, "JPIP operations require a remote source");
+#endif
+    if (frame_codestream(client, frame, &codestream)) return -1;
+    /* Check everything first. */
+    if (import_pass(client, codestream, block, size, 0)) return -1;
+    return import_pass(client, codestream, block, size, 1);
+}

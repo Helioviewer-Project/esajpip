@@ -526,6 +526,176 @@ static void partial_inspection(const char *path, int budget = 2000) {
     }
 }
 
+static Bytes exported(hvc *client, size_t frame) {
+    size_t size = hvc_export(client, frame, nullptr, 0);
+    check(size != 0, hvc_error(client));
+    Bytes block(size + 1, 0xA5);
+    check(hvc_export(client, frame, block.data(), size - 1) == size && block[size - 1] == 0xA5,
+          "short export buffer overrun");
+    check(hvc_export(client, frame, block.data(), size) == size && block[size] == 0xA5,
+          "export size differs");
+    block.pop_back();
+    return block;
+}
+
+// Every retained bin, to detect a changed source.
+static std::string model(hvc *client) {
+    std::string all;
+    size_t cursor = 0;
+    char text[512];
+    int length;
+    while ((length = hvc_model(client, &cursor, text, sizeof text)) > 0) all += std::string(text) + ',';
+    check(length == 0, hvc_error(client));
+    return all;
+}
+
+static Bytes block_of(std::initializer_list<hvc_jpp_message> messages) {
+    Bytes block;
+    for (const hvc_jpp_message &message : messages) {
+        size_t at = block.size();
+        block.resize(at + hvc_jpp_write(&message, nullptr, 0));
+        check(hvc_jpp_write(&message, block.data() + at, block.size() - at) == block.size() - at,
+              "written message size differs");
+    }
+    return block;
+}
+
+// Frames exported from one source and imported into another.
+static void persisted(const char *path, bool jpx) {
+    Sources sources;
+    jpip::ImageIndex image(path);
+    const jpip::Source *file = sources.GetSource(path);
+    check(file && image.Open(*file, sources, jpx), image.GetError());
+    jpip::ResponseRequest opening;
+    opening.AddStream(0, 0);
+    opening.layers = 0;
+    jpip::DataBinServer first, second, third, fourth;
+    hvc *saved = hvc_create(NULL, NULL), *loaded = hvc_create(NULL, NULL);
+    hvc *target = hvc_create(NULL, NULL), *partial = hvc_create(NULL, NULL);
+    check(saved && loaded && target && partial, "client allocation");
+    submit(saved, response(first, image, sources, opening));
+    submit(loaded, response(second, image, sources, opening));
+    submit(target, response(third, image, sources, opening));
+    submit(partial, response(fourth, image, sources, opening));
+    size_t frames = hvc_frames(saved);
+    for (size_t frame = 0; frame < frames; frame++) {
+        // Alternate whole and reduced frames.
+        hvc_options options = {static_cast<int>(frame % 2), 0, 0, 0};
+        hvc_view view, restored;
+        check(hvc_prepare(saved, frame, &options, &view) == 0, hvc_error(saved));
+        if (view.request == HVC_HEADER) {
+            check(hvc_export(saved, frame, nullptr, 0) == 0, "frame without a header exported");
+            submit(saved, response(first, image, sources, request(view)));
+            check(hvc_prepare(saved, frame, &options, &view) == 0, hvc_error(saved));
+        }
+        check(view.request == HVC_FRAME, "frame request expected");
+        submit(saved, response(first, image, sources, request(view)));
+        check(hvc_status(saved, frame, &options, &view) == 0 && view.ready, "exported frame not ready");
+        Bytes block = exported(saved, frame);
+        check(hvc_import(loaded, frame, block.data(), block.size()) == 0, hvc_error(loaded));
+        check(hvc_status(loaded, frame, &options, &restored) == 0 && restored.ready &&
+              restored.source.complete == view.source.complete &&
+              std::equal(view.source.quality, view.source.quality + 33, restored.source.quality),
+              "imported readiness differs");
+        check(reconstruct(loaded, frame) == reconstruct(saved, frame) && exported(loaded, frame) == block,
+              "imported frame differs");
+        // The server resends the imported bins.
+        options = {};
+        check(hvc_prepare(loaded, frame, &options, &restored) == 0, hvc_error(loaded));
+        check((restored.request == HVC_READY) == (view.source.complete == view.source.resolutions),
+              "request after import differs");
+        if (restored.request == HVC_FRAME) {
+            submit(loaded, response(second, image, sources, request(restored)));
+            check(hvc_status(loaded, frame, &options, &restored) == 0 && restored.ready,
+                  "imported frame not refined");
+        }
+    }
+
+    // The target holds frame 0's headers and one late precinct.
+    Bytes whole = exported(saved, 0);
+    std::vector<hvc_jpp_message> messages;
+    hvc_jpp_reader reader;
+    hvc_jpp_message message;
+    hvc_jpp_begin(&reader, whole.data(), whole.size());
+    while (reader.position < whole.size()) {
+        check(hvc_jpp_next(&reader, &message) == HVC_JPP_MESSAGE && message.codestream == 0,
+              "exported block unreadable");
+        messages.push_back(message);
+    }
+    check(messages.size() > 4, "exported block layout differs");
+    hvc_jpp_message header = messages[0], tile = messages[1], early = messages[2], late = messages.back();
+    check(header.bin_class == HVC_BIN_MAIN_HEADER && tile.bin_class == HVC_BIN_TILE_HEADER &&
+          early.bin_class == HVC_BIN_PRECINCT && late.bin_class == HVC_BIN_PRECINCT && late.length > 2,
+          "exported block layout differs");
+    auto refuses = [](hvc *client, std::initializer_list<Bytes> blocks) {
+        Bytes before = exported(client, 0);
+        std::string bins = model(client);
+        for (const Bytes &block : blocks) {
+            check(hvc_import(client, 0, block.data(), block.size()) == -1 && hvc_error(client)[0],
+                  "invalid block imported");
+            check(exported(client, 0) == before && model(client) == bins, "refused block changed the source");
+        }
+    };
+    Bytes held = block_of({header, late});
+    check(hvc_import(target, 0, held.data(), held.size()) == 0, hvc_error(target));
+    // Both headers came with the opening response.
+    check(exported(target, 0) == block_of({header, tile, late}), "partly imported frame differs");
+
+    Bytes damaged = whole, truncated(whole.begin(), whole.end() - 1), ended = whole;
+    damaged[static_cast<size_t>(late.data - whole.data())] ^= 1;
+    ended.insert(ended.end(), {0, HVC_EOR_WINDOW_DONE, 0});
+    Bytes grown(late.data, late.data + late.length);
+    grown.push_back(0);
+    // Most faults follow a precinct the target lacks.
+    hvc_jpp_message metadata = {HVC_BIN_META_DATA, 0, late.bin_id + 1, 0, 0, 1, nullptr};
+    hvc_jpp_message numbered = header, unfinished = messages[3], offset = messages[3], longer = late;
+    numbered.bin_id = 1;
+    unfinished.last_byte = 0;
+    offset.offset = 1;
+    longer.data = grown.data();
+    longer.length = grown.size();
+    refuses(target, {damaged, truncated, ended, Bytes(), block_of({numbered}),
+                     block_of({early, metadata}), block_of({early, unfinished}),
+                     block_of({early, offset}), block_of({early, longer}), block_of({early, early}),
+                     block_of({late, late}), block_of({late, header})});
+    check(hvc_import(target, frames, whole.data(), whole.size()) == -1, "invalid frame imported");
+    check(hvc_import(target, 0, whole.data(), whole.size()) == 0, hvc_error(target));
+    check(reconstruct(target, 0) == reconstruct(saved, 0), "completed frame differs");
+
+    // An unfinished bin: not exported, completed only by matching bytes.
+    hvc_view view;
+    check(hvc_status(partial, 0, nullptr, &view) == 0, hvc_error(partial));
+    hvc_jpp_message begun = late, shorter = late, different = late;
+    begun.codestream = view.codestream;
+    begun.length = late.length - 1;
+    begun.last_byte = 0;
+    Bytes delivery = block_of({begun});
+    delivery.insert(delivery.end(), {0, HVC_EOR_BYTE_LIMIT_REACHED, 0});
+    check(hvc_response(partial, delivery.data(), delivery.size()) == HVC_EOR_BYTE_LIMIT_REACHED,
+          hvc_error(partial));
+    check(exported(partial, 0) == block_of({header, tile}), "unfinished bin exported");
+    shorter.length = late.length - 2;
+    grown.pop_back();
+    grown[0] ^= 1;
+    different.data = grown.data();
+    refuses(partial, {block_of({early, shorter}), block_of({early, different})});
+    check(hvc_import(partial, 0, whole.data(), whole.size()) == 0, hvc_error(partial));
+    check(reconstruct(partial, 0) == reconstruct(saved, 0), "completed bin differs");
+
+    char error[256];
+    hvc *local = hvc_open_local(path, NULL, NULL, error, sizeof error);
+    check(local != nullptr, error);
+    check(hvc_export(local, 0, nullptr, 0) == 0 && std::strstr(hvc_error(local), "remote source"),
+          "local source exported data-bins");
+    check(hvc_import(local, 0, whole.data(), whole.size()) == -1 &&
+          std::strstr(hvc_error(local), "remote source"), "local source imported data-bins");
+    hvc_destroy(local);
+    hvc_destroy(saved);
+    hvc_destroy(loaded);
+    hvc_destroy(target);
+    hvc_destroy(partial);
+}
+
 static void write_responses(const std::string &folder) {
     Sources sources;
     jpip::ImageIndex image(IMAGE);
@@ -572,6 +742,8 @@ int main(int argc, char **argv) {
     }
     verify(IMAGE, false);
     verify(MOVIE, true);
+    persisted(IMAGE, false);
+    persisted(MOVIE, true);
     cross_source();
     inspection_retry();
     partial_inspection(IMAGE);

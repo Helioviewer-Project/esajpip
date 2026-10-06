@@ -1,6 +1,7 @@
 /* hvc_jpp.c: see hvc_jpp.h. */
 #include "hvc_jpp.h"
 
+#include <string.h>
 
 /* T.808 D.3 bounds a Bin-ID at 37 bits, and the header form reserves the top
  * two bits of the first byte for the presence field. Both limits are checked
@@ -184,4 +185,39 @@ int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
     /* Remember the pair the next message may inherit. */
     reader->have_previous = 1;
     return HVC_JPP_MESSAGE;
+}
+
+/* Writes one VBAS integer and returns its length. */
+static size_t WriteVbas(uint8_t *out, uint64_t value) {
+    size_t length = 1, index;
+    while (length < 10 && (value >> (7 * length)) != 0) length++;
+    for (index = 0; index < length; index++)
+        out[index] = (uint8_t) (((value >> (7 * (length - 1 - index))) & 0x7F) |
+                                (index + 1 < length ? 0x80 : 0));
+    return length;
+}
+
+size_t hvc_jpp_write(const hvc_jpp_message *message, uint8_t *out, size_t capacity) {
+    /* 1 + 5 Bin-ID bytes, 4 integers of up to 10. */
+    uint8_t header[46];
+    size_t size = 1;
+    unsigned shift = 0;
+
+    while ((message->bin_id >> (shift + 4)) != 0) shift += 7;
+    /* Presence 3: class and CSn explicit. */
+    header[0] = (uint8_t) (0x60 | (message->last_byte ? 0x10 : 0) | (shift != 0 ? 0x80 : 0) |
+                           ((message->bin_id >> shift) & 15));
+    while (shift != 0) {
+        shift -= 7;
+        header[size++] = (uint8_t) (((message->bin_id >> shift) & 0x7F) | (shift != 0 ? 0x80 : 0));
+    }
+    size += WriteVbas(header + size, (uint64_t) message->bin_class);
+    size += WriteVbas(header + size, message->codestream);
+    size += WriteVbas(header + size, message->offset);
+    size += WriteVbas(header + size, message->length);
+    if (out != NULL && size <= capacity && message->length <= capacity - size) {
+        memcpy(out, header, size);
+        if (message->length != 0) memcpy(out + size, message->data, (size_t) message->length);
+    }
+    return size + (size_t) message->length;
 }

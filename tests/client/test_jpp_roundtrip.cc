@@ -284,7 +284,45 @@ static void TestIntegerBoundaries() {
     }
 }
 
+// The client's writer at Bin-ID and integer boundaries; nothing inherited.
+static void TestClientWriter() {
+    const uint64_t ids[] = {0, 15, 16, 2047, 2048, (UINT64_C(1) << 18) - 1, UINT64_C(1) << 18,
+                            (UINT64_C(1) << 25) - 1, UINT64_C(1) << 25, (UINT64_C(1) << 32) - 1,
+                            UINT64_C(1) << 32, (UINT64_C(1) << 37) - 1};
+    const uint64_t values[] = {0, 127, 128, UINT64_C(1) << 63, UINT64_MAX};
+    const int classes[] = {HVC_BIN_PRECINCT, HVC_BIN_TILE_HEADER, HVC_BIN_MAIN_HEADER, HVC_BIN_META_DATA};
+    const uint8_t payload[] = {1, 2, 3};
+    for (uint64_t id : ids)
+        for (uint64_t value : values)
+            for (int cls : classes)
+                for (int last = 0; last < 2; last++) {
+                    hvc_jpp_message boundary = {cls, value, id, value, 0, last, nullptr};
+                    hvc_jpp_message filled = {HVC_BIN_PRECINCT, 0, 0, 0, sizeof payload, 1, payload};
+                    uint8_t buffer[128];
+                    std::memset(buffer, 0xA5, sizeof buffer);
+                    size_t first = hvc_jpp_write(&boundary, nullptr, 0);
+                    Check(hvc_jpp_write(&boundary, buffer, first - 1) == first && buffer[0] == 0xA5,
+                          "client writer leaves a short buffer alone");
+                    Check(hvc_jpp_write(&boundary, buffer, first) == first && buffer[first] == 0xA5,
+                          "client writer size is stable");
+                    size_t size = first + hvc_jpp_write(&filled, buffer + first, sizeof buffer - first);
+                    hvc_jpp_reader reader;
+                    hvc_jpp_message message;
+                    hvc_jpp_begin(&reader, buffer, size);
+                    Check(hvc_jpp_next(&reader, &message) == HVC_JPP_MESSAGE && message.bin_class == cls &&
+                          message.codestream == value && message.bin_id == id && message.offset == value &&
+                          message.length == 0 && !message.last_byte == !last,
+                          "client writer boundary round trips");
+                    Check(hvc_jpp_next(&reader, &message) == HVC_JPP_MESSAGE &&
+                          message.bin_class == HVC_BIN_PRECINCT && message.codestream == 0 &&
+                          message.bin_id == 0 && message.offset == 0 && message.length == sizeof payload &&
+                          message.last_byte && std::memcmp(message.data, payload, sizeof payload) == 0 &&
+                          reader.position == size, "client writer payload round trips");
+                }
+}
+
 int main(void) {
+    TestClientWriter();
     TestIntegerBoundaries();
     TestHeadersAndMetadata();
     TestPrecinctFragments();

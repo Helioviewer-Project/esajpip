@@ -502,6 +502,18 @@ bytes valid until destruction; `hvc_palette` copies into a host buffer.
 `hvc_codestream` preserves sample precision and follows the same size-query and
 caller-buffer convention as `hvc_reconstruct`.
 
+For a disk cache, `hvc_export` writes one frame's main header and complete
+data-bins under the same convention, and `hvc_import` adds such a block to a
+frame of any JPIP source showing the same image, whatever its position there.
+The block is a sequence of JPP messages without an end-of-response message.
+Unfinished bins are left out, so export after a completed response. After
+import, `hvc_status` reports what is ready; a server that sends those bins
+again is accepted as an identical replay. A malformed block, or one differing
+from bytes the source already holds for that frame, is refused without changing
+the source: drop that cache entry and request the frame. A block imported into
+a frame with no bytes held cannot be checked. The host's key must identify the
+image, and a later response that conflicts with it is refused as described above.
+
 ### Requests
 
 One channel per image, one request at a time on it.
@@ -726,11 +738,11 @@ checks below.
 | Test | What it checks |
 | --- | --- |
 | `client_cache` | The store: appending, identical overlap/replay, conflict and final-size refusals, completion, many bins and cache-model batching |
-| `client_jpp` | Messages written by the server's own writer, read back |
+| `client_jpp` | Messages written by the server's own writer and by the client's, read back |
 | `client_jpp_malformed` | Damaged messages, all refused |
 | `client_reconstruct` | Every codestream of the corpus, the transcoder's reference images and the merger's reference movie, served by the server's own code at each resolution: the written codestream, the cached levels, the decoded pixels, and the movie's frame count, XML and color tables |
 | `client_image` | Sample scaling at several precisions, and unchanged color table indices |
-| `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality |
+| `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality; frames exported and imported between sources, their replay by the server, and refused blocks leaving the source unchanged |
 | `client_converter` | Refusal of incomplete/header-only/unconfirmed quality input without overwriting output; completed continuation, reduced windows and replay |
 
 The JavaScript is checked by a script that needs Node.js, the built module and

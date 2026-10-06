@@ -1,4 +1,4 @@
-/* hvc_jpp.h: JPP-stream message reading (T.808 A.2 and D.3).
+/* hvc_jpp.h: JPP-stream message reading and writing (T.808 A.2 and D.3).
  *
  * A JPP stream is a sequence of messages. Each message delivers a byte range
  * of one data-bin, and a response ends with one end-of-response message. This
@@ -91,6 +91,10 @@ const char *hvc_jpp_error(const hvc_jpp_reader *reader);
  * window done and the limit reasons leave the channel usable; a session limit
  * or a window change does not continue this window. */
 int hvc_jpp_reason_continues(int reason);
+
+/* Writes one message with explicit class and CSn; Bin-ID within 37 bits.
+ * Returns its size, written only when capacity holds it. */
+size_t hvc_jpp_write(const hvc_jpp_message *message, uint8_t *out, size_t capacity);
 
 #ifdef __cplusplus
 }
