@@ -26,7 +26,6 @@ add_library(esajpip_server STATIC
     http/request_head.cc
     server.cc
     trace.cc)
-esajpip_configure_target(esajpip_server)
 target_include_directories(esajpip_server PUBLIC ${PROJECT_SOURCE_DIR})
 target_link_libraries(esajpip_server PUBLIC
     jpip
@@ -37,7 +36,6 @@ target_link_libraries(esajpip_server PUBLIC
     Threads::Threads)
 
 add_executable(esajpip main.cc)
-esajpip_configure_target(esajpip)
 target_link_libraries(esajpip PRIVATE esajpip_server)
 # Keep the executable beside the configured server.ini in the build root.
 set_target_properties(esajpip PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${PROJECT_BINARY_DIR})

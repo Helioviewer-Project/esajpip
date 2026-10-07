@@ -2,7 +2,6 @@
 # library in ../jpeg2000.
 
 add_executable(hv_merge hv_merge.c merge.c)
-esajpip_configure_target(hv_merge)
 target_sources(hv_merge PRIVATE ${PROJECT_SOURCE_DIR}/tools/hv_file.c)
 target_link_libraries(hv_merge PRIVATE jpeg2000)
 

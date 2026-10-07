@@ -1,6 +1,5 @@
 # The deterministic driver: no libFuzzer, so it builds in any configuration.
 add_executable(replay replay.c ${ESAJPIP_FUZZ_SOURCES} ${ESAJPIP_JPIP_FUZZ_SOURCES} ${ESAJPIP_CLIENT_FUZZ_SOURCES})
-esajpip_configure_target(replay)
 target_include_directories(replay PRIVATE ${ESAJPIP_FUZZ_INCLUDES})
 target_compile_definitions(replay PRIVATE ESAJPIP_FUZZ_REPLAY)
 target_link_libraries(replay PRIVATE jpip esajpip_client_wasm)

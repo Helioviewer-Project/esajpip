@@ -3,7 +3,6 @@ add_custom_target(server_tests)
 
 function(server_add_test target name group source)
     add_executable(${target} ${source})
-    esajpip_configure_target(${target})
     target_link_libraries(${target} PRIVATE esajpip_server)
     if(group STREQUAL "live")
         set(timeout 90)
@@ -19,7 +18,6 @@ function(server_add_test target name group source)
 endfunction()
 
 add_executable(logging_test logging_test.cc ${PROJECT_SOURCE_DIR}/server/trace.cc)
-esajpip_configure_target(logging_test)
 target_compile_definitions(logging_test PRIVATE
     ESAJPIP_LOG_LIMIT=1024
     ESAJPIP_LOG_QUEUE_LIMIT=4096)

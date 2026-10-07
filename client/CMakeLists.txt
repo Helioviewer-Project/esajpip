@@ -13,19 +13,13 @@ set(esajpip_client_wasm_srcs
     ${esajpip_client_srcs} hvc_openjpeg.c hvc_wasm.c ${openjpeg_srcs})
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
-    # The reader and generated headers needed by reconstruction.
-    set(jpeg2000_srcs
-        hv_reader.c hv_rules.c hv_mapping.c hv_error.c hv_metadata.c hv_render.c
-        generated/asn1crt.c generated/asn1crt_encoding.c generated/asn1crt_encoding_acn.c
-        generated/asn1crt_encoding_uper.c generated/j2k-headers.c generated/j2k-codestream.c
-        generated/jp2-boxes.c generated/jpeg2000-io.c)
-    list(TRANSFORM jpeg2000_srcs PREPEND ${PROJECT_SOURCE_DIR}/jpeg2000/)
     # WASI libc's allocator avoids Zig's power-of-two block rounding.
-    add_executable(esajpip_client_wasm ${esajpip_client_wasm_srcs} ${jpeg2000_srcs}
-        vendor/dlmalloc/dlmalloc.c)
+    add_executable(esajpip_client_wasm ${esajpip_client_wasm_srcs} vendor/dlmalloc/dlmalloc.c)
+    target_link_libraries(esajpip_client_wasm PRIVATE jpeg2000)
     set_source_files_properties(vendor/dlmalloc/dlmalloc.c PROPERTIES COMPILE_OPTIONS -w)
     option(ESAJPIP_WASM_SIMD "Require WebAssembly SIMD for the client decoder" OFF)
     if(ESAJPIP_WASM_SIMD)
+        target_compile_options(jpeg2000 PRIVATE -msimd128)
         target_compile_options(esajpip_client_wasm PRIVATE -msimd128)
         target_link_options(esajpip_client_wasm PRIVATE -msimd128)
     endif()
@@ -42,7 +36,6 @@ if(CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
     endforeach()
 else()
     add_library(esajpip_client STATIC ${esajpip_client_srcs})
-    esajpip_configure_target(esajpip_client)
     target_include_directories(esajpip_client PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(esajpip_client PUBLIC jpeg2000 PRIVATE m)
 
@@ -50,13 +43,12 @@ else()
     add_library(esajpip_client_wasm STATIC EXCLUDE_FROM_ALL ${esajpip_client_wasm_srcs})
     target_link_libraries(esajpip_client_wasm PUBLIC jpeg2000 PRIVATE m)
 
-    add_executable(hvc_jpp2j2k hvc_jpp2j2k.c ${PROJECT_SOURCE_DIR}/tools/hv_file.c)
-    esajpip_configure_target(hvc_jpp2j2k)
-    target_link_libraries(hvc_jpp2j2k PRIVATE esajpip_client)
+    if(NOT ESAJPIP_CLIENT_ONLY)
+        add_executable(hvc_jpp2j2k hvc_jpp2j2k.c ${PROJECT_SOURCE_DIR}/tools/hv_file.c)
+        target_link_libraries(hvc_jpp2j2k PRIVATE esajpip_client)
+    endif()
 endif()
 
-esajpip_configure_target(esajpip_client_wasm)
-target_include_directories(esajpip_client_wasm PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR} ${PROJECT_SOURCE_DIR} ${PROJECT_SOURCE_DIR}/jpeg2000/generated)
+target_include_directories(esajpip_client_wasm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(esajpip_client_wasm SYSTEM PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/openjpeg)

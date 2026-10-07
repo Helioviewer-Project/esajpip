@@ -446,6 +446,18 @@ body to the library. It reconstructs codestreams for the host decoder and
 does not depend on OpenJPEG. Native decoding tests link `esajpip_client_wasm`,
 which compiles the extended source list also used by the WASM module.
 
+To build the native client without server dependencies:
+
+```sh
+cmake -S . -B build-client -DESAJPIP_CLIENT_ONLY=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build build-client --target esajpip_client --parallel
+```
+
+Run these commands from the repository root. This configuration skips the
+server, CLI tools and served-profile filesystem checks; it requires no pkg-config, GLib, llhttp or zlib. Set
+`-DCMAKE_POSITION_INDEPENDENT_CODE=ON` when linking the static libraries into
+a shared library.
+
 ### Source API
 
 Use `hvc.h` for one source; it exposes no cache or reconstruction implementation

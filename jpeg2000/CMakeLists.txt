@@ -22,22 +22,24 @@ add_library(jpeg2000 STATIC
     hv_reader.c
     hv_render.c
     hv_metadata.c
-    hv_local.c
     hv_rules.c
-    hv_writer.c
-    hv_rewrite.c
-    hv_geometry.c
     hv_mapping.c
     hv_error.c
-    hv_served.c
     ${jpeg2000_generated})
-esajpip_configure_target(jpeg2000)
 target_include_directories(jpeg2000 PUBLIC
     ${PROJECT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/generated)
 
-# hv_walk: checks JPEG 2000 files with the reader, and with -w rewrites them
-# with the writer.
-add_executable(hv_walk hv_walk.c)
-esajpip_configure_target(hv_walk)
-target_link_libraries(hv_walk PRIVATE jpeg2000)
+# WASM uses the in-memory reader; native callers also read files and write JP2/JPX.
+if(CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
+    return()
+endif()
+target_sources(jpeg2000 PRIVATE hv_local.c hv_writer.c hv_rewrite.c hv_geometry.c)
+
+# Filesystem checks of the served profile and its CLI are not client code.
+if(NOT ESAJPIP_CLIENT_ONLY)
+    target_sources(jpeg2000 PRIVATE hv_served.c)
+    # hv_walk checks files with the reader and rewrites them with -w.
+    add_executable(hv_walk hv_walk.c)
+    target_link_libraries(hv_walk PRIVATE jpeg2000)
+endif()

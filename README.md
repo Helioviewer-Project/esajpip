@@ -28,7 +28,7 @@ These terms recur here and in the other documents.
 
 ## Build and install
 
-The build requires C11 and C++11 compilers, CMake 3.20 or newer, pkg-config,
+The full build requires C11 and C++11 compilers, CMake 3.20 or newer, pkg-config,
 GLib, llhttp, zlib, and POSIX threads. The Asio networking library is included in the source
 tree under `server/vendor/asio`, so no system copy is used. Debian 13 is the
 minimum supported Debian release; install the packages there with:
@@ -37,6 +37,10 @@ minimum supported Debian release; install the packages there with:
 sudo apt-get install \
     build-essential cmake pkg-config libglib2.0-dev libllhttp-dev zlib1g-dev
 ```
+
+For the [native C client](client/README.md#c), configure with
+`-DESAJPIP_CLIENT_ONLY=ON`. This skips the server, CLI tools and tests, so pkg-config,
+GLib, llhttp and zlib are not required.
 
 Build outside the source tree. This example installs the server under
 `$HOME/esajpip` and writes the chosen image and log directories into the

@@ -15,7 +15,9 @@ extern "C" {
  * terminated; nothing when size is 0), and returns -1, so that a caller
  * can write `return hv_fail(error, size, ...);`. */
 int hv_fail(char *error, size_t size, const char *format, ...)
-#if defined(__GNUC__)
+#if defined(__MINGW32__)
+    __attribute__((format(gnu_printf, 3, 4)))
+#elif defined(__GNUC__)
     __attribute__((format(printf, 3, 4)))
 #endif
     ;

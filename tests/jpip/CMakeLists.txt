@@ -4,7 +4,6 @@ add_custom_target(jpip_tests)
 
 function(jpip_add_test target name group source)
     add_executable(${target} ${source})
-    esajpip_configure_target(${target})
     target_link_libraries(${target} PRIVATE jpip)
     esajpip_add_test(${name} COMMAND ${target} LABELS tools jpip jpip_${group} TIMEOUT 30)
     add_dependencies(jpip_tests ${target})

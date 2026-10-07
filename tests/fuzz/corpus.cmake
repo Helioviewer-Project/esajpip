@@ -40,7 +40,6 @@ configure_file(${CMAKE_CURRENT_BINARY_DIR}/asn1_pdus.h.new
 
 # Generate real responses independently of the Python format/vector corpus.
 add_executable(client_fuzz_seeds client_seeds.cc)
-esajpip_configure_target(client_fuzz_seeds)
 esajpip_client_response_fixtures(client_fuzz_seeds)
 target_link_libraries(client_fuzz_seeds PRIVATE esajpip_client jpip)
 add_custom_command(

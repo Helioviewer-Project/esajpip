@@ -34,7 +34,6 @@ target_link_options(jpip INTERFACE -fsanitize=fuzzer-no-link)
 # esajpip_fuzz_target(<name> <corpus> <sources...>): the shared part of a target.
 function(esajpip_fuzz_target name corpus)
     add_executable(${name} ${ARGN})
-    esajpip_configure_target(${name})
     target_include_directories(${name} PRIVATE ${ESAJPIP_FUZZ_INCLUDES})
     target_compile_options(${name} PRIVATE -fsanitize=fuzzer)
     target_compile_options(${name} PRIVATE -fno-sanitize-recover=all)

@@ -15,7 +15,6 @@ add_custom_target(client_tests)
 function(client_add_test target name)
     cmake_parse_arguments(ARG "" "TIMEOUT" "SOURCES;LIBRARIES" ${ARGN})
     add_executable(${target} ${ARG_SOURCES})
-    esajpip_configure_target(${target})
     target_link_libraries(${target} PRIVATE esajpip_client_wasm ${ARG_LIBRARIES})
     if(ARG_TIMEOUT)
         esajpip_add_test(${name} COMMAND ${target} LABELS client TIMEOUT ${ARG_TIMEOUT})
@@ -46,7 +45,6 @@ target_compile_definitions(test_client_source PRIVATE
 
 # Local source access and selection require no built-in decoder.
 add_executable(test_client_local test_local_source.c)
-esajpip_configure_target(test_client_local)
 target_link_libraries(test_client_local PRIVATE esajpip_client)
 esajpip_add_test(client_local COMMAND test_client_local LABELS client)
 add_dependencies(client_tests test_client_local)
