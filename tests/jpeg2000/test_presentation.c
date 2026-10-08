@@ -459,6 +459,19 @@ static void render_channels(void) {
           render.channel[1].palette_column==0 && render.channel[2].component==0 &&
           render.channel[2].palette_column==-1 && render.palette.entry_count==2,
           "mixed direct and reordered palette channels; unused mapping ignored");
+    b=render_file(1);h=start(&b,HV_BOX_JPCH);
+    const uint8_t mixed_palette[]={0,2,3,3,15,0x87, 0x0f,0xab,0xcd,0x80, 0x05,0x12,0x34,0x7f};
+    const uint8_t palette_mapping[]={0,0,1,2,0,0,1,0,0,0,1,1};
+    body_box(&b,HV_BOX_PCLR,mixed_palette,sizeof mixed_palette);
+    body_box(&b,HV_BOX_CMAP,palette_mapping,sizeof palette_mapping);end(&b,h);
+    render_result(&b,1,&render,NULL);
+    uint8_t colors[9], expected[]={0,255,0xac,255,85,0x12,255,85,0x12};
+    memset(colors,0xee,sizeof colors);
+    check(!hv_render_palette(&render,2,NULL,0),"palette validates without an output buffer");
+    check(hv_render_palette(&render,2,colors,5) && colors[0]==0xee && colors[5]==0xee,
+          "undersized rendered palette remains untouched");
+    check(!hv_render_palette(&render,3,colors,sizeof colors) && !memcmp(colors,expected,sizeof colors),
+          "mixed depths, signed samples, reordered columns and repeated final palette entry");
     b=render_file(1);h=start(&b,HV_BOX_JPLH);body_box(&b,HV_BOX_OPCT,(const uint8_t[]){0},1);end(&b,h);
     render_result(&b,3,&render,"unsupported opacity");
     b=render_file(1);h=start(&b,HV_BOX_JPLH);

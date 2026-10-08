@@ -153,17 +153,19 @@ static int read_codestream(transcode *t, size_t start, size_t end, int ppx, int 
     int status = hv_codestream_open(&t->cs, t->buf, start, end,
                                     profile == HV_OUTPUT_JPIP ? HV_READ_PACKETS_JPIP : HV_READ_PACKETS);
 
+    if (status != 0)
+        return hv_fail(t->error, t->error_size, "%s at %zu", t->cs.error, t->cs.error_at);
+
     /* General output retains the declaration; only the serving target permits
      * declarations whose profile requirements are not implemented here. */
-    if (status == 0 && profile == HV_OUTPUT_JPEG2000) {
+    if (profile == HV_OUTPUT_JPEG2000) {
         const char *rule = hv_rule_rsiz(hv_codestream_siz(&t->cs)->fixed->rsiz);
         if (rule != NULL)
             return hv_fail(t->error, t->error_size, "%s at %zu", rule, start + 2);
     }
-    if (status == 0 && hv_write_marker(out, HV_SOC) != 0)
+    if (hv_write_marker(out, HV_SOC) != 0)
         return write_failed(t, out);
-    while (status == 0 && (status = hv_codestream_next(&t->cs, &item)) == 1) {
-        status = 0;
+    while (hv_codestream_next(&t->cs, &item) == 1) {
         switch (item.kind) {
         case HV_SEGMENT:
             if (item.code == HV_COD) {

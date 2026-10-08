@@ -205,7 +205,7 @@ int main(void) {
     client=hvc_open_local(MOVIE,inspect,&state,error,sizeof error); check(client!=NULL,error);
     check(hvc_frames(client)==8,"local movie layer count");
     for (size_t frame=0;frame<8;frame++) {
-        const uint8_t *xml=NULL; size_t size=0; int channels; uint8_t palette[HV_PALETTE_MAX];
+        const uint8_t *xml=NULL; size_t size=0; int channels; uint8_t palette[HVC_PALETTE_MAX];
         check(hvc_xml(client,frame,&xml,&size)==0 && xml && size,"local movie XML");
         check(hvc_palette(client,frame,&channels,palette,sizeof palette)>=0,"local movie palette");
         check(hvc_codestream(client,frame,NULL,0)>0,"local movie bytes");

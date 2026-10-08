@@ -69,9 +69,6 @@ int hv_local_xml(hv_local *source, size_t codestream, const uint8_t **xml,
  * with the shared hv_metadata_layer_xml contract. Layer indices are independent. */
 int hv_local_layer_xml(hv_local *source, size_t layer, const uint8_t **xml,
                        size_t *size, char *error, size_t error_size);
-/* Same palette/capacity contract as hv_metadata_palette in hv_metadata.h. */
-int hv_local_palette(hv_local *source, size_t codestream, int *channels,
-                     uint8_t *table, size_t capacity, char *error, size_t error_size);
 #ifdef __cplusplus
 }
 #endif

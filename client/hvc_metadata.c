@@ -33,32 +33,6 @@ static const hvc_bin *metadata_bin(const hvc_cache *cache, uint64_t id, char *er
     return bin;
 }
 
-static uint64_t codestreams(const hvc_cache *cache, size_t *layers, char *error, size_t error_size) {
-    const hvc_bin *bin = metadata_bin(cache, 0, error, error_size);
-    uint64_t count = 0;
-    hv_boxes boxes;
-    hv_box box;
-    int status;
-    const char *reason;
-    size_t at;
-
-    if (bin == NULL)
-        return 0;
-    hv_boxes_file(&boxes, bin->data, bin->length);
-    *layers = 0;
-    while ((status = hv_boxes_next(&boxes, &box, &reason, &at)) == 1) {
-        if (box.type == HV_BOX_JPLH) (*layers)++;
-        if (box.type == PHLD && box.end - box.payload >= 4 &&
-            (big_endian(bin->data + box.payload, 4) & PHLD_CODESTREAM))
-            count++;
-    }
-    if (!*layers) *layers = (size_t)count;
-    if (status < 0) hv_fail(error, error_size, "metadata: %s", reason);
-    if (status == 0 && count == 0)
-        hv_fail(error, error_size, "metadata: no codestream");
-    return status < 0 ? 0 : count;
-}
-
 static int resolve_box(const void *context, uint32_t *type, const uint8_t **payload,
                        size_t *length, char *error, size_t error_size) {
     if (*type != PHLD) return 1;
@@ -76,15 +50,12 @@ static int resolve_box(const void *context, uint32_t *type, const uint8_t **payl
     return 1;
 }
 
-int hvc_metadata_open(const hvc_cache *cache, hv_metadata *metadata, char *error, size_t error_size) {
-    size_t layers;
-    uint64_t codestream_count = codestreams(cache, &layers, error, error_size);
-    const hvc_bin *bin;
+int hvc_metadata_open(const hvc_cache *cache, const hv_presentation *presentation,
+                      hv_metadata *metadata, char *error, size_t error_size) {
     *metadata = (hv_metadata){0};
-    if (codestream_count == 0) return -1;
-    if (codestream_count > SIZE_MAX) return hv_fail(error, error_size, "metadata: too many codestreams");
-    bin = metadata_bin(cache, 0, error, error_size);
-    return hv_metadata_read(bin->data, bin->length, (size_t)codestream_count, layers,
+    const hvc_bin *bin = metadata_bin(cache, 0, error, error_size);
+    if (!bin) return -1;
+    return hv_metadata_read(bin->data, bin->length, presentation->codestreams, presentation->layers,
                             resolve_box, cache, metadata, error, error_size);
 }
 

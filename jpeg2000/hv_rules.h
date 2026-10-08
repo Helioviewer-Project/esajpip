@@ -293,10 +293,6 @@ const char *hv_segments_data(hv_segments *s, const uint8_t *data, size_t n, unsi
 /* At EOC. */
 const char *hv_segments_end(hv_segments *s);
 
-/* Whether the packets of the current tile-part have packed headers (PPM,
- * or PPT in its tile), which the packet-count rule leaves out. */
-int hv_segments_packed(const hv_segments *s);
-
 /* The value of the PLT or PLM entry at body + *pos, before end, and *pos
  * past it: NULL; "decode" when it is not an entry, or plt.value-overflow.
  * The standard layer takes any number of leading zero groups (0x80, Table

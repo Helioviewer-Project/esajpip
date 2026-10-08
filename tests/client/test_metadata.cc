@@ -33,12 +33,13 @@ static Bytes placeholder(uint8_t id, const char *type) {
 struct Fixture {
     hvc_cache cache;
     hv_metadata metadata = {};
+    hv_presentation presentation = {};
     char error[256] = "";
     Fixture(const Bytes &root, size_t codestream_count = 4) {
         hvc_cache_begin(&cache);
-        Bytes bytes;
-        for (size_t i = 0; i < codestream_count; i++) bytes = bytes + box("phld", {0, 0, 0, 4});
-        add(0, bytes + root);
+        presentation.codestreams = codestream_count;
+        presentation.layers = codestream_count;
+        add(0, root);
     }
     ~Fixture() { hv_metadata_close(&metadata); hvc_cache_release(&cache); }
     void add(uint8_t id, const Bytes &bytes, bool complete = true) {
@@ -48,17 +49,18 @@ struct Fixture {
         check(hvc_cache_apply(&cache, &message), hvc_cache_error(&cache));
     }
     void expect(const std::string &expected) {
-        check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
+        check(hvc_metadata_open(&cache, &presentation, &metadata, error, sizeof error) == 0, error);
         check(metadata.codestream_count == expected.size(), "frame count");
         for (size_t i = 0; i < expected.size(); i++) {
             const uint8_t *data = NULL; size_t size = 0;
-            check(hv_metadata_xml(&metadata, i, &data, &size, error, sizeof error) == 0, error);
+            hv_registration registration = {NULL, 1, i, 1, 1};
+            check(hv_metadata_layer_xml(&metadata, i, &registration, &data, &size, error, sizeof error) == 0, error);
             check(expected[i] == '-' ? data == NULL : data != NULL && size == 1 && data[0] == expected[i],
                   "XML of frame " + std::to_string(i) + " expected " + expected[i]);
         }
     }
     void reject(const std::string &reason) {
-        check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == -1 &&
+        check(hvc_metadata_open(&cache, &presentation, &metadata, error, sizeof error) == -1 &&
               std::string(error).find(reason) != std::string::npos, "expected " + reason + ": " + error);
         check(metadata.frames == NULL && metadata.codestream_count == 0, "failure retained index");
     }

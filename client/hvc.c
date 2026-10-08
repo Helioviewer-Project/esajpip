@@ -127,15 +127,12 @@ static const hvc_info *decoder_info(hvc *client, size_t frame, size_t codestream
             (r && (result.width[r] > result.width[r-1] || result.height[r] > result.height[r-1]))) {
             fail(client, "invalid decoder dimensions"); return NULL;
         }
-    const hvc_frame *profile = NULL;
 #ifndef __wasi__
     if (!client->local)
 #endif
     {
-        profile = hvc_frame_get(&client->cache, codestream, client->error, sizeof client->error);
+        const hvc_frame *profile = hvc_frame_get(&client->cache, codestream, client->error, sizeof client->error);
         if (!profile) return NULL;
-    }
-    if (profile) {
         /* Serving admits zero-origin, matching grids with uniform coding.
          * An inspector must not silently change request geometry. */
         if (result.resolutions != profile->resolutions || result.layers != profile->layers) {
@@ -174,19 +171,16 @@ hvc_input *hvc_input_open(hvc *client, uint64_t frame, int reduce) {
 #ifndef __wasi__
     if (client->local) {
         input->local = hv_local_input_open(client->local, codestream, client->error, sizeof client->error);
-        if (!input->local) goto fail;
-        input->size = hv_local_copy(client->local, codestream, NULL, 0, client->error, sizeof client->error);
-        if (input->size) return input;
-        goto fail;
-    }
+        if (input->local)
+            input->size = hv_local_copy(client->local, codestream, NULL, 0, client->error, sizeof client->error);
+    } else
 #endif
-    input->size = hvc_reconstruct_alloc(&client->cache, codestream, reduce, &input->bytes,
-                                        client->error, sizeof client->error);
-    if (!input->size) goto fail;
+    {
+        input->size = hvc_reconstruct_alloc(&client->cache, codestream, reduce, &input->bytes,
+                                            client->error, sizeof client->error);
+    }
+    if (!input->size) { hvc_input_close(input); return NULL; }
     return input;
-fail:
-    hvc_input_close(input);
-    return NULL;
 }
 
 void hvc_input_close(hvc_input *input) {
@@ -232,8 +226,21 @@ void hvc_destroy(hvc *client) {
 
 const char *hvc_error(const hvc *client) { return client->error; }
 
-static int ingest(hvc *client, const uint8_t *body, size_t size, int restoring,
-                   hvc_delivery *delivery, int *progress) {
+static int completed(int reason) {
+    return reason == HVC_EOR_WINDOW_DONE || reason == HVC_EOR_IMAGE_DONE;
+}
+
+static int response(hvc *client, const uint8_t *body, size_t size,
+                     uint64_t window, int restoring, int *progress) {
+    if (progress) *progress = 0;
+#ifndef __wasi__
+    if (client->local) return fail(client, "JPIP operations require a remote source");
+#endif
+    hvc_delivery *delivery = NULL;
+    if (progress) {
+        delivery = hvc_delivery_window(&client->delivery, window);
+        if (!delivery) return fail(client, "out of memory tracking response delivery");
+    }
     hvc_jpp_reader reader;
     hvc_jpp_message message;
     int status;
@@ -251,40 +258,30 @@ static int ingest(hvc *client, const uint8_t *body, size_t size, int restoring,
         }
     }
     if (status == HVC_JPP_ERROR) return fail(client, hvc_jpp_error(&reader));
-    return hvc_jpp_reason(&reader);
-}
-
-static int completed(int reason) {
-    return reason == HVC_EOR_WINDOW_DONE || reason == HVC_EOR_IMAGE_DONE;
-}
-
-static int response(hvc *client, const uint8_t *body, size_t size,
-                     hvc_delivery *delivery, int *progress) {
-#ifndef __wasi__
-    if (client->local) return fail(client, "JPIP operations require a remote source");
-#endif
-    int reason = ingest(client, body, size, 0, delivery, progress);
-    if (reason < 0 || !client->pending) return reason;
-    if (!completed(reason)) {
+    int reason = hvc_jpp_reason(&reader);
+    if (restoring) {
+        if (!completed(reason) && reason != HVC_EOR_BYTE_LIMIT_REACHED)
+            return fail(client, "replacement channel did not complete cache restoration");
+    } else if (client->pending) {
+        if (completed(reason)) {
+            if (client->pending == HVC_FRAME) {
+                if (hvc_reconstruct_confirm(&client->cache, client->codestream, client->reduce, client->layers,
+                                           client->error, sizeof client->error) != 0) return -1;
+            } else {
+                hvc_frame_status available;
+                if (hvc_reconstruct_status(&client->cache, client->codestream, &available,
+                                          client->error, sizeof client->error) != 0) return -1;
+                if (!available.resolutions) return fail(client, "the server did not send the frame header");
+            }
+        }
         client->pending = HVC_READY;
-        return reason;
     }
-    if (client->pending == HVC_FRAME) {
-        if (hvc_reconstruct_confirm(&client->cache, client->codestream, client->reduce, client->layers,
-                                   client->error, sizeof client->error) != 0)
-            return -1;
-    } else {
-        hvc_frame_status status;
-        if (hvc_reconstruct_status(&client->cache, client->codestream, &status,
-                                  client->error, sizeof client->error) != 0) return -1;
-        if (!status.resolutions) return fail(client, "the server did not send the frame header");
-    }
-    client->pending = HVC_READY;
+    if (delivery && completed(reason)) hvc_delivery_end(&client->delivery, window);
     return reason;
 }
 
 int hvc_response(hvc *client, const uint8_t *body, size_t size) {
-    return response(client, body, size, NULL, NULL);
+    return response(client, body, size, 0, 0, NULL);
 }
 
 void hvc_new_channel(hvc *client) {
@@ -405,43 +402,16 @@ int hvc_model(hvc *client, size_t *cursor, char *text, size_t capacity) {
     return result;
 }
 
-static int restore_response(hvc *client, const uint8_t *body, size_t size,
-                             hvc_delivery *delivery, int *progress) {
-#ifndef __wasi__
-    if (client->local) return fail(client, "JPIP operations require a remote source");
-#endif
-    int reason = ingest(client, body, size, 1, delivery, progress);
-    if (reason >= 0 && !completed(reason) && reason != HVC_EOR_BYTE_LIMIT_REACHED)
-        return fail(client, "replacement channel did not complete cache restoration");
-    return reason;
-}
-
 int hvc_restore_response(hvc *client, const uint8_t *body, size_t size) {
-    return restore_response(client, body, size, NULL, NULL);
-}
-
-static int tracked_response(hvc *client, const uint8_t *body, size_t size,
-                             uint64_t window, int restoring, int *progress) {
-    *progress = 0;
-    hvc_delivery *delivery = hvc_delivery_window(&client->delivery, window);
-    if (!delivery) return fail(client, "out of memory tracking response delivery");
-    int reason = restoring ? restore_response(client, body, size, delivery, progress)
-                           : response(client, body, size, delivery, progress);
-    if (completed(reason)) hvc_delivery_end(&client->delivery, window);
-    return reason;
+    return response(client, body, size, UINT64_MAX, 1, NULL);
 }
 
 int hvc_response_progress(hvc *client, const uint8_t *body, size_t size,
                           uint64_t window, int *progress) {
-    return tracked_response(client, body, size, window, 0, progress);
+    return response(client, body, size, window, 0, progress);
 }
 int hvc_restore_response_progress(hvc *client, const uint8_t *body, size_t size, int *progress) {
-    return tracked_response(client, body, size, UINT64_MAX, 1, progress);
-}
-
-static int metadata(hvc *client) {
-    if (client->metadata.frames) return 0;
-    return hvc_metadata_open(&client->cache, &client->metadata, client->error, sizeof client->error);
+    return response(client, body, size, UINT64_MAX, 1, progress);
 }
 
 int hvc_xml(hvc *client, uint64_t frame, const uint8_t **xml, size_t *size) {
@@ -453,7 +423,8 @@ int hvc_xml(hvc *client, uint64_t frame, const uint8_t **xml, size_t *size) {
     if (client->local)
         return hv_local_layer_xml(client->local, (size_t)frame, xml, size, client->error, sizeof client->error);
 #endif
-    if (metadata(client)) return -1;
+    if (!client->metadata.frames &&
+        hvc_metadata_open(&client->cache, view, &client->metadata, client->error, sizeof client->error)) return -1;
     return hv_metadata_layer_xml(&client->metadata, (size_t)frame, &view->layer[frame].registration,
                                   xml, size, client->error, sizeof client->error);
 }

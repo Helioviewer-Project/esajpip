@@ -8,7 +8,7 @@
 #                        the merger's reference movie served by
 #                        jpip::DataBinServer, stored, written back as
 #                        codestreams and, the images, decoded; the movie's
-#                        frame count, XML and color tables
+#                        frame count and XML
 
 add_custom_target(client_tests)
 

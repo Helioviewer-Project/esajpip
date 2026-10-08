@@ -8,16 +8,8 @@
 #include <limits.h>
 #include <stdio.h>
 
-static void Fail(hvc_cache *cache, const char *message) {
-    cache->error = message;
-}
-
 void hvc_cache_begin(hvc_cache *cache) {
-    cache->bins = NULL;
-    cache->count = 0;
-    cache->capacity = 0;
-    cache->bytes = 0;
-    cache->error = NULL;
+    *cache = (hvc_cache){0};
 }
 
 /* Unsigned arithmetic that wraps on purpose, which Clang's
@@ -102,25 +94,25 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
     cache->error = NULL;
 
     if (message->offset > SIZE_MAX || message->length > SIZE_MAX - message->offset) {
-        Fail(cache, "Data-bin range overflows");
+        cache->error = "Data-bin range overflows";
         return 0;
     }
     needed = (size_t) message->offset + (size_t) message->length;
 
     if (message->offset > held) {
-        Fail(cache, "Message leaves a gap in the data-bin");
+        cache->error = "Message leaves a gap in the data-bin";
         return 0;
     }
     if ((bin != NULL && bin->complete && needed > held) ||
         (message->last_byte && needed < held)) {
-        Fail(cache, "Message disagrees with the data-bin's final size");
+        cache->error = "Message disagrees with the data-bin's final size";
         return 0;
     }
     overlap = held - (size_t)message->offset;
     if (overlap > message->length) overlap = (size_t)message->length;
     if (overlap != 0 && memcmp(bin->data + (size_t)message->offset,
                                 message->data, overlap) != 0) {
-        Fail(cache, "Message conflicts with cached data-bin bytes");
+        cache->error = "Message conflicts with cached data-bin bytes";
         return 0;
     }
     if (bin != NULL && needed <= held) {
@@ -132,7 +124,7 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
     }
     if (bin == NULL) {
         if (Grow(cache) != 0) {
-            Fail(cache, "Out of memory for the data-bin table");
+            cache->error = "Out of memory for the data-bin table";
             return 0;
         }
         fresh.used = 1;
@@ -141,7 +133,7 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
         fresh.bin_id = message->bin_id;
     }
     if (Reserve(bin != NULL ? bin : &fresh, needed, message->last_byte) != 0) {
-        Fail(cache, "Out of memory for a data-bin");
+        cache->error = "Out of memory for a data-bin";
         return 0;
     }
     if (bin == NULL) {
@@ -256,9 +248,5 @@ void hvc_cache_release(hvc_cache *cache) {
         free(cache->bins[index].data);
     }
     free(cache->bins);
-    cache->bins = NULL;
-    cache->count = 0;
-    cache->capacity = 0;
-    cache->bytes = 0;
-    cache->error = NULL;
+    *cache = (hvc_cache){0};
 }

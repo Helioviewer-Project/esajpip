@@ -9,10 +9,6 @@
 #define HVC_JPP_MAX_BIN_ID ((UINT64_C(1) << 37) - 1)
 #define HVC_JPP_MAX_VBAS_BITS 64
 
-static void Fail(hvc_jpp_reader *reader, const char *message) {
-    reader->error = message;
-}
-
 /* Reads one VBAS integer, as T.808 A.2 encodes it: seven bits per byte, most
  * significant group first, high bit set on every byte but the last.
  *
@@ -34,17 +30,17 @@ static int ReadVbas(hvc_jpp_reader *reader, uint64_t seed, int seeded,
     while (more) {
         uint8_t byte;
         if (reader->position >= reader->size) {
-            Fail(reader, "Truncated JPP integer");
+            reader->error = "Truncated JPP integer";
             return -1;
         }
         byte = reader->data[reader->position++];
         if (shifted >= HVC_JPP_MAX_VBAS_BITS) {
-            Fail(reader, "Overflowing JPP integer");
+            reader->error = "Overflowing JPP integer";
             return -1;
         }
         /* Refuse a value that cannot fit in 64 bits rather than wrapping. */
         if (result > (UINT64_MAX >> 7)) {
-            Fail(reader, "Overflowing JPP integer");
+            reader->error = "Overflowing JPP integer";
             return -1;
         }
         result = (result << 7) | (byte & 0x7F);
@@ -56,15 +52,8 @@ static int ReadVbas(hvc_jpp_reader *reader, uint64_t seed, int seeded,
 }
 
 void hvc_jpp_begin(hvc_jpp_reader *reader, const uint8_t *data, size_t size) {
-    reader->data = data;
-    reader->size = size;
-    reader->position = 0;
     /* Class and CSn start at zero for each response, as T.808 D.3 requires. */
-    reader->cls = 0;
-    reader->codestream = 0;
-    reader->have_previous = 0;
-    reader->reason = 0;
-    reader->error = NULL;
+    *reader = (hvc_jpp_reader){.data = data, .size = size};
 }
 
 int hvc_jpp_reason(const hvc_jpp_reader *reader) {
@@ -75,15 +64,6 @@ const char *hvc_jpp_error(const hvc_jpp_reader *reader) {
     return reader->error != NULL ? reader->error : "";
 }
 
-int hvc_jpp_reason_continues(int reason) {
-    /* WINDOW_DONE and the two byte-budget limits leave the channel usable and
-     * the window served as far as the server is willing to go. A window change
-     * means the client itself superseded this window, and a session limit ends
-     * it, so neither continues. */
-    return reason == HVC_EOR_WINDOW_DONE || reason == HVC_EOR_BYTE_LIMIT_REACHED ||
-           reason == HVC_EOR_RESPONSE_LIMIT_REACHED || reason == HVC_EOR_IMAGE_DONE;
-}
-
 int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
     uint8_t first;
     int presence;
@@ -92,7 +72,7 @@ int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
     reader->error = NULL;
 
     if (reader->position >= reader->size) {
-        Fail(reader, "Response ended without an EOR message");
+        reader->error = "Response ended without an EOR message";
         return HVC_JPP_ERROR;
     }
 
@@ -104,7 +84,7 @@ int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
     if (first == 0) {
         uint64_t remaining;
         if (reader->position >= reader->size) {
-            Fail(reader, "Truncated EOR message");
+            reader->error = "Truncated EOR message";
             return HVC_JPP_ERROR;
         }
         reader->reason = reader->data[reader->position++];
@@ -115,14 +95,14 @@ int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
         if (reader->reason != HVC_EOR_NON_SPECIFIED &&
             (reader->reason < HVC_EOR_IMAGE_DONE ||
              reader->reason > HVC_EOR_RESPONSE_LIMIT_REACHED)) {
-            Fail(reader, "Unsupported end-of-response reason");
+            reader->error = "Unsupported end-of-response reason";
             return HVC_JPP_ERROR;
         }
         if (ReadVbas(reader, 0, 0, 0, &remaining) < 0) return HVC_JPP_ERROR;
         /* The EOR length counts its own bytes after the reason, so the message
          * must end exactly at the end of the response. */
         if (remaining != reader->size - reader->position) {
-            Fail(reader, "Missing or misplaced EOR boundary");
+            reader->error = "Missing or misplaced EOR boundary";
             return HVC_JPP_ERROR;
         }
         return HVC_JPP_EOR;
@@ -130,7 +110,7 @@ int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
 
     presence = (first >> 5) & 3;
     if (presence == 0) {
-        Fail(reader, "Reserved JPP header form");
+        reader->error = "Reserved JPP header form";
         return HVC_JPP_ERROR;
     }
 
@@ -140,7 +120,7 @@ int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
                  &bin_id) < 0)
         return HVC_JPP_ERROR;
     if (bin_id > HVC_JPP_MAX_BIN_ID) {
-        Fail(reader, "JPP Bin-ID exceeds the standard limit");
+        reader->error = "JPP Bin-ID exceeds the standard limit";
         return HVC_JPP_ERROR;
     }
 
@@ -155,21 +135,21 @@ int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
     /* The even classes are the standard ones; the odd ones are extended and are
      * not part of this profile. */
     if ((reader->cls & 1) != 0) {
-        Fail(reader, "Extended data-bin class is not supported");
+        reader->error = "Extended data-bin class is not supported";
         return HVC_JPP_ERROR;
     }
 
     if (reader->cls > HVC_BIN_META_DATA) {
-        Fail(reader, "Unsupported data-bin class");
+        reader->error = "Unsupported data-bin class";
         return HVC_JPP_ERROR;
     }
 
     if (length > reader->size - reader->position) {
-        Fail(reader, "JPP message runs past the end of the response");
+        reader->error = "JPP message runs past the end of the response";
         return HVC_JPP_ERROR;
     }
     if (offset > UINT64_MAX - length) {
-        Fail(reader, "JPP message range overflows");
+        reader->error = "JPP message range overflows";
         return HVC_JPP_ERROR;
     }
 
@@ -182,8 +162,6 @@ int hvc_jpp_next(hvc_jpp_reader *reader, hvc_jpp_message *message) {
     message->data = reader->data + reader->position;
     reader->position += (size_t) length;
 
-    /* Remember the pair the next message may inherit. */
-    reader->have_previous = 1;
     return HVC_JPP_MESSAGE;
 }
 

@@ -358,11 +358,10 @@ static uint8_t *repeated(const uint8_t *base, int n, const int *target, const ui
  * each found after, none before, in a set at most half full that doubles
  * from 16 slots; each field of a file tells it apart. */
 static void check_passed_set(void) {
-    passed_set set;
+    passed_set set = {0};
     passed_link l = {0, 0, 0, 0, 0, 0}, other;
     size_t i, k, cap;
     int ok = 1, field;
-    passed_init(&set);
     for (i = 0; i < 100 && ok; i++) {
         l.dev = i % 3;
         l.ino = i;

@@ -26,19 +26,9 @@ static int next_box(hv_boxes *boxes, hv_box *box, char *error, size_t error_size
     return status;
 }
 
-typedef struct {
-    const uint8_t *pclr, *cmap;
-    size_t pclr_size, cmap_size;
-} palette_boxes;
-
 struct hv_metadata_document {
     const uint8_t *data;
     size_t size, order;
-};
-
-struct hv_metadata_frame {
-    hv_metadata_document xml;
-    palette_boxes palette;
 };
 
 /* A leading number list applies to descendants of its association. JPCH and
@@ -56,7 +46,7 @@ static void associate_xml(hv_metadata *metadata, uint32_t kind, size_t index,
                            const hv_metadata_document *document) {
     hv_metadata_document *found = NULL;
     if (kind == NLST_CODESTREAM && index < metadata->codestream_count)
-        found = &metadata->frames[index].xml;
+        found = &metadata->frames[index];
     else if (kind == NLST_LAYER && index < metadata->layer_count)
         found = &metadata->layers[index];
     if (found != NULL && found->data == NULL)
@@ -123,25 +113,6 @@ static int xml_boxes(hv_metadata_resolve resolve, const void *context, const uin
     return 0;
 }
 
-static int header_palette(const uint8_t *data, const hv_box *header, palette_boxes *found,
-                          char *error, size_t error_size) {
-    hv_boxes boxes;
-    hv_box box;
-    int status;
-
-    hv_boxes_children(&boxes, data, header);
-    while ((status = next_box(&boxes, &box, error, error_size)) == 1) {
-        if (box.type == HV_BOX_PCLR) {
-            found->pclr = data + box.payload;
-            found->pclr_size = box.end - box.payload;
-        } else if (box.type == HV_BOX_CMAP) {
-            found->cmap = data + box.payload;
-            found->cmap_size = box.end - box.payload;
-        }
-    }
-    return status;
-}
-
 void hv_metadata_close(hv_metadata *metadata) {
     free(metadata->frames);
     free(metadata->layers);
@@ -151,7 +122,6 @@ void hv_metadata_close(hv_metadata *metadata) {
 int hv_metadata_read(const uint8_t *data, size_t size, size_t codestream_count, size_t layer_count,
                      hv_metadata_resolve resolve, const void *context,
                      hv_metadata *metadata, char *error, size_t error_size) {
-    palette_boxes defaults = {0};
     size_t header = 0, layer = 0, order = 0;
     hv_boxes boxes;
     hv_box box;
@@ -174,15 +144,8 @@ int hv_metadata_read(const uint8_t *data, size_t size, size_t codestream_count, 
     hv_boxes_file(&boxes, data, size);
     while ((status = next_box(&boxes, &box, error, error_size)) == 1) {
         xml_scope implicit = {0};
-        if (box.type == HV_BOX_JP2H) {
-            if (header_palette(data, &box, &defaults, error, error_size) != 0)
-                goto fail;
-            continue;
-        }
+        if (box.type == HV_BOX_JP2H) continue;
         if (box.type == HV_BOX_JPCH) {
-            if (header < codestream_count && header_palette(data, &box, &metadata->frames[header].palette,
-                                                error, error_size) != 0)
-                goto fail;
             implicit.kind = NLST_CODESTREAM;
             implicit.index = header++;
         } else if (box.type == HV_BOX_JPLH) {
@@ -198,19 +161,6 @@ int hv_metadata_read(const uint8_t *data, size_t size, size_t codestream_count, 
             goto fail;
     }
     if (status < 0) goto fail;
-    /* Apply absent palette fields after reading all headers, so late JP2H
-     * defaults cannot replace a JPCH override. */
-    for (size_t i = 0; i < codestream_count; i++) {
-        palette_boxes *palette = &metadata->frames[i].palette;
-        if (palette->pclr == NULL) {
-            palette->pclr = defaults.pclr;
-            palette->pclr_size = defaults.pclr_size;
-        }
-        if (palette->cmap == NULL) {
-            palette->cmap = defaults.cmap;
-            palette->cmap_size = defaults.cmap_size;
-        }
-    }
     return 0;
 fail:
     hv_metadata_close(metadata);
@@ -228,27 +178,13 @@ static void document_result(const hv_metadata *metadata, const hv_metadata_docum
     *size = document->data != NULL ? document->size : metadata->file_xml_size;
 }
 
-int hv_metadata_xml(const hv_metadata *metadata, uint64_t codestream,
-                    const uint8_t **xml, size_t *size, char *error, size_t error_size) {
-    hv_metadata_document document = {0};
-    *xml = NULL;
-    *size = 0;
-    if (codestream >= metadata->codestream_count)
-        return hv_fail(error, error_size, "no frame %llu", (unsigned long long)codestream);
-    first_document(&document, &metadata->frames[codestream].xml);
-    if (codestream < metadata->layer_count)
-        first_document(&document, &metadata->layers[codestream]);
-    document_result(metadata, &document, xml, size);
-    return 0;
-}
-
 int hv_metadata_codestream_xml(const hv_metadata *metadata, uint64_t codestream,
                                const uint8_t **xml, size_t *size, char *error, size_t error_size) {
     *xml = NULL;
     *size = 0;
     if (codestream >= metadata->codestream_count)
         return hv_fail(error, error_size, "no codestream %llu", (unsigned long long)codestream);
-    document_result(metadata, &metadata->frames[codestream].xml, xml, size);
+    document_result(metadata, &metadata->frames[codestream], xml, size);
     return 0;
 }
 
@@ -268,65 +204,8 @@ int hv_metadata_layer_xml(const hv_metadata *metadata, size_t layer,
             return hv_fail(error, error_size, "%s", reason);
         if (entry.codestream >= metadata->codestream_count)
             return hv_fail(error, error_size, "no codestream %zu", entry.codestream);
-        first_document(&document, &metadata->frames[entry.codestream].xml);
+        first_document(&document, &metadata->frames[entry.codestream]);
     }
     document_result(metadata, &document, xml, size);
     return 0;
-}
-
-int hv_metadata_palette(const hv_metadata *metadata, uint64_t codestream,
-                        int *channels, uint8_t *table, size_t capacity,
-                        char *error, size_t error_size) {
-    enum { CMAP_ENTRY = 4, MAX_COLUMNS = 255 };
-    palette_boxes found;
-    uint8_t column[MAX_COLUMNS];
-    size_t at, i;
-    hv_palette palette;
-    int component = -1, count = 0, channel;
-
-    *channels = 0;
-    if (codestream >= metadata->codestream_count)
-        return hv_fail(error, error_size, "no frame %llu", (unsigned long long)codestream);
-    found = metadata->frames[codestream].palette;
-    if (found.pclr == NULL || found.cmap == NULL)
-        return 0;
-
-    /* The channels the mapping makes with the palette, of one component. */
-    if (found.cmap_size % CMAP_ENTRY != 0)
-        return hv_fail(error, error_size, "cmap: not a whole number of entries");
-    for (at = 0; at < found.cmap_size; at += CMAP_ENTRY) {
-        if (found.cmap[at + 2] != 1)
-            continue;
-        if (component >= 0 && component != (int)big_endian(found.cmap + at, 2))
-            return hv_fail(error, error_size, "cmap: a palette on several components");
-        component = (int)big_endian(found.cmap + at, 2);
-        if (count == MAX_COLUMNS)
-            return hv_fail(error, error_size, "cmap: too many palette channels");
-        column[count++] = found.cmap[at + 3];
-    }
-    if (count == 0)
-        return 0;
-
-    hv_box box = {0};
-    box.type = HV_BOX_PCLR;
-    box.end = found.pclr_size;
-    size_t error_at;
-    const char *reason = hv_palette_open(found.pclr, &box, &palette, &error_at);
-    if (reason)
-        return hv_fail(error, error_size, "%s", reason);
-    for (channel = 0; channel < count; channel++)
-        if (column[channel] >= palette.column_count)
-            return hv_fail(error, error_size, "cmap: no palette column %d", column[channel]);
-
-    *channels = count;
-    if (capacity < palette.entry_count * (size_t)count)
-        return (int)palette.entry_count;
-    for (i = 0; i < palette.entry_count; i++) {
-        for (channel = 0; channel < count; channel++) {
-            hv_palette_sample sample;
-            hv_palette_read(&palette, i, column[channel], &sample);
-            *table++ = hv_palette_byte(&sample);
-        }
-    }
-    return (int)palette.entry_count;
 }

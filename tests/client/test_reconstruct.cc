@@ -14,9 +14,8 @@
 // two resolutions and two components in each progression order, with
 // unequal precinct sizes, EPH markers, and the default precincts.
 //
-// Last, a movie on one channel: its frame count and each frame's XML and
-// color table from the metadata bins (hv_metadata), and every frame from
-// the one store; and color tables of made-up header boxes.
+// Last, a movie on one channel: its frame count, each frame's XML from
+// the metadata bins, and every frame reconstructed from the same store.
 #include "jpeg2000/hv_served.h"
 #include <algorithm>
 #include <cstdlib>
@@ -43,6 +42,16 @@ using Bytes = std::vector<uint8_t>;
 
 static void check(bool ok, const std::string &message) {
     if (!ok) { std::cerr << message << '\n'; std::exit(1); }
+}
+
+static int read_metadata(const hvc_cache &cache, hv_metadata *metadata, char *error, size_t error_size) {
+    hv_presentation presentation = {};
+    const uint8_t *data;
+    *metadata = {};
+    if (hvc_metadata_presentation(&cache, &data, &presentation, error, error_size) != 0) return -1;
+    int result = hvc_metadata_open(&cache, &presentation, metadata, error, error_size);
+    hv_presentation_free(&presentation);
+    return result;
 }
 
 struct Sources : jpip::SourceProvider {
@@ -352,49 +361,6 @@ static void report(const char *what, const Totals &t) {
               << " at a reduced resolution)\n";
 }
 
-// A box of the given type and contents.
-static Bytes box(const char *type, const Bytes &contents) {
-    Bytes out;
-    for (int n = 4; n--;) out.push_back(static_cast<uint8_t>((contents.size() + 8) >> (8 * n)));
-    out.insert(out.end(), type, type + 4);
-    out.insert(out.end(), contents.begin(), contents.end());
-    return out;
-}
-
-static Bytes operator+(Bytes a, const Bytes &b) {
-    a.insert(a.end(), b.begin(), b.end());
-    return a;
-}
-
-// The color table of codestream 0 of a file that is the given boxes: the
-// result of hv_metadata_palette, with the table (when it holds one) and
-// the message.
-struct Palette { int entries, channels; Bytes table; std::string error; };
-
-static Palette palette(const Bytes &boxes, size_t capacity = HV_PALETTE_MAX) {
-    hvc_cache cache;
-    hvc_cache_begin(&cache);
-    hvc_jpp_message message = {};
-    message.bin_class = HVC_BIN_META_DATA;
-    const Bytes framed = boxes + box("phld", {0, 0, 0, 4});
-    message.length = framed.size();
-    message.last_byte = 1;
-    message.data = framed.data();
-    check(hvc_cache_apply(&cache, &message), "made-up metadata bin refused");
-    Palette found = {0, 0, Bytes(capacity, 0xEE), ""};
-    char error[256] = "";
-    hv_metadata metadata = {};
-    check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
-    found.entries = hv_metadata_palette(&metadata, 0, &found.channels, found.table.data(), capacity,
-                                        error, sizeof error);
-    found.error = error;
-    if (found.entries > 0 && capacity >= static_cast<size_t>(found.entries) * found.channels)
-        found.table.resize(static_cast<size_t>(found.entries) * found.channels);
-    hv_metadata_close(&metadata);
-    hvc_cache_release(&cache);
-    return found;
-}
-
 static void put(std::vector<char> &out, uint64_t value, int n) {
     while (n--) out.push_back(static_cast<char>(value >> (8 * n)));
 }
@@ -516,13 +482,6 @@ int main() {
         }
         size_t frames = image.GetNumCodestreams();
         check(frames == 8 && xml.size() == frames, name + ": fixture is not eight frames with XML");
-        // The file's color table, which the first two frames use: 256
-        // entries of three 8-bit columns, mapped in their order.
-        const uint8_t pclr[] = {'p', 'c', 'l', 'r', 1, 0, 3, 7, 7, 7};
-        const uint8_t *table = std::search(file->Data(), file->Data() + file->GetSize(),
-                                           pclr, pclr + sizeof pclr) + sizeof pclr;
-        check(table + 3 * 256 <= file->Data() + file->GetSize(), name + ": fixture has no color table");
-
         jpip::DataBinServer server;
         hvc_cache cache;
         hvc_cache_begin(&cache);
@@ -530,15 +489,15 @@ int main() {
         const uint8_t *found = NULL;
         size_t size = 0;
         hv_metadata metadata = {};
-        check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == -1 &&
+        check(read_metadata(cache, &metadata, error, sizeof error) == -1 &&
               std::string(error) == "metadata data-bin 0 is missing", "empty store: " + std::string(error));
-        check(hv_metadata_xml(&metadata, 0, &found, &size, error, sizeof error) == -1 && found == NULL,
+        check(hv_metadata_codestream_xml(&metadata, 0, &found, &size, error, sizeof error) == -1 && found == NULL,
               "empty store gave XML");
         for (size_t frame = 0; frame < frames; ++frame) {
             const jpip::CodingParameters &p = *image.GetCodingParameters(frame);
             deliver(server, image, sources, whole(frame, p, p.num_levels + 1), &cache, name);
             if (frame == 0)
-                check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0, error);
+                check(read_metadata(cache, &metadata, error, sizeof error) == 0, error);
             check(metadata.codestream_count == frames,
                   name + ": frame count: " + error);
             check(reconstruct(cache, frame, name) == expected(image, sources, frame, p.num_levels + 1, name),
@@ -546,7 +505,7 @@ int main() {
         }
         for (size_t frame = 0; frame < frames; ++frame) {
             const jpip::CodingParameters &p = *image.GetCodingParameters(frame);
-            check(hv_metadata_xml(&metadata, frame, &found, &size, error, sizeof error) == 0 &&
+            check(hv_metadata_codestream_xml(&metadata, frame, &found, &size, error, sizeof error) == 0 &&
                   found != NULL && Bytes(found, found + size) == xml[frame],
                   name + ": XML of frame " + std::to_string(frame) + " differs: " + error);
             // Nothing more arrives for a frame the channel has whole.
@@ -556,21 +515,8 @@ int main() {
             check(reconstruct(cache, frame, name) == expected(image, sources, frame, p.num_levels + 1, name),
                   name + ": frame " + std::to_string(frame) + " differs when shown again");
         }
-        check(hv_metadata_xml(&metadata, frames, &found, &size, error, sizeof error) == -1 && found == NULL,
+        check(hv_metadata_codestream_xml(&metadata, frames, &found, &size, error, sizeof error) == -1 && found == NULL,
               name + ": XML for a frame the movie does not have");
-        // The frames with their own component mapping have no color table.
-        for (size_t frame = 0; frame < frames; ++frame) {
-            Bytes colors(HV_PALETTE_MAX);
-            int channels = -1;
-            int entries = hv_metadata_palette(&metadata, frame, &channels, colors.data(), colors.size(),
-                                              error, sizeof error);
-            if (frame < 2)
-                check(entries == 256 && channels == 3 && std::memcmp(colors.data(), table, 3 * 256) == 0,
-                      name + ": color table of frame " + std::to_string(frame) + " differs: " + error);
-            else
-                check(entries == 0 && channels == 0,
-                      name + ": color table for frame " + std::to_string(frame) + ": " + error);
-        }
         hv_metadata_close(&metadata);
         hvc_cache_release(&cache);
 
@@ -584,7 +530,7 @@ int main() {
         size_t partial_file = 0, partial_frame = 0;
         for (int responses = 0; responses < 1000; ++responses) {
             deliver(slow, image, sources, request, &cache, name);
-            if (hvc_metadata_open(&cache, &metadata, error, sizeof error) != 0) {
+            if (read_metadata(cache, &metadata, error, sizeof error) != 0) {
                 std::string why = error;
                 check(metadata.codestream_count == 0 && metadata.frames == NULL,
                       "failed metadata index retained entries");
@@ -598,7 +544,7 @@ int main() {
                     ++partial_frame;
                 }
             } else {
-                check(hv_metadata_xml(&metadata, frames - 1, &found, &size, error, sizeof error) == 0,
+                check(hv_metadata_codestream_xml(&metadata, frames - 1, &found, &size, error, sizeof error) == 0,
                       error);
                 break;
             }
@@ -633,46 +579,12 @@ int main() {
         const uint8_t *found = NULL;
         size_t size = 0;
         hv_metadata metadata = {};
-        check(hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0 && metadata.codestream_count == 1,
+        check(read_metadata(cache, &metadata, error, sizeof error) == 0 && metadata.codestream_count == 1,
               name + ": frame count: " + error);
-        check(!xml.empty() && hv_metadata_xml(&metadata, 0, &found, &size, error, sizeof error) == 0 &&
+        check(!xml.empty() && hv_metadata_codestream_xml(&metadata, 0, &found, &size, error, sizeof error) == 0 &&
               found != NULL && Bytes(found, found + size) == xml, name + ": XML differs: " + error);
-        int channels = -1;
-        check(hv_metadata_palette(&metadata, 0, &channels, NULL, 0, error, sizeof error) == 0 && channels == 0,
-              name + ": a color table: " + error);
         hv_metadata_close(&metadata);
         hvc_cache_release(&cache);
-    }
-
-    // Color tables of made-up header boxes: columns of 4 bits, 16 bits and
-    // 8 bits signed, mapped in another order; then boxes that are not one.
-    {
-        const Bytes columns = {0, 2, 3, 3, 15, 0x87};
-        const Bytes values = {0x0F, 0xAB, 0xCD, 0x80, 0x05, 0x12, 0x34, 0x7F};
-        const Bytes cmap = {0, 0, 1, 2, 0, 0, 1, 0, 0, 0, 1, 1};
-        Palette found = palette(box("jp2h", box("pclr", columns + values) + box("cmap", cmap)));
-        check(found.entries == 2 && found.channels == 3 &&
-              found.table == Bytes({0, 255, 0xAC, 255, 85, 0x12}), "made-up color table: " + found.error);
-        found = palette(box("jpch", box("cmap", cmap)) + box("jp2h", box("pclr", columns + values)));
-        check(found.entries == 2 && found.channels == 3 &&
-              found.table == Bytes({0, 255, 0xAC, 255, 85, 0x12}), "palette inherited box by box");
-        found = palette(box("jp2h", box("pclr", columns + values) + box("cmap", cmap)), 5);
-        check(found.entries == 2 && found.channels == 3 && found.table == Bytes(5, 0xEE),
-              "color table written without room");
-        // A codestream header box replaces the mapping, here by none.
-        found = palette(box("jp2h", box("pclr", columns + values) + box("cmap", cmap)) +
-                        box("jpch", box("cmap", {0, 0, 0, 0})));
-        check(found.entries == 0 && found.channels == 0, "color table despite a direct mapping");
-        found = palette(box("jp2h", box("pclr", columns + values) + box("cmap", {0, 0, 1, 3})));
-        check(found.entries == -1 && found.error == "cmap: no palette column 3", "column: " + found.error);
-        found = palette(box("jp2h", box("pclr", columns + values) + box("cmap", {0, 0, 1, 0, 0, 1, 1, 1})));
-        check(found.entries == -1 && found.error == "cmap: a palette on several components",
-              "components: " + found.error);
-        Bytes cut(values.begin(), values.end() - 1);
-        found = palette(box("jp2h", box("pclr", columns + cut) + box("cmap", cmap)));
-        check(found.entries == -1 && found.error == "pclr.entries-length", "short table: " + found.error);
-        found = palette(box("jp2h", box("pclr", {0, 1, 1, 38, 0, 0, 0, 0, 0}) + box("cmap", {0, 0, 1, 0})));
-        check(found.entries == -1 && found.error == "pclr: bit depth out of range", "depth: " + found.error);
     }
 
     // The decoder itself, on an image whose pixels are known: at (x, y) the

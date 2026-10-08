@@ -151,6 +151,7 @@ int hvc_restore_response_progress(hvc *client, const uint8_t *body, size_t size,
  * codestream follows the size-query/caller-buffer convention,
  * preserving sample precision for the host's decoder. */
 int hvc_xml(hvc *client, uint64_t frame, const uint8_t **xml, size_t *size);
+enum { HVC_PALETTE_MAX = 1024 * 3 };
 int hvc_palette(hvc *client, uint64_t frame, int *channels,
                 uint8_t *table, size_t capacity);
 size_t hvc_codestream(hvc *client, uint64_t frame, uint8_t *out, size_t capacity);

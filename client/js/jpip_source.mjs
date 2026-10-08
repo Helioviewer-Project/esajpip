@@ -36,7 +36,7 @@ export class JpipSource {
     #worker;
     #waiting = new Map();   // call -> what settles its promise
     #calls = 0;
-    frames = 0;             // codestreams of the target: the frames of a movie
+    frames = 0;             // presentation layers of the target
     received = 0;           // bytes of response bodies so far
 
     // Opens `image` (a path below the server's image directory) on a JPIP
@@ -113,7 +113,7 @@ export class JpipSource {
 
     // The color table of a frame, or null if it has none: { entries,
     // channels, table }, where `table` is the caller's: a Uint8Array of
-    // `channels` values (3 for red, green, blue) for each of `entries`
+    // `channels` values (1 gray or 3 RGB) for each of `entries`
     // sample values. It is not applied to the frame's pixels.
     palette(index) {
         return this.#call("palette", index);

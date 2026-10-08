@@ -1,4 +1,3 @@
-#include "jpeg2000/hv_metadata.h"
 /* hvc_wasm.c: the WebAssembly module's entry points, for js/jpip_channel.mjs.
  *
  * One module instance is one source: its data-bins and the image last
@@ -113,7 +112,7 @@ const uint8_t *EXPORT(hvc_wasm_xml)(void) {
 /* The color table of a frame, good until the
  * next call: its entries, 0 when it has none, or -1 with hvc_wasm_error;
  * then the values of an entry, and where the table is. */
-static uint8_t palette[HV_PALETTE_MAX];
+static uint8_t palette[HVC_PALETTE_MAX];
 static int palette_channels;
 
 int EXPORT(hvc_wasm_palette)(uint32_t frame) {

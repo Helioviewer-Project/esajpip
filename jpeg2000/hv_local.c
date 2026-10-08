@@ -108,8 +108,8 @@ void hv_local_close(hv_local *source) {
     if (source->file) fclose(source->file);
     hv_metadata_close(&source->metadata);
     hv_presentation_free(&source->presentation);
-    for (size_t i = 0; i < source->reference_count; i++)
-        if (source->companions) free(source->companions[i].path);
+    if (source->companions)
+        for (size_t i = 0; i < source->reference_count; i++) free(source->companions[i].path);
     free(source->main.path);
     free(source->headers);
     free(source->companions);
@@ -554,11 +554,4 @@ int hv_local_layer_xml(hv_local *source, size_t layer, const uint8_t **xml,
     if (local_metadata(source, view->layers, error, error_size) != 0) return -1;
     return hv_metadata_layer_xml(&source->metadata, layer, &view->layer[layer].registration,
                                   xml, size, error, error_size);
-}
-
-int hv_local_palette(hv_local *source, size_t codestream, int *channels,
-                     uint8_t *table, size_t capacity, char *error, size_t error_size) {
-    *channels = 0;
-    if (local_metadata(source, 0, error, error_size) != 0) return -1;
-    return hv_metadata_palette(&source->metadata, codestream, channels, table, capacity, error, error_size);
 }

@@ -897,7 +897,8 @@ const char *hv_segments_tile(hv_segments *s, uint16_t code, const Cod *cod, cons
     }
 }
 
-int hv_segments_packed(const hv_segments *s) {
+/* Whether the current tile's packet headers are packed into PPM or PPT. */
+static int segments_packed(const hv_segments *s) {
     return s->ppm || (s->tile != NULL && (s->tile->flags & HV_TILE_PPT));
 }
 
@@ -981,7 +982,7 @@ static const char *markers_in_data(const hv_segments *s, const uint8_t *data, si
             continue;
         }
         if (p[1] == 0x92) {
-            if (hv_segments_packed(s)) return "codestream.eph-in-data";
+            if (segments_packed(s)) return "codestream.eph-in-data";
             if (!eph) return "codestream.eph-unsignalled";
         }
         p++;
@@ -995,7 +996,7 @@ const char *hv_segments_data(hv_segments *s, const uint8_t *data, size_t n, unsi
     uint64_t sops = 0;
     if (!s->profile) {
         if (s->tpsot == 0 && (error = tile_coding(s)) != NULL) return error;
-        if (plt_zeros != 0 && !hv_segments_packed(s)) return "plt.zero-length";
+        if (plt_zeros != 0 && !segments_packed(s)) return "plt.zero-length";
         if ((error = markers_in_data(s, data, n, &sops)) != NULL) return error;
     }
     /* A.7.3: the PLT entries of a tile-part list every packet in it. Where
@@ -1009,7 +1010,7 @@ const char *hv_segments_data(hv_segments *s, const uint8_t *data, size_t n, unsi
         uint64_t sum, zeros;
         if (s->plm.used++ == s->plm.runs) return "plm.tile-parts";
         if ((error = plm_run(&s->plm, &nplm, &sum, &zeros)) != NULL) return error;
-        if (zeros != 0 && !hv_segments_packed(s)) return "plm.zero-length";
+        if (zeros != 0 && !segments_packed(s)) return "plm.zero-length";
         if (sum != n && (sops == 0 || sum != n - 6 * sops)) return "plm.coverage";
     }
     if (s->ppm_series.end > 0) {

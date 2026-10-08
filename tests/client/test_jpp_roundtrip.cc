@@ -192,8 +192,6 @@ static void TestLimitReason() {
     Read((const uint8_t *) buffer, (size_t) used, &seen);
     Check(!seen.error, "limited response parses");
     Check(seen.reason == jpip::EOR::BYTE_LIMIT_REACHED, "byte limit reason");
-    Check(hvc_jpp_reason_continues(seen.reason),
-          "byte limit leaves the channel usable");
 }
 
 /* Metadata placeholders: the server synthesises phld boxes, so the client must

@@ -63,18 +63,17 @@ static int walk_codestream(const uint8_t *buf, size_t start, size_t end, walk_re
     hv_item item;
     int status = hv_codestream_open(&cs, buf, start, end, mode);
 
-    while (status == 0 && (status = hv_codestream_next(&cs, &item)) == 1) {
-        static const char *kinds[] = {"segment", "tile-part", "tile-segment", "data", "end"};
-        if (item.kind == HV_TILE_PART)
-            r->tile_parts++;
-        if (item.kind == HV_TILE_DATA)
-            r->plt_padding += item.plt_padding;
-        if (verbose)
-            printf("    %-12s %04X [%zu, %zu)\n", kinds[item.kind], item.code, item.start,
-                   item.end);
-        if (item.kind == HV_END)
-            break;
-        status = 0;
+    if (status == 0) {
+        while ((status = hv_codestream_next(&cs, &item)) == 1) {
+            static const char *kinds[] = {"segment", "tile-part", "tile-segment", "data", "end"};
+            if (item.kind == HV_TILE_PART)
+                r->tile_parts++;
+            if (item.kind == HV_TILE_DATA)
+                r->plt_padding += item.plt_padding;
+            if (verbose)
+                printf("    %-12s %04X [%zu, %zu)\n", kinds[item.kind], item.code, item.start,
+                       item.end);
+        }
     }
     if (status == -1) {
         r->error = cs.error;

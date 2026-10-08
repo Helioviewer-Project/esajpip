@@ -25,10 +25,10 @@ extern "C" int replay_client_response(const uint8_t *data, size_t size) {
 
     hv_metadata metadata = {};
     char error[256];
-    bool indexed = hvc_metadata_open(&cache, &metadata, error, sizeof error) == 0;
     hv_presentation presentation = {};
     const uint8_t *presentation_data;
     bool presented = hvc_metadata_presentation(&cache, &presentation_data, &presentation, error, sizeof error) == 0;
+    bool indexed = presented && hvc_metadata_open(&cache, &presentation, &metadata, error, sizeof error) == 0;
     size_t frames = hvc_frames(client.value);
     require(frames == (presented ? presentation.layers : 0), "source presentation indexing differs");
     for (size_t i = 0; indexed && i < frames && i < 16; i++) {
@@ -43,17 +43,19 @@ extern "C" int replay_client_response(const uint8_t *data, size_t size) {
         hv_registration_entry entry;
         require(hv_registration_read(&registration, 0, &entry) == nullptr, "registration");
         size_t codestream = entry.codestream;
-        int channels, reference_channels;
-        uint8_t table[HV_PALETTE_MAX], reference_table[HV_PALETTE_MAX];
-        int entries = hvc_palette(client.value, i, &channels, table, sizeof table);
-        int reference_entries = hv_metadata_palette(&metadata, codestream, &reference_channels,
-                                                    reference_table, sizeof reference_table,
-                                                    error, sizeof error);
-        require(entries == reference_entries, "source palette result differs");
-        if (entries > 0)
-            require(channels == reference_channels &&
-                    std::memcmp(table, reference_table, static_cast<size_t>(entries) * channels) == 0,
-                    "source palette differs");
+        int channels, copied_channels;
+        int entries = hvc_palette(client.value, i, &channels, nullptr, 0);
+        if (entries > 0) {
+            require(entries <= 1024 && (channels == 1 || channels == 3), "palette dimensions");
+            uint8_t table[HVC_PALETTE_MAX];
+            std::memset(table, 0xee, sizeof table);
+            size_t length = static_cast<size_t>(entries) * channels;
+            require(hvc_palette(client.value, i, &copied_channels, table, length - 1) == entries &&
+                    copied_channels == channels, "short palette query changed dimensions");
+            for (size_t n = 0; n < sizeof table; n++) require(table[n] == 0xee, "short palette query wrote bytes");
+            require(hvc_palette(client.value, i, &copied_channels, table, length) == entries &&
+                    copied_channels == channels, "palette copy changed dimensions");
+        }
 
         // Bound expensive traversal by decoded geometry, not by input size.
         // Invalid headers still reach the geometry parser; large valid geometry

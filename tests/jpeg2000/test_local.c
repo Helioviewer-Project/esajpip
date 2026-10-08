@@ -346,8 +346,6 @@ static void layer_metadata_checks(void) {
           size==1 && *xml=='E',"layer beyond codestream count indexed independently");
     check(hv_metadata_codestream_xml(&metadata,0,&xml,&size,error,sizeof error)==0 &&
           size==1 && *xml=='A',"codestream-only lookup excludes layer XML");
-    check(hv_metadata_xml(&metadata,0,&xml,&size,error,sizeof error)==0 && size==1 && *xml=='L',
-          "aligned profile keeps first associated document");
     check(hv_metadata_layer_xml(&metadata,6,NULL,&xml,&size,error,sizeof error)==0 && size==1 && *xml=='F',
           "layer-only fallback");
     check(hv_metadata_layer_xml(&metadata,7,NULL,&xml,&size,error,sizeof error)==-1 && xml==NULL && size==0,
@@ -383,16 +381,6 @@ static void layer_metadata_checks(void) {
     hv_registration identity={NULL,1,0,1,1};
     check(hv_metadata_layer_xml(&metadata,0,&identity,&xml,&size,error,sizeof error)==0 && xml!=NULL && size==0,
           "empty XML preserves presence");
-    hv_metadata_close(&metadata);
-    /* Late defaults fill absent palette fields without replacing overrides. */
-    b=(bytes){0}; header=begin(&b,"jpch");
-    uint8_t palette[]={0,1,1,7,99}, defaults[]={0,1,1,7,11}, cmap[]={0,0,1,0};
-    box(&b,"pclr",palette,sizeof palette); end(&b,header); header=begin(&b,"jp2h");
-    box(&b,"pclr",defaults,sizeof defaults); box(&b,"cmap",cmap,sizeof cmap); end(&b,header);
-    check(hv_metadata_read(b.data,b.size,1,0,NULL,NULL,&metadata,error,sizeof error)==0,"late metadata palette defaults");
-    int channels=0; uint8_t table=0;
-    check(hv_metadata_palette(&metadata,0,&channels,&table,1,error,sizeof error)==1 && channels==1 && table==99,
-          "late default palette cannot replace JPCH palette");
     hv_metadata_close(&metadata);
 }
 
@@ -468,7 +456,7 @@ static void presentation_checks(const char *path, const uint8_t *cs, size_t n) {
 static void metadata_checks(const char *path,const uint8_t *cs,size_t n) {
     bytes b={0}, header={0}, own={0}; size_t at; char error[256]; hv_local *source;
     const uint8_t pclr[]={0,2,1,7,10,20}, override[]={0,2,1,7,30,40}, cmap[]={0,0,1,0};
-    const uint8_t *xml; size_t size; int channels; uint8_t table[2];
+    const uint8_t *xml; size_t size;
     signature(&b,1);
     box(&header,"pclr",pclr,sizeof pclr); box(&header,"cmap",cmap,sizeof cmap);
     box(&b,"jp2h",header.data,header.size);
@@ -493,13 +481,6 @@ static void metadata_checks(const char *path,const uint8_t *cs,size_t n) {
       expect_xml(source,0,'A'); check(before==allocations,"metadata index reused"); }
     check(hv_local_xml(source,2,&xml,&size,error,sizeof error)==-1 && xml==NULL && size==0,
           "metadata index bounds");
-    table[0]=table[1]=0xA5;
-    check(hv_local_palette(source,0,&channels,table,1,error,sizeof error)==2 && channels==1 &&
-          table[0]==0xA5 && table[1]==0xA5,"palette capacity writes nothing");
-    check(hv_local_palette(source,0,&channels,table,2,error,sizeof error)==2 && channels==1 &&
-          table[0]==10 && table[1]==20,"default palette");
-    check(hv_local_palette(source,1,&channels,table,2,error,sizeof error)==2 && channels==1 &&
-          table[0]==30 && table[1]==40,"codestream palette override with inherited mapping");
     hv_local_close(source); check(descriptors==0,"metadata source cleanup");
 
     b=(bytes){0}; signature(&b,1); box(&b,"jp2c",cs,n); association(&b,2,0,'L');
@@ -510,15 +491,14 @@ static void metadata_checks(const char *path,const uint8_t *cs,size_t n) {
     source=hv_local_open(path,error,sizeof error);
     if (source) { expect_xml(source,0,0); hv_local_close(source); } else check(0,"layer-only source open");
 
-    /* Palette body validation happens when queried, leaving XML accessible. */
+    /* XML access leaves palette bodies opaque. */
     b=(bytes){0}; header=(bytes){0}; signature(&b,0);
     box(&header,"pclr","bad",3); box(&header,"cmap",cmap,sizeof cmap);
     box(&b,"jp2h",header.data,header.size); box(&b,"jp2c",cs,n); box(&b,"xml ","F",1); save(path,&b);
     source=hv_local_open(path,error,sizeof error);
     if (source) {
         expect_xml(source,0,'F');
-        check(hv_local_palette(source,0,&channels,table,2,error,sizeof error)==-1,"malformed palette rejected at query");
-        expect_xml(source,0,'F'); hv_local_close(source);
+        hv_local_close(source);
     } else check(0,"opaque palette source open");
     { bytes content={0}; association(&content,1,0,'X');
       for (int i=1;i<HV_BOX_DEPTH_MAX;i++) { bytes outer={0}; box(&outer,"grp ",content.data,content.size); content=outer; }

@@ -144,14 +144,13 @@ static int rewrite_codestream(rewrite *w, size_t start, size_t end) {
         hv_codestream_close(&cs);
         return write_failed(w, start);
     }
-    while (status == 0 && (status = hv_codestream_next(&cs, &item)) == 1) {
-        if (write_item(w, &item, &tp_start) != 0) {
-            hv_codestream_close(&cs);
-            return write_failed(w, item.start);
+    if (status == 0) {
+        while ((status = hv_codestream_next(&cs, &item)) == 1) {
+            if (write_item(w, &item, &tp_start) != 0) {
+                hv_codestream_close(&cs);
+                return write_failed(w, item.start);
+            }
         }
-        if (item.kind == HV_END)
-            break;
-        status = 0;
     }
     if (status < 0) {
         w->r->error = cs.error;

@@ -656,10 +656,11 @@ GET /<path>?cid=<cid>&cclose=<cid>
 | `hvc_cache_model` | `hvc_cache.h` | Retained bins declared in bounded batches for a replacement channel |
 | `hvc_cache_match_metadata` | `hvc_cache.h` | Repeated metadata checked against complete retained bins during restoration |
 | `hvc_reconstruct_confirm` | `hvc_reconstruct.h` | Whole-packet prefixes recorded after a completed layer-limited window |
-| `hvc_metadata_open` | `hvc_metadata.h` | An index of the metadata bins; its `count` is the number of frames |
+| `hvc_metadata_open` | `hvc_metadata.h` | XML associations indexed using the existing presentation's codestream and layer counts |
 | `hv_metadata_close` | `jpeg2000/hv_metadata.h` | Releases the metadata index |
-| `hv_metadata_xml` | `jpeg2000/hv_metadata.h` | A frame's XML, in place in the store |
-| `hv_metadata_palette` | `jpeg2000/hv_metadata.h` | A frame's color table, copied out |
+| `hv_metadata_codestream_xml` | `jpeg2000/hv_metadata.h` | A codestream's XML, with file-level fallback |
+| `hv_metadata_layer_xml` | `jpeg2000/hv_metadata.h` | A layer's XML, including its registered codestreams and file-level fallback |
+| `hv_render_read`, `hv_render_palette` | `jpeg2000/hv_render.h` | Resolved layer channels and their display palette |
 | `hvc_reconstruct_status` | `hvc_reconstruct.h` | A frame's size, components and resolution levels, and how many levels are cached |
 | `hvc_reconstruct` | `hvc_reconstruct.h` | A frame as a JPEG 2000 codestream |
 | `hvc_openjpeg_decode` | `hvc_openjpeg.h` | OpenJPEG decoding in `esajpip_client_wasm` |
@@ -692,8 +693,9 @@ data-bin access. Each header documents its calls' results. Calls that take `erro
   index points into the store: XML pointers stay valid until
   `hvc_cache_release`, and the index must be closed before the store is
   released.
-- **Color tables.** `HV_PALETTE_MAX` bytes hold any table. A call with
-  capacity 0 returns `entries` and sets `channels` without writing.
+- **Client color tables.** `HVC_PALETTE_MAX` bytes hold any table returned
+  by `hvc_palette`. A call with capacity 0 returns `entries` and sets
+  `channels` without writing.
 - **Errors in a response.** When `hvc_jpp_next` or `hvc_cache_apply` fails, the
   response is refused. The source API does not latch a failed state. The host
   must retire that source and channel and invalidate its persisted cache. A new
@@ -843,7 +845,7 @@ checks below.
 | `client_cache` | The store: appending, identical overlap/replay, conflict and final-size refusals, completion, many bins and cache-model batching |
 | `client_jpp` | Messages written by the server's own writer and by the client's, read back |
 | `client_jpp_malformed` | Damaged messages, all refused |
-| `client_reconstruct` | Every codestream of the corpus, the transcoder's reference images and the merger's reference movie, served by the server's own code at each resolution: the written codestream, the cached levels, the decoded pixels, and the movie's frame count, XML and color tables |
+| `client_reconstruct` | Every codestream of the corpus, the transcoder's reference images and the merger's reference movie, served by the server's own code at each resolution: the written codestream, the cached levels, the decoded pixels, and the movie's frame count and XML |
 | `client_image` | Sample scaling at several precisions, and unchanged color table indices |
 | `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality; frames exported and imported between sources, their replay by the server, and refused blocks leaving the source unchanged |
 | `client_converter` | Refusal of incomplete/header-only/unconfirmed quality input without overwriting output; completed continuation, reduced windows and replay |

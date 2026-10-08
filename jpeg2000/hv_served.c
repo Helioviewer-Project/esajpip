@@ -133,11 +133,6 @@ typedef struct {
     size_t cap, n;
 } passed_set;
 
-static void passed_init(passed_set *set) {
-    set->slots = NULL;
-    set->cap = set->n = 0;
-}
-
 /* Unsigned arithmetic that wraps on purpose, which Clang's
  * -fsanitize=integer would report. */
 #if defined(__clang__)
@@ -248,10 +243,9 @@ const char *hv_check_served(const char *path, const uint8_t *buf, size_t size, i
     const char *error;
     hv_served_sources file;
     hv_box jp2c;
-    passed_set set;
+    passed_set set = {0};
     size_t i;
 
-    passed_init(&set);
     r->embedded = r->linked = 0;
     r->at = 0;
     r->at_linked = 0;

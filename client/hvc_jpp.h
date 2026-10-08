@@ -65,7 +65,6 @@ typedef struct {
     /* Per-response inheritance state, reset by hvc_jpp_begin(). */
     uint64_t       cls;
     uint64_t       codestream;
-    int            have_previous;
 
     int      reason;       /* end-of-response reason once HVC_JPP_EOR is seen */
     const char *error;     /* NULL unless the last call failed */
@@ -85,12 +84,6 @@ int hvc_jpp_reason(const hvc_jpp_reader *reader);
 
 /* A nonempty diagnostic after HVC_JPP_ERROR, empty otherwise. */
 const char *hvc_jpp_error(const hvc_jpp_reader *reader);
-
-/* True when the reason means the response ended normally for this window or
- * byte budget, so the channel may be reused with a further request. Both
- * window done and the limit reasons leave the channel usable; a session limit
- * or a window change does not continue this window. */
-int hvc_jpp_reason_continues(int reason);
 
 /* Writes one message with explicit class and CSn; Bin-ID within 37 bits.
  * Returns its size, written only when capacity holds it. */
