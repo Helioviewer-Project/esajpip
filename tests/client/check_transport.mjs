@@ -213,7 +213,6 @@ export async function checkTransport(wasm, server, image) {
         await empty.close();
 
         const repeating = await open(); sources.push(repeating);
-        const replayBudget = repeating.received;
         await fetch(`${server}/jpip?cid=${assigned.at(-1)}&cclose=${assigned.at(-1)}`);
         mode = "repeating-limit";
         repeatedReply = null;
@@ -223,8 +222,7 @@ export async function checkTransport(wasm, server, image) {
         await assert.rejects(repeating.frame(0), /did not make progress during cache restoration/);
         const repeats = requests.filter(url => url.searchParams.get("layers") === "0" &&
             !url.searchParams.has("fsiz"));
-        assert.ok(repeats.length > 1 && repeats.length <= replayBudget + 1,
-                  "repeating limited replies exceeded the metadata continuation bound");
+        assert.equal(repeats.length, 2, "repeated metadata was not stopped on its first replay");
         mode = "pass";
         assert.ok((await repeating.frame(0)).pixels.length > 0);
         await repeating.close();

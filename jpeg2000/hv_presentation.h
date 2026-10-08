@@ -90,6 +90,9 @@ const char *hv_palette_open(const uint8_t *buf, const hv_box *box,
                             hv_palette *palette, size_t *at);
 const char *hv_palette_read(const hv_palette *palette, size_t entry, size_t column,
                             hv_palette_sample *sample);
+/* Convert an exact palette sample to a display byte, rounding and saturating.
+ * Depths below 8 bits expand their full range to 0..255. */
+uint8_t hv_palette_byte(const hv_palette_sample *sample);
 
 typedef struct {
     hv_box header;              /* zero type for an implicit layer */

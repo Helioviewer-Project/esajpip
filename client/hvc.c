@@ -2,6 +2,7 @@
 #ifndef __wasi__
 #include "jpeg2000/hv_local.h"
 #endif
+#include "hvc_delivery.h"
 #include "hvc_metadata.h"
 #include "hvc_reconstruct.h"
 #include "hvc_frame.h"
@@ -28,6 +29,7 @@ struct hvc {
     hv_presentation presentation;
     const uint8_t *presentation_data;
     hvc_cache cache;
+    hvc_delivery *delivery;
     hv_metadata metadata;
     char error[256];
     int pending;
@@ -218,6 +220,7 @@ void hvc_destroy(hvc *client) {
 #ifndef __wasi__
     hv_local_close(client->local);
 #endif
+    hvc_delivery_free(client->delivery);
     free(client->info);
     for (size_t i = 0; i < client->palette_count; i++) free(client->palettes[i].table);
     free(client->palettes);
@@ -229,7 +232,8 @@ void hvc_destroy(hvc *client) {
 
 const char *hvc_error(const hvc *client) { return client->error; }
 
-static int ingest(hvc *client, const uint8_t *body, size_t size, int restoring) {
+static int ingest(hvc *client, const uint8_t *body, size_t size, int restoring,
+                   hvc_delivery *delivery, int *progress) {
     hvc_jpp_reader reader;
     hvc_jpp_message message;
     int status;
@@ -240,6 +244,11 @@ static int ingest(hvc *client, const uint8_t *body, size_t size, int restoring) 
                 return fail(client, "replacement channel metadata differs from the cache");
         } else if (!hvc_cache_apply(&client->cache, &message))
             return fail(client, hvc_cache_error(&client->cache));
+        if (delivery) {
+            int changed = hvc_delivery_receive(delivery, &message);
+            if (changed < 0) return fail(client, "out of memory tracking response delivery");
+            *progress |= changed;
+        }
     }
     if (status == HVC_JPP_ERROR) return fail(client, hvc_jpp_error(&reader));
     return hvc_jpp_reason(&reader);
@@ -249,11 +258,12 @@ static int completed(int reason) {
     return reason == HVC_EOR_WINDOW_DONE || reason == HVC_EOR_IMAGE_DONE;
 }
 
-int hvc_response(hvc *client, const uint8_t *body, size_t size) {
+static int response(hvc *client, const uint8_t *body, size_t size,
+                     hvc_delivery *delivery, int *progress) {
 #ifndef __wasi__
     if (client->local) return fail(client, "JPIP operations require a remote source");
 #endif
-    int reason = ingest(client, body, size, 0);
+    int reason = ingest(client, body, size, 0, delivery, progress);
     if (reason < 0 || !client->pending) return reason;
     if (!completed(reason)) {
         client->pending = HVC_READY;
@@ -271,6 +281,15 @@ int hvc_response(hvc *client, const uint8_t *body, size_t size) {
     }
     client->pending = HVC_READY;
     return reason;
+}
+
+int hvc_response(hvc *client, const uint8_t *body, size_t size) {
+    return response(client, body, size, NULL, NULL);
+}
+
+void hvc_new_channel(hvc *client) {
+    hvc_delivery_free(client->delivery);
+    client->delivery = NULL;
 }
 
 size_t hvc_frames(hvc *client) {
@@ -386,14 +405,38 @@ int hvc_model(hvc *client, size_t *cursor, char *text, size_t capacity) {
     return result;
 }
 
-int hvc_restore_response(hvc *client, const uint8_t *body, size_t size) {
+static int restore_response(hvc *client, const uint8_t *body, size_t size,
+                             hvc_delivery *delivery, int *progress) {
 #ifndef __wasi__
     if (client->local) return fail(client, "JPIP operations require a remote source");
 #endif
-    int reason = ingest(client, body, size, 1);
+    int reason = ingest(client, body, size, 1, delivery, progress);
     if (reason >= 0 && !completed(reason) && reason != HVC_EOR_BYTE_LIMIT_REACHED)
         return fail(client, "replacement channel did not complete cache restoration");
     return reason;
+}
+
+int hvc_restore_response(hvc *client, const uint8_t *body, size_t size) {
+    return restore_response(client, body, size, NULL, NULL);
+}
+
+static int tracked_response(hvc *client, const uint8_t *body, size_t size,
+                             uint64_t window, int restoring, int *progress) {
+    *progress = 0;
+    hvc_delivery *delivery = hvc_delivery_window(&client->delivery, window);
+    if (!delivery) return fail(client, "out of memory tracking response delivery");
+    int reason = restoring ? restore_response(client, body, size, delivery, progress)
+                           : response(client, body, size, delivery, progress);
+    if (completed(reason)) hvc_delivery_end(&client->delivery, window);
+    return reason;
+}
+
+int hvc_response_progress(hvc *client, const uint8_t *body, size_t size,
+                          uint64_t window, int *progress) {
+    return tracked_response(client, body, size, window, 0, progress);
+}
+int hvc_restore_response_progress(hvc *client, const uint8_t *body, size_t size, int *progress) {
+    return tracked_response(client, body, size, UINT64_MAX, 1, progress);
 }
 
 static int metadata(hvc *client) {
@@ -415,50 +458,44 @@ int hvc_xml(hvc *client, uint64_t frame, const uint8_t **xml, size_t *size) {
                                   xml, size, client->error, sizeof client->error);
 }
 
-static int read_palette(hvc *client, size_t codestream, int *channels, uint8_t *table, size_t capacity) {
-#ifndef __wasi__
-    if (client->local)
-        return hv_local_palette(client->local, codestream, channels, table, capacity,
-                                 client->error, sizeof client->error);
-#endif
-    if (metadata(client)) return -1;
-    return hv_metadata_palette(&client->metadata, codestream, channels, table, capacity,
-                               client->error, sizeof client->error);
-}
-
-/* Palettes belong to immutable codestream metadata, shared by every layer
- * that uses that codestream. Cache absence too; failed reads remain retryable. */
+/* Rendering order belongs to the layer, even when layers share a codestream. */
 int hvc_palette(hvc *client, uint64_t frame, int *channels, uint8_t *table, size_t capacity) {
-    size_t codestream;
+    const uint8_t *data;
     *channels = 0;
-    if (frame_codestream(client, frame, &codestream)) return -1;
+    const hv_presentation *view = frame_presentation(client, frame, &data);
+    if (!view) return -1;
+    if (view->layer[frame].registration.count != 1)
+        return fail(client, "unsupported multiple-codestream composition");
     if (!client->palettes) {
-        size_t count = hvc_codestreams(client);
-        if (!count) return -1;
-        client->palettes = calloc(count, sizeof *client->palettes);
+        client->palettes = calloc(view->layers, sizeof *client->palettes);
         if (!client->palettes) return fail(client, "out of memory");
-        client->palette_count = count;
+        client->palette_count = view->layers;
     }
-    hvc_palette_table *palette = &client->palettes[codestream];
+    hvc_palette_table *palette = &client->palettes[frame];
     if (!palette->ready) {
-        int count = 0;
-        int entries = read_palette(client, codestream, &count, NULL, 0);
-        if (entries < 0) return -1;
-        size_t size = (size_t)entries * count;
-        uint8_t *bytes = NULL;
-        if (size) {
-            bytes = malloc(size);
-            if (!bytes) return fail(client, "out of memory");
-            if (read_palette(client, codestream, &count, bytes, size) < 0) {
-                free(bytes);
-                return -1;
-            }
+        hv_presentation_headers headers;
+        size_t at;
+        const char *reason = hv_presentation_read_headers(data, view, (size_t)frame, 0, &headers, &at);
+        if (reason) return fail(client, reason);
+        hv_render render = {0};
+        if (headers.palette.type && headers.mapping.type) {
+            /* Resolve metadata without asserting a decoder's output count.
+             * The decoder validates actual component indices when inspecting. */
+            reason = hv_render_read(data, view, (size_t)frame, SIZE_MAX, &render, &at);
+            if (reason) return fail(client, reason);
         }
-        *palette = (hvc_palette_table){bytes, entries, count, 1};
+        size_t entries = render.palette.entry_count;
+        int count = entries ? (int)render.channel_count : 0;
+        size_t size = entries * (size_t)count;
+        uint8_t *bytes = size ? malloc(size) : NULL;
+        if (size && !bytes) return fail(client, "out of memory");
+        reason = hv_render_palette(&render, entries, bytes, size);
+        if (reason) { free(bytes); return fail(client, reason); }
+        *palette = (hvc_palette_table){bytes, (int)entries, count, 1};
     }
     *channels = palette->channels;
     size_t size = (size_t)palette->entries * palette->channels;
-    if (size && capacity >= size) memcpy(table, palette->table, size);
+    if (table && size && capacity >= size) memcpy(table, palette->table, size);
     return palette->entries;
 }
 

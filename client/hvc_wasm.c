@@ -22,6 +22,7 @@ _Static_assert(sizeof(size_t) == 4, "JavaScript uses the wasm32 size_t ABI");
 static hvc *client;
 static hvc_image image;
 static char error[256];
+static int progress;
 
 /* Memory for the host to place a response body in. */
 void *EXPORT(hvc_wasm_alloc)(size_t size) {
@@ -34,19 +35,25 @@ void EXPORT(hvc_wasm_free)(void *memory) {
 
 /* Adds the data-bins of one response body to the store: its end-of-response
  * reason (T.808 D.3), or -1 with hvc_wasm_error. */
-int EXPORT(hvc_wasm_response)(const uint8_t *body, size_t size) {
+int EXPORT(hvc_wasm_response)(const uint8_t *body, size_t size, int32_t window) {
     error[0] = 0;
     if (!client && !(client = hvc_create(NULL, NULL))) {
         snprintf(error, sizeof error, "out of memory");
         return -1;
     }
-    return hvc_response(client, body, size);
+    return hvc_response_progress(client, body, size, (uint64_t)(int64_t)window, &progress);
 }
 
 int EXPORT(hvc_wasm_restore_response)(const uint8_t *body, size_t size) {
     error[0] = 0;
     if (!client) return -1;
-    return hvc_restore_response(client, body, size);
+    return hvc_restore_response_progress(client, body, size, &progress);
+}
+
+int EXPORT(hvc_wasm_progress)(void) { return progress; }
+void EXPORT(hvc_wasm_new_channel)(void) {
+    progress = 0;
+    if (client) hvc_new_channel(client);
 }
 
 void EXPORT(hvc_wasm_cancel_request)(void) {
@@ -189,6 +196,7 @@ const char *EXPORT(hvc_wasm_error)(void) {
 void EXPORT(hvc_wasm_reset)(void) {
     hvc_destroy(client);
     client = NULL;
+    progress = 0;
     free(image.pixels);
     image.pixels = NULL;
     xml = NULL;

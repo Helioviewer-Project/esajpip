@@ -1,6 +1,6 @@
 # Core client for a host decoder; the extended client also decodes with OpenJPEG.
 set(esajpip_client_srcs
-    hvc.c hvc_jpp.c hvc_cache.c hvc_frame.c hvc_reconstruct.c hvc_metadata.c)
+    hvc.c hvc_jpp.c hvc_delivery.c hvc_cache.c hvc_frame.c hvc_reconstruct.c hvc_metadata.c)
 
 set(openjpeg_srcs
     bio.c cio.c dwt.c event.c function_list.c ht_dec.c image.c invert.c j2k.c

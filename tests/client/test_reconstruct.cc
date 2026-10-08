@@ -652,10 +652,10 @@ int main() {
         const Bytes cmap = {0, 0, 1, 2, 0, 0, 1, 0, 0, 0, 1, 1};
         Palette found = palette(box("jp2h", box("pclr", columns + values) + box("cmap", cmap)));
         check(found.entries == 2 && found.channels == 3 &&
-              found.table == Bytes({0, 255, 0xAB, 255, 85, 0x12}), "made-up color table: " + found.error);
+              found.table == Bytes({0, 255, 0xAC, 255, 85, 0x12}), "made-up color table: " + found.error);
         found = palette(box("jpch", box("cmap", cmap)) + box("jp2h", box("pclr", columns + values)));
         check(found.entries == 2 && found.channels == 3 &&
-              found.table == Bytes({0, 255, 0xAB, 255, 85, 0x12}), "palette inherited box by box");
+              found.table == Bytes({0, 255, 0xAC, 255, 85, 0x12}), "palette inherited box by box");
         found = palette(box("jp2h", box("pclr", columns + values) + box("cmap", cmap)), 5);
         check(found.entries == 2 && found.channels == 3 && found.table == Bytes(5, 0xEE),
               "color table written without room");

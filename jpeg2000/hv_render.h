@@ -27,11 +27,20 @@ typedef struct {
  * registration, multiple sources and pixel-format overrides are unsupported.
  * This supplies channel instructions, not decoded geometry/pixels: the host
  * must check selected output sample grids and decode capabilities before use.
+ * SIZE_MAX permits metadata-only channel resolution without claiming a decoder
+ * output count; component existence must then be checked before decoding.
  * Palette bytes borrow the presentation input until it is released. No allocation;
  * output unchanged on failure. Source byte access is independent of this call. */
 const char *hv_render_read(const uint8_t *buf, const hv_presentation *presentation,
                            size_t layer, size_t output_components,
                            hv_render *render, size_t *at);
+/* Display bytes in resolved color order, one gray or three RGB per entry.
+ * Requires all selected channels to map one palette index component. entries
+ * is the desired table length; indices past the source table repeat its last
+ * entry. A NULL output validates without copying; short buffers are untouched.
+ * No allocation. The descriptor comes from a successful render_read. */
+const char *hv_render_palette(const hv_render *render, size_t entries,
+                              uint8_t *out, size_t capacity);
 #ifdef __cplusplus
 }
 #endif

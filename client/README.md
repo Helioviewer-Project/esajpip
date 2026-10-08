@@ -488,6 +488,16 @@ remove highest resolution levels. `INT_MAX` selects the lowest resolution.
 Do not combine a fit with a nonzero reduction. `layers=0` means all source
 layers; positive values are clamped to the frame's layer count.
 
+`hvc_palette` returns the selected layer's display table: one grayscale or
+three RGB bytes per entry, with CMAP columns and CDEF color order resolved.
+Its natural entry count is preserved. Table conversion and absence are cached
+per layer, since layers sharing a codestream can have different channel order.
+This is a metadata query and needs no codestream header; the decoder still
+checks index components and precision. A short output buffer is untouched and
+returns the required entry count. `hv_render_palette` provides the same conversion
+from resolved rendering instructions for host decoders, allowing an explicit
+table length and repeating the last entry beyond the original palette.
+
 `hvc_status` inspects readiness without preparing a request.
 `hvc_prepare` also remembers the exact request to confirm after its
 response. A missing header produces `HVC_HEADER`; its geometry is zero.
@@ -505,6 +515,27 @@ Preparation can raise quality to full when previously received unconfirmed
 bytes make a smaller layer boundary ambiguous. Normal completion confirms
 whole-packet boundaries. The client uses each frame's own header; old servers
 still have the mixed-size movie limitation documented in [CLASSICAL.md](CLASSICAL.md).
+
+For exact continuation progress, use `hvc_response_progress` instead of
+`hvc_response`. Pass a stable window token for each sequence of limited responses
+(a frame index is convenient, `UINT64_MAX` identifies metadata). Its additional
+output reports new data-bin ranges or final flags delivered within that window.
+On a limit EOR, zero progress means the server is repeating data and the host
+must stop that continuation. A completed window retires only its own history.
+Tracking is optional, stores no payload copies, and does not expand
+`hvc_prepare`'s single-pending-request contract. Full-quality hosts can track
+independent pipelined windows while using status rather than prepare.
+
+Call `hvc_new_channel` when replacing the channel, retaining cached data while
+resetting delivery histories. A replay of cached bytes on the new channel is
+new delivery, and a repeated replay within one continuation is not. During
+metadata restoration, `hvc_restore_response_progress` applies the existing
+immutable-metadata checks and reports progress using the metadata window.
+JHV and the JavaScript client use this same tracker; HTTP, retries and scheduling
+remain with the hosts. The JavaScript client continues byte- and response-limited
+frame windows automatically and stops on the first continuation with no new
+delivery. Deploy its JavaScript and WebAssembly builds together; the response
+export now also accepts the window token.
 
 ```c
 hvc *source = hvc_create(inspect, decoder_context);

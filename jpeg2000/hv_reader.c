@@ -2162,6 +2162,18 @@ const char *hv_palette_read(const hv_palette *palette, size_t entry, size_t colu
     return NULL;
 }
 
+uint8_t hv_palette_byte(const hv_palette_sample *sample) {
+    uint64_t value = (uint64_t)(sample->value +
+        (sample->is_signed ? (INT64_C(1) << (sample->bits - 1)) : 0));
+    if (sample->bits <= 8) {
+        uint64_t max = (UINT64_C(1) << sample->bits) - 1;
+        value = (value * 255 + max / 2) / max;
+    } else {
+        value = (value + (UINT64_C(1) << (sample->bits - 9))) >> (sample->bits - 8);
+    }
+    return (uint8_t)(value > 255 ? 255 : value);
+}
+
 void hv_presentation_free(hv_presentation *p) {
     free(p->codestream_headers);
     free(p->layer);

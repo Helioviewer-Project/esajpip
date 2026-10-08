@@ -329,6 +329,10 @@ static void colour_fields(void) {
     check(hv_colour_read(body,&box,&colour,&at)!=NULL,"wrong colour box type");
 }
 static void palette_fields(void) {
+    const hv_palette_sample middle[]={{2,3,0},{341,10,0},{682,10,0},{-171,10,1}};
+    const uint8_t display[]={73,85,171,85};
+    for(size_t i=0;i<sizeof display;i++)
+        check(hv_palette_byte(&middle[i])==display[i],"palette display rounding");
     hv_box box={0}; box.type=HV_BOX_PCLR;
     hv_palette palette={0}, saved; hv_palette_sample sample={0}, saved_sample;
     size_t at;
@@ -352,6 +356,7 @@ static void palette_fields(void) {
                                : (e ? (INT64_C(1)<<bits)-1 : 0);
             check(!hv_palette_read(&palette,e,c,&sample) && sample.value==expected &&
                   sample.bits==bits && sample.is_signed==(int)c,"exact palette value and padding mask");
+            check(hv_palette_byte(&sample)==(e?255:0),"palette display endpoints");
         }
         saved_sample=sample;
         check(hv_palette_read(&palette,2,0,&sample) && !memcmp(&sample,&saved_sample,sizeof sample) &&

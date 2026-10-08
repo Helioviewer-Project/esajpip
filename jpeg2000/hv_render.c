@@ -165,3 +165,26 @@ fail:
     *at = pos;
     return error;
 }
+
+const char *hv_render_palette(const hv_render *render, size_t entries, uint8_t *out, size_t capacity) {
+    if (!render->palette.entry_count) return NULL;
+    for (size_t c = 0; c < render->channel_count; c++) {
+        if (render->channel[c].palette_column < 0)
+            return "unsupported mix of palette and direct channels";
+        if (render->channel[c].component != render->channel[0].component)
+            return "unsupported palette on several components";
+    }
+    if (!out) return NULL;
+    if (entries > capacity / render->channel_count) return "palette output buffer too small";
+    for (size_t i = 0; i < entries; i++) {
+        size_t entry = i < render->palette.entry_count ? i : render->palette.entry_count - 1;
+        for (size_t c = 0; c < render->channel_count; c++) {
+            hv_palette_sample sample;
+            const char *reason = hv_palette_read(&render->palette, entry,
+                                                 (size_t)render->channel[c].palette_column, &sample);
+            if (reason) return reason;
+            *out++ = hv_palette_byte(&sample);
+        }
+    }
+    return NULL;
+}

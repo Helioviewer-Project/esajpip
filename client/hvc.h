@@ -91,6 +91,16 @@ const char *hvc_error(const hvc *client);
  * subsequent calls are not automatically disabled. Existing immutable decode
  * inputs remain subject to their documented source lifetime. */
 int hvc_response(hvc *client, const uint8_t *body, size_t size);
+/* Optional continuation tracking: same ingestion and request confirmation as
+ * response, plus whether this window delivered an unseen range or final flag.
+ * window identifies an independent request sequence; UINT64_MAX is metadata.
+ * Reuse it for limited continuations. WINDOW_DONE/IMAGE_DONE retires only its
+ * own history. Tracking stores ranges, never payload copies. */
+int hvc_response_progress(hvc *client, const uint8_t *body, size_t size,
+                          uint64_t window, int *progress);
+/* Begin a replacement channel: reset delivery histories, retain cached bytes.
+ * Identical bytes replayed on the replacement channel are new delivery. */
+void hvc_new_channel(hvc *client);
 /* Frames are JPX layers in file order, or JP2's single implicit layer. */
 size_t hvc_frames(hvc *client);
 /* Source count, used for a metadata-only restoration request. */
@@ -129,8 +139,14 @@ void hvc_cancel_request(hvc *client);
  * finish restoration at WINDOW_DONE or IMAGE_DONE before resuming frames. */
 int hvc_model(hvc *client, size_t *cursor, char *text, size_t capacity);
 int hvc_restore_response(hvc *client, const uint8_t *body, size_t size);
+/* The same restoration checks, with metadata delivery progress as above. */
+int hvc_restore_response_progress(hvc *client, const uint8_t *body, size_t size, int *progress);
 
 /* XML is borrowed until destroy; palette is copied into the supplied buffer.
+ * Palette entries contain one grayscale or three RGB bytes in resolved layer
+ * color order, including CMAP and CDEF. No codestream header is needed; the
+ * decoder checks the actual index component and precision before decoding.
+ * A short buffer remains untouched and returns the required entry count.
  * Palette conversion is lazy and retained until destroy, including absence.
  * codestream follows the size-query/caller-buffer convention,
  * preserving sample precision for the host's decoder. */

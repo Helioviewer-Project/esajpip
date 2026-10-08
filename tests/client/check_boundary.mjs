@@ -10,7 +10,7 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
         await assert.rejects(JpipSource.open({ wasm: invalid, server, image }),
                              { name: "TypeError", message: "wasm must be a URL or URL string" });
     const functions = ["_initialize", "hvc_wasm_alloc", "hvc_wasm_free", "hvc_wasm_response",
-        "hvc_wasm_restore_response", "hvc_wasm_cancel_request", "hvc_wasm_model", "hvc_wasm_model_next",
+        "hvc_wasm_restore_response", "hvc_wasm_progress", "hvc_wasm_new_channel", "hvc_wasm_cancel_request", "hvc_wasm_model", "hvc_wasm_model_next",
         "hvc_wasm_frames", "hvc_wasm_codestreams", "hvc_wasm_xml_size", "hvc_wasm_xml",
         "hvc_wasm_palette", "hvc_wasm_palette_channels", "hvc_wasm_palette_table", "hvc_wasm_view",
         "hvc_wasm_decode", "hvc_wasm_pixels", "hvc_wasm_width", "hvc_wasm_height",
@@ -92,6 +92,8 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
         assert.equal(exports.hvc_wasm_model(0, 2048), 0);
         assert.equal(exports.hvc_wasm_restore_response(0, 0), -1);
         exports.hvc_wasm_cancel_request();
+        exports.hvc_wasm_new_channel();
+        assert.equal(exports.hvc_wasm_progress(), 0);
         assert.equal(exports.hvc_wasm_decode(0, 0), -1);
         assert.equal(exports.hvc_wasm_xml_size(0), -1);
         assert.equal(exports.hvc_wasm_palette(0), -1);

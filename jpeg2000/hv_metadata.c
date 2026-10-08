@@ -325,10 +325,7 @@ int hv_metadata_palette(const hv_metadata *metadata, uint64_t codestream,
         for (channel = 0; channel < count; channel++) {
             hv_palette_sample sample;
             hv_palette_read(&palette, i, column[channel], &sample);
-            uint64_t value = (uint64_t)(sample.value +
-                (sample.is_signed ? (INT64_C(1) << (sample.bits - 1)) : 0));
-            *table++ = (uint8_t)(sample.bits >= 8 ? value >> (sample.bits - 8)
-                : value * 255 / ((UINT64_C(1) << sample.bits) - 1));
+            *table++ = hv_palette_byte(&sample);
         }
     }
     return (int)palette.entry_count;

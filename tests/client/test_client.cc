@@ -320,7 +320,7 @@ static void box(Bytes &bytes, const char *type, const Bytes &payload) {
     bytes.insert(bytes.end(), type, type + 4);
     bytes.insert(bytes.end(), payload.begin(), payload.end());
 }
-static Bytes fixture(int layers, bool palette_mapping = true) {
+static Bytes fixture(int layers, bool palette_mapping = true, bool shared = false) {
     Sources sources;
     const jpip::Source *original = sources.GetSource(IMAGE);
     check(original != nullptr, "fixture input");
@@ -354,9 +354,9 @@ static Bytes fixture(int layers, bool palette_mapping = true) {
     }
     for (int layer = 0; layer < layers; layer++) {
         Bytes header;
-        box(header, "creg", {0,1,0,1,0,static_cast<uint8_t>(1-layer),1,1,0,0});
+        box(header, "creg", {0,1,0,1,0,static_cast<uint8_t>(shared ? 0 : 1-layer),1,1,0,0});
         // Reverse channel order; do not confuse channel order with CS order.
-        if (palette_mapping)
+        if (palette_mapping && (!shared || layer == 0))
             box(header, "cdef", {0,3, 0,0,0,0,0,3, 0,1,0,0,0,2, 0,2,0,0,0,1});
         box(bytes, "jplh", header);
     }
@@ -498,6 +498,81 @@ static int mismatched_inspect(hvc *client, size_t frame, void *context, hvc_info
     int result = inspect(client, frame, context, info, error, error_size);
     if (*static_cast<int *>(context) == 1) info->width[0]++;
     return result;
+}
+
+static void shared_palettes() {
+    Bytes bytes = fixture(2, true, true);
+    char path[] = "/tmp/hvc-palette-XXXXXX";
+    int fd = mkstemp(path);
+    check(fd >= 0 && write(fd, bytes.data(), bytes.size()) == static_cast<ssize_t>(bytes.size()) && close(fd) == 0,
+          "write shared palette fixture");
+    Sources sources;
+    jpip::ImageIndex image(path);
+    check(image.Open(*sources.GetSource(path), sources, true), image.GetError());
+    char error[256];
+    hvc *local = hvc_open_local(path, nullptr, nullptr, error, sizeof error);
+    hvc *remote = hvc_create(nullptr, nullptr);
+    check(local && remote, "shared palette sources");
+    jpip::DataBinServer server;
+    jpip::ResponseRequest opening;
+    opening.AddStream(2, 2); opening.layers = 0;
+    submit(remote, response(server, image, sources, opening));
+    for (hvc *client : {local, remote}) {
+        Bytes reversed = check_palette(client, 0), direct = check_palette(client, 1);
+        check(reversed.size() == 768 && direct.size() == 768 &&
+              Bytes(reversed.begin() + 15, reversed.begin() + 18) == Bytes({2, 250, 5}) &&
+              Bytes(direct.begin() + 15, direct.begin() + 18) == Bytes({5, 250, 2}),
+              "shared codestream palettes follow each layer's color order");
+        check(check_palette(client, 0) == reversed, "layer palette cache was overwritten");
+        hvc_destroy(client);
+    }
+    check(unlink(path) == 0, "remove shared palette fixture");
+}
+
+static void delivery_progress() {
+    hvc *client = hvc_create(nullptr, nullptr);
+    check(client != nullptr, "delivery source");
+    uint8_t data[128]; std::memset(data, 42, sizeof data);
+    auto reply = [&](size_t offset, size_t length, int last) {
+        hvc_jpp_message message = {HVC_BIN_META_DATA, 0, 0, offset, length, last, data + offset};
+        Bytes bytes(hvc_jpp_write(&message, nullptr, 0));
+        check(hvc_jpp_write(&message, bytes.data(), bytes.size()) == bytes.size(), "write replay range");
+        bytes.insert(bytes.end(), {0, 4, 0});
+        return bytes;
+    };
+    Bytes whole = reply(0, sizeof data, 1);
+    check(hvc_response(client, whole.data(), whole.size()) == 4, "seed cache without tracking");
+    bool seen[128] = {};
+    int progress;
+    for (size_t step = 0; step < 512; step++) {
+        size_t offset = step * 37 % 128, length = std::min(128 - offset, step * 11 % 17 + 1);
+        bool expected = false;
+        for (size_t i = offset; i < offset + length; i++) { expected |= !seen[i]; seen[i] = true; }
+        Bytes bytes = reply(offset, length, 0);
+        check(hvc_response_progress(client, bytes.data(), bytes.size(), 7, &progress) == 4 &&
+              progress == expected, "reordered ranges disagree with delivered byte coverage");
+    }
+    check(hvc_response_progress(client, whole.data(), whole.size(), 7, &progress) == 4 && progress,
+          "first final flag is progress");
+    check(hvc_response_progress(client, whole.data(), whole.size(), 7, &progress) == 4 && !progress,
+          "replayed final flag is not progress");
+    const uint8_t done[] = {0, 2, 0};
+    check(hvc_response_progress(client, done, sizeof done, 8, &progress) == 2, "independent window completed");
+    check(hvc_response_progress(client, whole.data(), whole.size(), 7, &progress) == 4 && !progress,
+          "another completion erased unfinished history");
+    check(hvc_response_progress(client, done, sizeof done, 7, &progress) == 2, "own window completed");
+    check(hvc_response_progress(client, whole.data(), whole.size(), 7, &progress) == 4 && progress,
+          "completed history was not retired");
+    hvc_new_channel(client);
+    check(hvc_restore_response_progress(client, whole.data(), whole.size(), &progress) == 4 && progress,
+          "replacement channel metadata replay is progress");
+    check(hvc_restore_response_progress(client, whole.data(), whole.size(), &progress) == 4 && !progress,
+          "replacement channel repeated metadata is stalled");
+    data[0] ^= 1;
+    Bytes changed = reply(0, sizeof data, 1);
+    check(hvc_restore_response_progress(client, changed.data(), changed.size(), &progress) < 0 && !progress,
+          "conflicting restoration data was accepted");
+    hvc_destroy(client);
 }
 
 static void inspection_retry() {
@@ -799,6 +874,10 @@ int main(int argc, char **argv) {
         std::ofstream output(std::string(argv[2]) + "/palette-rgb.jpx", std::ios::binary);
         output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
         check(static_cast<bool>(output), "write WASM decode failure fixture");
+        bytes = fixture(2, true, true);
+        std::ofstream shared(std::string(argv[2]) + "/shared-palette.jpx", std::ios::binary);
+        shared.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+        check(static_cast<bool>(shared), "write WASM shared palette fixture");
         return 0;
     }
     verify(IMAGE, false);
@@ -806,6 +885,8 @@ int main(int argc, char **argv) {
     persisted(IMAGE, false);
     persisted(MOVIE, true);
     cross_source();
+    shared_palettes();
+    delivery_progress();
     inspection_retry();
     partial_inspection(IMAGE);
     partial_inspection(GRAY);

@@ -123,7 +123,14 @@ export class JpipChannel {
         // this one asks for the lowest resolution of codestream zero.
         // Layer zero can refer to another codestream; #fetch resolves it.
         try {
-            await channel.#request({ stream: 0, fsiz: [1, 1, "closest"] });
+            let reason;
+            do {
+                reason = await channel.#request({ stream: 0, fsiz: [1, 1, "closest"] });
+                if ((reason === 4 || reason === 7) && !channel.#wasm.hvc_wasm_progress())
+                    throw new Error("initial response made no progress");
+            } while (reason === 4 || reason === 7);
+            if (reason !== 1 && reason !== 2)
+                throw new Error("the server did not complete the initial window");
             channel.frames = channel.#wasm.hvc_wasm_frames() >>> 0;
             if (channel.frames === 0)
                 throw new Error(channel.#error());
@@ -181,7 +188,7 @@ export class JpipChannel {
 
     // The color table of a frame, or null if it has none: { entries,
     // channels, table }, where `table` is the caller's: a Uint8Array of
-    // `channels` values (3 for red, green, blue) for each of `entries`
+    // `channels` values (1 grayscale or 3 RGB in resolved layer order) for each of `entries`
     // sample values. It is not applied to the frame's pixels.
     palette(index) {
         this.#checkIndex(index);
@@ -291,7 +298,7 @@ export class JpipChannel {
 
     // Retry an interrupted operation once, after restoring a replacement
     // channel. Transport failure preserves cached frames; ingestion refusal retires the cache.
-    async #request(fields) {
+    async #request(fields, window = -1) {
         if (this.#failed !== null)
             throw this.#failed;
         let restoring = this.#needsRecovery;
@@ -300,17 +307,17 @@ export class JpipChannel {
                 await this.#recover();
                 this.#needsRecovery = false;
                 restoring = false;
-                return await this.#exchange(fields);
+                return await this.#exchange(fields, false, window);
             }
             try {
-                return await this.#exchange(fields);
+                return await this.#exchange(fields, false, window);
             } catch (error) {
                 if (!error.recoverable || error.timedOut || this.frames === 0 || this.#closing)
                     throw error;
                 restoring = true;
                 await this.#recover();
                 restoring = false;
-                return await this.#exchange(fields);
+                return await this.#exchange(fields, false, window);
             }
         } catch (error) {
             if ((error.recoverable || restoring) && this.frames !== 0 && !this.#closing) {
@@ -321,7 +328,7 @@ export class JpipChannel {
         }
     }
 
-    async #exchange(fields, restoring = false) {
+    async #exchange(fields, restoring = false, window = -1) {
         if (this.#closing) throw new Error("the channel is closed");
         let response, body;
         try {
@@ -355,7 +362,7 @@ export class JpipChannel {
         try {
             new Uint8Array(wasm.memory.buffer, at, body.length).set(body);
             reason = restoring ? wasm.hvc_wasm_restore_response(at, body.length)
-                               : wasm.hvc_wasm_response(at, body.length);
+                               : wasm.hvc_wasm_response(at, body.length, window);
         } finally {
             wasm.hvc_wasm_free(at);
         }
@@ -376,6 +383,7 @@ export class JpipChannel {
         if (this.#closing)
             throw new Error("the channel is closed");
         this.#target = this.#image;
+        this.#wasm.hvc_wasm_new_channel();
         let cursor = 0;
         for (;;) {
             if (this.#closing)
@@ -397,16 +405,11 @@ export class JpipChannel {
             const model = new TextDecoder().decode(bytes.subarray(0, bytes.indexOf(0)));
             if (model === "" && this.#cid !== null) break;
             if (model !== "") fields.model = model;
-            // Only metadata can be replayed in this window. Its size cannot
-            // exceed all bytes received before restoration; allow at most one
-            // continuation per such byte, and reject an empty limited reply.
-            let remaining = this.received, before = this.received;
             let reason = await this.#exchange(fields, true);
             delete fields.model; // Partial-bin declarations are additive.
             while (reason === 4) {
-                if (this.received - before <= 3 || --remaining < 0)
+                if (!this.#wasm.hvc_wasm_progress())
                     throw new Error("replacement channel did not make progress during cache restoration");
-                before = this.received;
                 reason = await this.#exchange(fields, true);
             }
             if (reason !== 1 && reason !== 2)
@@ -465,7 +468,12 @@ export class JpipChannel {
             const fields = request === 1 ? { stream: status.codestream, layers: 0 }
                 : { stream: status.codestream, fsiz: [status.width, status.height, "closest"] };
             if (request === 2 && "layers" in options) fields.layers = requestedLayers;
-            const reason = await this.#request(fields);
+            const reason = await this.#request(fields, index);
+            if (reason === 4 || reason === 7) {
+                if (!this.#wasm.hvc_wasm_progress())
+                    throw new Error("requested window made no progress");
+                continue;
+            }
             if (reason !== 1 && reason !== 2)
                 throw new Error("the server did not complete the requested quality layers");
         }

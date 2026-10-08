@@ -168,6 +168,16 @@ try {
         await channel.close();
         for (const at of reserved) wasmExports.hvc_wasm_free(at);
     }
+    const mapped = await JpipChannel.open(wasm, server, "shared-palette.jpx");
+    try {
+        const reversed = mapped.palette(0), direct = mapped.palette(1);
+        assert.equal(reversed.channels, 3);
+        assert.equal(direct.channels, 3);
+        assert.deepEqual(reversed.table.slice(15, 18), new Uint8Array([2, 250, 5]));
+        assert.deepEqual(direct.table.slice(15, 18), new Uint8Array([5, 250, 2]));
+        assert.deepEqual(mapped.palette(0), reversed, "shared codestream overwrote the first layer's palette");
+    } finally { await mapped.close(); }
+
     // Nine live instances exercise allocation growth beyond the engine's
     // small-instance reservation case. Growth is independent of block rounding.
     const heaps = [], channels = [];

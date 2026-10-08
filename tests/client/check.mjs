@@ -239,13 +239,38 @@ try {
         return new Response(bytes, { status: response.status, headers: response.headers });
     };
     try {
-        await assert.rejects(interrupted.frame(0, { fit: [512, 512], layers: 1 }),
-                             /did not complete the requested quality layers/);
-        await interrupted.frame(0, { fit: [512, 512], layers: 1 });
-        assert.equal(interruptedRequests, 2, "incomplete response was recorded as delivered quality");
+        const continued = await interrupted.frame(0, { fit: [512, 512], layers: 1 });
+        assert.equal(continued.ready, true);
+        assert.ok(continued.layers >= Math.min(1, continued.totalLayers));
+        assert.equal(interruptedRequests, 2, "limited response was confirmed without continuing");
+        const cached = await interrupted.frame(0, { fit: [512, 512], layers: 1 });
+        assert.deepEqual(cached.pixels, continued.pixels);
+        assert.equal(interruptedRequests, 2, "continued window did not populate the cache");
     } finally {
         globalThis.fetch = originalFetch;
         await interrupted.close();
+    }
+    const stalled = await JpipChannel.open(wasm, server, image);
+    let repeatedReply, stalledRequests = 0;
+    globalThis.fetch = async (url, options) => {
+        stalledRequests++;
+        if (!repeatedReply) {
+            const response = await originalFetch(url, options);
+            const bytes = new Uint8Array(await response.arrayBuffer());
+            assert.deepEqual(Array.from(bytes.slice(-3)), [0, 2, 0]);
+            bytes[bytes.length - 2] = 7; // Response limit with data replayed on continuation.
+            repeatedReply = { bytes, status: response.status, headers: response.headers };
+        }
+        return new Response(repeatedReply.bytes, repeatedReply);
+    };
+    try {
+        await assert.rejects(stalled.frame(0, { fit: [512, 512], layers: 1 }), /requested window made no progress/);
+        assert.equal(stalledRequests, 2, "replayed limited frame looped");
+        assert.equal(stalled.cached(0, { fit: [512, 512], layers: 1 }).ready, false,
+                     "stalled continuation confirmed uncompleted quality");
+    } finally {
+        globalThis.fetch = originalFetch;
+        await stalled.close();
     }
     console.log("Channel, decoding and worker checks passed");
 } finally {

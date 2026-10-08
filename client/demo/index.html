@@ -79,14 +79,14 @@ const FRAME_TIME = 100; // milliseconds a frame stays up when playing, at least
 function draw(frame, text, palette) {
     const { width, height, components, pixels } = frame;
     const rgba = new Uint8ClampedArray(width * height * 4);
-    const colors = components === 1 && palette?.channels === 3 ? palette.table : null;
+    const colors = components === 1 && palette !== null ? palette.table : null;
     for (let from = 0, to = 0; to < rgba.length; from += components, to += 4) {
         if (colors !== null) {
             const index = Math.min(pixels[from], palette.entries - 1);
-            const color = 3 * index;
+            const color = palette.channels * index;
             rgba[to] = colors[color];
-            rgba[to + 1] = colors[color + 1];
-            rgba[to + 2] = colors[color + 2];
+            rgba[to + 1] = colors[color + (palette.channels === 3 ? 1 : 0)];
+            rgba[to + 2] = colors[color + (palette.channels === 3 ? 2 : 0)];
         } else {
             rgba[to] = pixels[from];
             rgba[to + 1] = pixels[components === 3 ? from + 1 : from];
