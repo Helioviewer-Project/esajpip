@@ -45,6 +45,16 @@ try {
     await mkdir(images);
     for (const name of fixtures)
         await copyFile(join(repository, "tests/transcode/fixtures/kakadu", name), join(images, name));
+    const rgb = await readFile(join(images, fixtures[0]));
+    let header = 0;
+    while (rgb.toString("ascii", header + 4, header + 8) !== "jp2h")
+        header += rgb.readUInt32BE(header);
+    const end = header + rgb.readUInt32BE(header);
+    const cdef = Buffer.from([0,0,0,28, 99,100,101,102, 0,3,
+                             0,0,0,0,0,3, 0,1,0,0,0,2, 0,2,0,0,0,1]);
+    const mappedRgb = Buffer.concat([rgb.subarray(0, end), cdef, rgb.subarray(end)]);
+    mappedRgb.writeUInt32BE(end - header + cdef.length, header);
+    await writeFile(join(images, "mapped-rgb.jp2"), mappedRgb);
     const escapedImage = 'space #?%20&+"é.jp2';
     await copyFile(join(images, fixtures[0]), join(images, escapedImage));
     await copyFile(join(repository, "tests/merge/fixtures/expected/merged.jpx"), join(images, "movie.jpx"));
@@ -168,6 +178,16 @@ try {
         await channel.close();
         for (const at of reserved) wasmExports.hvc_wasm_free(at);
     }
+    const color = await JpipChannel.open(wasm, server, "mapped-rgb.jp2");
+    try {
+        const frame = await color.frame(0);
+        assert.equal(frame.components, 3);
+        for (let at = 0; at < expected.length; at += 3) {
+            assert.equal(frame.pixels[at], expected[at + 2], "cdef blue-to-red mapping lost");
+            assert.equal(frame.pixels[at + 1], expected[at + 1]);
+            assert.equal(frame.pixels[at + 2], expected[at], "cdef red-to-blue mapping lost");
+        }
+    } finally { await color.close(); }
     const mapped = await JpipChannel.open(wasm, server, "shared-palette.jpx");
     try {
         const reversed = mapped.palette(0), direct = mapped.palette(1);
@@ -176,6 +196,10 @@ try {
         assert.deepEqual(reversed.table.slice(15, 18), new Uint8Array([2, 250, 5]));
         assert.deepEqual(direct.table.slice(15, 18), new Uint8Array([5, 250, 2]));
         assert.deepEqual(mapped.palette(0), reversed, "shared codestream overwrote the first layer's palette");
+        const frame = await mapped.frame(0);
+        assert.equal(frame.components, 1, "palette must return its single index plane");
+        for (let i = 0; i < frame.pixels.length; i++)
+            assert.equal(frame.pixels[i], expected[i * 3], "selected palette index component changed");
     } finally { await mapped.close(); }
 
     // Nine live instances exercise allocation growth beyond the engine's

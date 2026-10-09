@@ -67,10 +67,7 @@ const char *EXPORT(hvc_wasm_model)(size_t cursor, size_t capacity) {
     if (!client) return NULL;
     model_next = cursor;
     if (capacity > sizeof model) capacity = sizeof model;
-    if (hvc_model(client, &model_next, model, capacity) < 0) {
-        snprintf(error, sizeof error, "cache cannot be declared within the request limit");
-        return NULL;
-    }
+    if (hvc_model(client, &model_next, model, capacity) < 0) return NULL;
     return model;
 }
 
@@ -168,14 +165,14 @@ const hvc_view *EXPORT(hvc_wasm_view)(uint32_t frame, int reduce,
 int EXPORT(hvc_wasm_decode)(uint32_t frame, int reduce) {
     error[0] = 0;
     if (!client) return -1;
-    int channels, entries = hvc_palette(client, frame, &channels, NULL, 0);
     free(image.pixels);
     image.pixels = NULL;
-    if (entries < 0) return -1;
+    hv_render render;
+    if (hvc_render_read(client, frame, SIZE_MAX, &render)) return -1;
     hvc_input *input = hvc_input_open(client, frame, reduce);
     if (!input) return -1;
     int status = hvc_openjpeg_decode(hvc_input_data(input), hvc_input_size(input), reduce,
-                                     entries ? HVC_IMAGE_INDICES : HVC_IMAGE_SAMPLES,
+                                     &render,
                                      &image, error, sizeof error);
     hvc_input_close(input);
     return status;

@@ -9,6 +9,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "jpeg2000/hv_render.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -23,17 +24,16 @@ typedef struct {
                                          * from the top, components interleaved */
 } hvc_image;
 
-typedef enum { HVC_IMAGE_SAMPLES, HVC_IMAGE_INDICES } hvc_image_mode;
-
 /* Decodes the codestream without its `reduce` highest resolutions (0 for
  * the whole image; the lowest resolution alone if it has no more than
  * that), each of which halves the size. Samples deeper than 8 bits keep
- * their 8 most significant bits; an image with three or more components
- * gives its first three as RGB, any other its first as gray. HVC_IMAGE_INDICES
- * instead preserves a single unsigned component of at most 8 bits, for a
- * palette lookup; other indexed formats are refused. 0, with
- * image->pixels malloc'd; or -1 with a message in error. */
-int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, hvc_image_mode mode, hvc_image *image,
+ * their 8 most significant bits. render selects decoder output components
+ * in display order; palette channels preserve their shared unsigned index
+ * component (at most 8 bits), for the host's palette lookup. Selected sample
+ * grids must cover the image without resampling. NULL render gives the first
+ * three components as RGB, or the first as gray when there are fewer than three.
+ * 0, with image->pixels malloc'd; or -1 with a message in error. */
+int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, const hv_render *render, hvc_image *image,
                         char *error, size_t error_size);
 
 #ifdef __cplusplus

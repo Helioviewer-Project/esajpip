@@ -1,4 +1,5 @@
 #include "hvc_decode.h"
+#include "jpeg2000/hv_error.h"
 #ifndef __wasi__
 #include "jpeg2000/hv_local.h"
 #endif
@@ -193,16 +194,22 @@ void hvc_input_close(hvc_input *input) {
 }
 size_t hvc_input_size(const hvc_input *input) { return input->size; }
 const uint8_t *hvc_input_data(const hvc_input *input) { return input->bytes; }
-size_t hvc_input_read(const hvc_input *input, size_t offset, uint8_t *out, size_t capacity) {
-    if (offset > input->size || (capacity && !out)) return SIZE_MAX;
+size_t hvc_input_read(const hvc_input *input, size_t offset, uint8_t *out, size_t capacity,
+                      char *error, size_t error_size) {
+    if (error_size) error[0] = 0;
+    if (offset > input->size || (capacity && !out)) {
+        hv_fail(error, error_size, "invalid codestream read");
+        return SIZE_MAX;
+    }
     size_t count = input->size - offset;
     if (count > capacity) count = capacity;
     if (!count) return 0;
 #ifndef __wasi__
     if (input->local) {
-        char error[256];
-        size_t read = hv_local_input_read(input->local, offset, out, count, error, sizeof error);
-        return read == count ? count : SIZE_MAX;
+        size_t read = hv_local_input_read(input->local, offset, out, count, error, error_size);
+        if (read == count) return count;
+        if (error_size && !error[0]) hv_fail(error, error_size, "short codestream read");
+        return SIZE_MAX;
     }
 #endif
     memcpy(out, input->bytes + offset, count);

@@ -59,19 +59,19 @@ static void keep_error(const char *text, void *user) {
 }
 
 /* One sample as 8 bits: unsigned, and its most significant bits. */
-static uint8_t sample(const opj_image_comp_t *component, size_t i, hvc_image_mode mode) {
+static uint8_t sample(const opj_image_comp_t *component, size_t i, int indexed) {
     int64_t value = component->data[i];
     int64_t max = ((int64_t)1 << component->prec) - 1;
     if (component->sgnd)
         value += (int64_t)1 << (component->prec - 1);
     value = value < 0 ? 0 : value > max ? max : value;
-    if (mode == HVC_IMAGE_INDICES)
+    if (indexed)
         return (uint8_t)value;
     return (uint8_t)(component->prec > 8 ? value >> (component->prec - 8)
                                          : value << (8 - component->prec));
 }
 
-int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, hvc_image_mode mode, hvc_image *out,
+int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, const hv_render *render, hvc_image *out,
                         char *error, size_t error_size) {
     memory input = {codestream, size, 0};
     message failure = {error, error_size, 0};
@@ -82,7 +82,8 @@ int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, hvc_
     opj_codestream_info_v2_t *info = NULL;
     opj_image_t *image = NULL;
     size_t count, i;
-    int status = -1, c;
+    int status = -1, c, indexed = render && render->channel[0].palette_column >= 0;
+    OPJ_UINT32 components[3] = {0, 1, 2};
 
     memset(out, 0, sizeof *out);
     if (stream == NULL || codec == NULL)
@@ -99,12 +100,42 @@ int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, hvc_
     if (!opj_setup_decoder(codec, &parameters) || !opj_read_header(stream, codec, &image) ||
         (info = opj_get_cstr_info(codec)) == NULL)
         goto done;
-    if (mode == HVC_IMAGE_INDICES && (image->numcomps != 1 || image->comps[0].sgnd ||
-                                   image->comps[0].prec > 8)) {
+    out->components = image->numcomps >= 3 ? 3 : 1;
+    if (render) {
+        if (render->channel_count != 1 && render->channel_count != 3) {
+            why = "unsupported channel count";
+            goto done;
+        }
+        out->components = indexed ? 1 : (int)render->channel_count;
+        for (size_t channel = 0; channel < render->channel_count; channel++) {
+            if (render->channel[channel].component >= image->numcomps) {
+                why = "selected component does not exist";
+                goto done;
+            }
+            if ((render->channel[channel].palette_column >= 0) != indexed ||
+                (indexed && render->channel[channel].component != render->channel[0].component)) {
+                why = "palette channels require one shared index component";
+                goto done;
+            }
+            if (!indexed || channel == 0)
+                components[channel] = (OPJ_UINT32)render->channel[channel].component;
+        }
+    }
+    if (indexed && (image->comps[components[0]].sgnd || image->comps[components[0]].prec > 8)) {
         why = "palette indices require one unsigned component of at most 8 bits";
         goto done;
     }
-    out->resolutions = (int)info->m_default_tile_info.tccp_info[0].numresolutions;
+    out->resolutions = (int)info->m_default_tile_info.tccp_info[components[0]].numresolutions;
+    for (c = 0; c < out->components; c++) {
+        const opj_image_comp_t *component = &image->comps[components[c]];
+        int resolutions = (int)info->m_default_tile_info.tccp_info[components[c]].numresolutions;
+        if (resolutions < out->resolutions) out->resolutions = resolutions;
+        if (render && (component->dx != 1 || component->dy != 1 ||
+                       component->x0 != image->x0 || component->y0 != image->y0)) {
+            why = "selected output components require resampling";
+            goto done;
+        }
+    }
     out->full_width = image->x1 - image->x0;
     out->full_height = image->y1 - image->y0;
     if (reduce < 0)
@@ -115,11 +146,10 @@ int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, hvc_
         !opj_decode(codec, stream, image) || !opj_end_decompress(codec, stream))
         goto done;
 
-    out->components = image->numcomps >= 3 ? 3 : 1;
-    out->width = image->comps[0].w;
-    out->height = image->comps[0].h;
+    out->width = image->comps[components[0]].w;
+    out->height = image->comps[components[0]].h;
     for (c = 0; c < out->components; c++) {
-        const opj_image_comp_t *component = &image->comps[c];
+        const opj_image_comp_t *component = &image->comps[components[c]];
         if (component->data == NULL || component->w != out->width ||
             component->h != out->height || component->prec < 1 || component->prec > 31) {
             why = "unsupported components";
@@ -130,9 +160,11 @@ int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, hvc_
     why = "out of memory";
     if (count > SIZE_MAX / 3 || (out->pixels = malloc(count * (size_t)out->components)) == NULL)
         goto done;
-    for (c = 0; c < out->components; c++)
+    for (c = 0; c < out->components; c++) {
+        const opj_image_comp_t *component = &image->comps[components[c]];
         for (i = 0; i < count; i++)
-            out->pixels[i * (size_t)out->components + (size_t)c] = sample(&image->comps[c], i, mode);
+            out->pixels[i * (size_t)out->components + (size_t)c] = sample(component, i, indexed);
+    }
     status = 0;
 
 done:

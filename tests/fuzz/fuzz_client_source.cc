@@ -51,7 +51,7 @@ extern "C" int replay_client_source(const uint8_t *data, size_t size) {
             view.source.components > 4) return 0;
         hvc_image image;
         char error[256];
-        if (hvc_openjpeg_decode(bytes.data(), length, view.reduce, HVC_IMAGE_SAMPLES,
+        if (hvc_openjpeg_decode(bytes.data(), length, view.reduce, NULL,
                             &image, error, sizeof error) == 0) {
             require(image.width == view.width && image.height == view.height,
                     "decoded dimensions differ from selected resolution");

@@ -214,11 +214,11 @@ static void verify(const char *path, bool jpx) {
                   "original container invalid");
             hvc_image decoded, reference;
             char error[256];
-            int decoded_result = hvc_openjpeg_decode(full.data(), full.size(), 0, HVC_IMAGE_SAMPLES,
+            int decoded_result = hvc_openjpeg_decode(full.data(), full.size(), 0, NULL,
                                                  &decoded, error, sizeof error);
             check(decoded_result == 0, error);
             int reference_result = hvc_openjpeg_decode(original->Data() + box.payload, box.end - box.payload, 0,
-                                                   HVC_IMAGE_SAMPLES, &reference, error, sizeof error);
+                                                   NULL, &reference, error, sizeof error);
             check(reference_result == 0, error);
             size_t size = static_cast<size_t>(decoded.width) * decoded.height * decoded.components;
             check(decoded.width == reference.width && decoded.height == reference.height &&
@@ -254,7 +254,7 @@ struct Input {
     ~Input() { hvc_input_close(source); }
     static OPJ_SIZE_T read(void *out, OPJ_SIZE_T count, void *context) {
         Input &input = *static_cast<Input *>(context);
-        size_t n = hvc_input_read(input.source, input.position, static_cast<uint8_t *>(out), count);
+        size_t n = hvc_input_read(input.source, input.position, static_cast<uint8_t *>(out), count, nullptr, 0);
         if (!n || n == SIZE_MAX) return static_cast<OPJ_SIZE_T>(-1);
         input.position += n;
         return n;
@@ -374,13 +374,13 @@ static Bytes read_input(const hvc_input *input) {
     Bytes bytes(hvc_input_size(input));
     // Deliberately cross headers and packets with small reads, then seek back.
     for (size_t at = 0; at < bytes.size(); at += 37)
-        check(hvc_input_read(input, at, bytes.data()+at, std::min(size_t{37}, bytes.size()-at)) ==
+        check(hvc_input_read(input, at, bytes.data()+at, std::min(size_t{37}, bytes.size()-at), nullptr, 0) ==
               std::min(size_t{37}, bytes.size()-at), "ranged decoder input");
     uint8_t prefix[4];
-    check(hvc_input_read(input, 0, prefix, 4) == 4 && std::memcmp(prefix, bytes.data(), 4) == 0, "seek backwards");
-    check(hvc_input_read(input, bytes.size(), prefix, 4) == 0 &&
-          hvc_input_read(input, bytes.size()+1, prefix, 4) == SIZE_MAX &&
-          hvc_input_read(input, 0, nullptr, 1) == SIZE_MAX, "input bounds");
+    check(hvc_input_read(input, 0, prefix, 4, nullptr, 0) == 4 && std::memcmp(prefix, bytes.data(), 4) == 0, "seek backwards");
+    check(hvc_input_read(input, bytes.size(), prefix, 4, nullptr, 0) == 0 &&
+          hvc_input_read(input, bytes.size()+1, prefix, 4, nullptr, 0) == SIZE_MAX &&
+          hvc_input_read(input, 0, nullptr, 1, nullptr, 0) == SIZE_MAX, "input bounds");
     return bytes;
 }
 
@@ -474,8 +474,8 @@ static void equivalent(const char *path, bool jpx) {
             check(hvc_status(local,frame,&options,&before)==0 && hvc_status(remote,frame,&options,&view)==0 &&
                   before.width == view.width && before.height == view.height && view.ready, "selected geometry");
             hvc_image x, y;
-            check(hvc_openjpeg_decode(left.data(),left.size(),reduce,HVC_IMAGE_SAMPLES,&x,error,sizeof error)==0,error);
-            check(hvc_openjpeg_decode(right.data(),right.size(),reduce,HVC_IMAGE_SAMPLES,&y,error,sizeof error)==0,error);
+            check(hvc_openjpeg_decode(left.data(),left.size(),reduce,NULL,&x,error,sizeof error)==0,error);
+            check(hvc_openjpeg_decode(right.data(),right.size(),reduce,NULL,&y,error,sizeof error)==0,error);
             size_t count = static_cast<size_t>(x.width)*x.height*x.components;
             check(x.width==view.width && x.height==view.height && x.width==y.width && x.height==y.height &&
                   x.components==y.components && std::memcmp(x.pixels,y.pixels,count)==0, "decoded pixels/geometry");
@@ -483,7 +483,7 @@ static void equivalent(const char *path, bool jpx) {
             Bytes limited = read_input(reduced.source);
             check(limited.size() <= right.size(), "reduced snapshot grew");
             hvc_image z;
-            check(hvc_openjpeg_decode(limited.data(),limited.size(),reduce,HVC_IMAGE_SAMPLES,&z,error,sizeof error)==0,error);
+            check(hvc_openjpeg_decode(limited.data(),limited.size(),reduce,NULL,&z,error,sizeof error)==0,error);
             check(z.width==x.width && z.height==x.height && z.components==x.components &&
                   std::memcmp(z.pixels,x.pixels,count)==0, "reduced snapshot pixels differ");
             free(z.pixels); free(x.pixels); free(y.pixels);
@@ -868,10 +868,15 @@ int main(int argc, char **argv) {
             output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
             check(static_cast<bool>(output), "write WASM layer fixture");
         }
-        // Legal palette metadata attached to RGB samples: the byte decoder
-        // must reject it because palette indices need one component.
+        // A palette referencing a nonexistent decoder output component.
         Bytes bytes = fixture(1);
-        std::ofstream output(std::string(argv[2]) + "/palette-rgb.jpx", std::ios::binary);
+        const Bytes mapping = {'c','m','a','p',0,0,1,0,0,0,1,1,0,0,1,2};
+        Bytes::iterator at = bytes.begin();
+        while ((at = std::search(at, bytes.end(), mapping.begin(), mapping.end())) != bytes.end()) {
+            at[5] = at[9] = at[13] = 3;
+            at += mapping.size();
+        }
+        std::ofstream output(std::string(argv[2]) + "/bad-palette.jpx", std::ios::binary);
         output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
         check(static_cast<bool>(output), "write WASM decode failure fixture");
         bytes = fixture(2, true, true);

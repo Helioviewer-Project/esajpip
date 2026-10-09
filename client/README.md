@@ -184,8 +184,8 @@ without decoding. A later `frame` call with the same options uses that cache.
 
 | Frame | `components` | `pixels` |
 | --- | --- | --- |
-| One or two components, no color table | 1 | The first component as gray, scaled to 8 bits |
-| Three or more components | 3 | The first three components as RGB, each scaled to 8 bits |
+| Grayscale layer | 1 | Its selected component, scaled to 8 bits |
+| RGB layer | 3 | Its selected components in RGB order, each scaled to 8 bits |
 | With a color table | 1 | Indices into the table, unchanged |
 
 Scaling keeps the 8 most significant bits of deeper samples, and shifts
@@ -206,13 +206,13 @@ if (lut !== null && lut.channels === 3)
   for red, green, blue. It is a copy that belongs to the caller.
 - An index can be larger than `entries - 1` when the table has fewer than 256
   entries. The demonstration page uses the last entry for those.
-- Indices are supported for a frame of one unsigned component of at most 8
-  bits. Any other frame with a color table fails to decode.
+- Palette channels must share one unsigned index component of at most 8
+  bits. Other index representations fail to decode.
 
-The display API does not interpret `colr`, ICC profiles or channel definitions,
-and does not convert color spaces such as sYCC to RGB. Three decoded components
-are returned in their existing order and displayed as RGB. Use grayscale,
-RGB, or supported palette images whose samples already have that meaning.
+The display API supports enumerated grayscale and sRGB color descriptions.
+Channel definitions and component mappings select the displayed components and
+their order. It does not resample components or convert ICC/sYCC color spaces;
+unsupported rendering layouts are refused.
 The server can accept files outside this display subset. The native
 `hvc_reconstruct` API preserves the codestream's sample precision and components;
 a host using another decoder must handle the file's color interpretation itself.
@@ -683,10 +683,11 @@ data-bin access. Each header documents its calls' results. Calls that take `erro
   leave out `resolutions - complete` levels. For confirmed previews, use the
   reduction requested. Unconfirmed packets are replaced with empty packets; confirmed
   prefixes stay usable if a later refinement appends unfinished packets.
-- **`hvc_openjpeg_decode`.** `HVC_IMAGE_SAMPLES` scales samples to 8 bits.
-  `HVC_IMAGE_INDICES` keeps them as they are, for a frame with a color table;
-  it accepts one unsigned component of at most 8 bits. See [What the pixels
-  are](#what-the-pixels-are).
+- **`hvc_openjpeg_decode`.** Takes `hv_render` channel instructions from
+  `hvc_render_read`, selecting components in display order. Direct samples
+  are scaled to 8 bits; palette indices stay unsigned and unscaled (at most
+  8 bits). A NULL descriptor uses default codestream component order.
+  See [What the pixels are](#what-the-pixels-are).
 - **`hv_metadata`.** Start with `{0}`. `hvc_metadata_open` fails while the
   metadata is incomplete; a normally ended opening response need not contain
   all metadata on an older server. The
@@ -810,7 +811,9 @@ header and exact decoder grids. Subsequent reads and seeks never reconstruct
 again. Use `reduce=0` for all resolutions and `INT_MAX` for header inspection.
 Receiving more data does not change an open input. Close the decoder and input
 before destroying the client. Input reads can run independently of serialized
-client calls. A decoder using `hvc_input_read` needs no source-specific branch.
+client calls. `hvc_input_read` returns SIZE_MAX on failure and writes the read
+error into a caller-supplied buffer, independently of the mutable client error.
+A decoder using it needs no source-specific branch.
 `hvc_input_data` offers an optional contiguous view for WASM's OpenJPEG adapter.
 `hvc_codestream` remains a convenience for callers wanting their own byte copy.
 
@@ -846,7 +849,7 @@ checks below.
 | `client_jpp` | Messages written by the server's own writer and by the client's, read back |
 | `client_jpp_malformed` | Damaged messages, all refused |
 | `client_reconstruct` | Every codestream of the corpus, the transcoder's reference images and the merger's reference movie, served by the server's own code at each resolution: the written codestream, the cached levels, the decoded pixels, and the movie's frame count and XML |
-| `client_image` | Sample scaling at several precisions, and unchanged color table indices |
+| `client_image` | Sample scaling at several precisions, component selection and display order, and unchanged color table indices |
 | `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality; frames exported and imported between sources, their replay by the server, and refused blocks leaving the source unchanged |
 | `client_converter` | Refusal of incomplete/header-only/unconfirmed quality input without overwriting output; completed continuation, reduced windows and replay |
 

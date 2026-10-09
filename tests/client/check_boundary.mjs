@@ -104,8 +104,8 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
         assert.equal(channel.frames, 0xffffffff, "an unsigned ABI count became negative in JavaScript");
         await channel.close();
         unsignedFrames = false;
-        channel = await JpipChannel.open(module, server, "palette-rgb.jpx");
-        const error = /palette indices require one unsigned component of at most 8 bits/;
+        channel = await JpipChannel.open(module, server, "bad-palette.jpx");
+        const error = /selected component does not exist/;
         await assert.rejects(channel.frame(0), error);
         assert.equal(decodeFailures, 1, "fixture failed before calling the real WASM decoder");
         assert.equal(channel.cached(0).ready, true, "decoder failure discarded the cache");
@@ -115,7 +115,7 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
         // and server are real; only the controls used before failure are stubs.
         const demo = await readFile(`${repository}/client/demo/index.html`, "utf8");
         const handler = demo.slice(demo.indexOf("async function open()"), demo.indexOf("\nconst query ="));
-        const source = await JpipSource.open({ wasm: wasmURL, server, image: "palette-rgb.jpx" });
+        const source = await JpipSource.open({ wasm: wasmURL, server, image: "bad-palette.jpx" });
         let closes = 0;
         const openSource = { open: async () => source };
         const close = source.close.bind(source);
@@ -124,7 +124,7 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
             let source = null;
             const pause = () => {};
             const controls = {}, sizes = { replaceChildren() {} }, qualityControls = {}, frames = {};
-            const form = { server: { value: server }, image: { value: "palette-rgb.jpx" } };
+            const form = { server: { value: server }, image: { value: "bad-palette.jpx" } };
             const status = {};
             ${handler}
             return open().then(() => ({ source, status, controls }));

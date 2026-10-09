@@ -22,7 +22,7 @@ static int inspect(hvc *source, size_t frame, void *context,
     if (state->mode == 1) { snprintf(error, error_size, "decoder failure"); return -1; }
     hvc_input *input = hvc_input_open(source, frame, 0);
     if (!input) { snprintf(error, error_size, "%s", hvc_error(source)); return -1; }
-    check(hvc_input_read(input, 0, prefix, sizeof prefix) == 6 &&
+    check(hvc_input_read(input, 0, prefix, sizeof prefix, error, error_size) == 6 &&
           prefix[0] == 0xff && prefix[1] == 0x4f, "inspector reads source");
     hvc_input_close(input);
     /* Controlled decoder geometry: a nonzero-origin grid need not reduce as
@@ -40,7 +40,7 @@ static int inspect(hvc *source, size_t frame, void *context,
 static size_t read_frame(hvc *client, uint64_t frame, size_t offset, uint8_t *out, size_t size) {
     hvc_input *input = hvc_input_open(client, frame, 0);
     if (!input) return 0;
-    size_t result = hvc_input_read(input, offset, out, size);
+    size_t result = hvc_input_read(input, offset, out, size, NULL, 0);
     hvc_input_close(input);
     return result;
 }
@@ -144,6 +144,31 @@ static void test_layer_order(int mode) {
     hv_local_close(raw); hvc_destroy(client);
 }
 
+static void test_read_error(void) {
+    char path[] = "/tmp/hvc-read-XXXXXX", error[256];
+    int fd = mkstemp(path);
+    check(fd >= 0, "temporary local input");
+    FILE *original = fopen(IMAGE, "rb"), *copy = fdopen(fd, "wb");
+    check(original && copy, "copy local fixture");
+    uint8_t bytes[4096];
+    size_t count;
+    while ((count = fread(bytes, 1, sizeof bytes, original)) != 0)
+        check(fwrite(bytes, 1, count, copy) == count, "write local fixture");
+    check(!ferror(original), "read local fixture");
+    fclose(original);
+    check(fclose(copy) == 0, "close local fixture");
+    hvc *client = hvc_open_local(path, NULL, NULL, error, sizeof error);
+    check(client != NULL, error);
+    hvc_input *input = hvc_input_open(client, 0, 0);
+    check(input != NULL, hvc_error(client));
+    check(truncate(path, 0) == 0, "truncate open local input");
+    check(hvc_input_read(input, 0, bytes, sizeof bytes, error, sizeof error) == SIZE_MAX &&
+          strstr(error, "file read: unexpected end of file"), "local read error lost at client boundary");
+    hvc_input_close(input);
+    hvc_destroy(client);
+    check(unlink(path) == 0, "remove local fixture");
+}
+
 int main(void) {
     char error[256]; inspector state = {0};
     hvc *client = hvc_open_local(IMAGE, inspect, &state, error, sizeof error);
@@ -212,5 +237,6 @@ int main(void) {
     }
     hvc_destroy(client); hvc_destroy(NULL);
     for (int mode=0;mode<5;mode++) test_layer_order(mode);
+    test_read_error();
     puts("local client checks passed"); return 0;
 }

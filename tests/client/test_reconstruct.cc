@@ -72,7 +72,9 @@ struct Sources : jpip::SourceProvider {
 // The response to one request of a channel, through the client's parser,
 // into the store.
 static int deliver(jpip::DataBinServer &server, jpip::ImageIndex &image, Sources &sources,
-                   const jpip::ResponseRequest &request, hvc_cache *cache, const std::string &name) {
+                   const jpip::ResponseRequest &request, hvc_cache *cache, const std::string &name,
+                   size_t *payload_size = nullptr) {
+    if (payload_size) *payload_size = 0;
     std::string error;
     check(server.SetRequest(image, request, &error), name + ": " + error);
     Bytes response;
@@ -87,8 +89,10 @@ static int deliver(jpip::DataBinServer &server, jpip::ImageIndex &image, Sources
     hvc_jpp_message message;
     hvc_jpp_begin(&reader, response.data(), response.size());
     int status;
-    while ((status = hvc_jpp_next(&reader, &message)) == HVC_JPP_MESSAGE)
+    while ((status = hvc_jpp_next(&reader, &message)) == HVC_JPP_MESSAGE) {
+        if (payload_size) *payload_size += (size_t)message.length;
         check(hvc_cache_apply(cache, &message), name + ": " + hvc_cache_error(cache));
+    }
     check(status == HVC_JPP_EOR, name + ": " + hvc_jpp_error(&reader));
     return hvc_jpp_reason(&reader);
 }
@@ -198,14 +202,14 @@ static void verify_quality(jpip::ImageIndex &image, Sources &sources, int stream
                   name + ": progressive packets or empty padding differ");
             if (decoded) {
                 hvc_image pixels;
-                check(hvc_openjpeg_decode(preview.data(), preview.size(), reduce, HVC_IMAGE_SAMPLES,
+                check(hvc_openjpeg_decode(preview.data(), preview.size(), reduce, NULL,
                                       &pixels, error, sizeof error) == 0,
                       name + ": progressive decode: " + error);
                 free(pixels.pixels);
             }
-            size_t bytes = hvc_cache_total_bytes(&cache);
-            deliver(server, image, sources, request, &cache, name);
-            check(hvc_cache_total_bytes(&cache) == bytes, name + ": repeated quality resent bytes");
+            size_t received;
+            deliver(server, image, sources, request, &cache, name, &received);
+            check(received == 0, name + ": repeated quality resent bytes");
             check(hvc_reconstruct_confirm(&cache, stream, reduce, 1, error, sizeof error) == 0 &&
                   std::equal(quality.begin(), quality.end(), status(cache, stream, name).quality),
                   name + ": confirmation reduced cached quality");
@@ -263,7 +267,7 @@ struct Pixels {
 static Pixels decode(const uint8_t *codestream, size_t size, int reduce, const std::string &name) {
     Pixels pixels;
     char error[256] = "";
-    check(hvc_openjpeg_decode(codestream, size, reduce, HVC_IMAGE_SAMPLES, &pixels.image, error, sizeof error) == 0,
+    check(hvc_openjpeg_decode(codestream, size, reduce, NULL, &pixels.image, error, sizeof error) == 0,
           name + ": " + error);
     size_t count = static_cast<size_t>(pixels.image.width) * pixels.image.height * pixels.image.components;
     pixels.bytes.assign(pixels.image.pixels, pixels.image.pixels + count);
@@ -509,9 +513,9 @@ int main() {
                   found != NULL && Bytes(found, found + size) == xml[frame],
                   name + ": XML of frame " + std::to_string(frame) + " differs: " + error);
             // Nothing more arrives for a frame the channel has whole.
-            size_t before = hvc_cache_total_bytes(&cache);
-            deliver(server, image, sources, whole(frame, p, 1), &cache, name);
-            check(hvc_cache_total_bytes(&cache) == before, name + ": a frame was sent twice");
+            size_t received;
+            deliver(server, image, sources, whole(frame, p, 1), &cache, name, &received);
+            check(received == 0, name + ": a frame was sent twice");
             check(reconstruct(cache, frame, name) == expected(image, sources, frame, p.num_levels + 1, name),
                   name + ": frame " + std::to_string(frame) + " differs when shown again");
         }
@@ -613,9 +617,9 @@ int main() {
               name + ": lowest resolution has other dimensions");
         hvc_image none;
         char error[256] = "";
-        check(hvc_openjpeg_decode(codestream, size / 2, 0, HVC_IMAGE_SAMPLES, &none, error, sizeof error) == -1 &&
+        check(hvc_openjpeg_decode(codestream, size / 2, 0, NULL, &none, error, sizeof error) == -1 &&
               none.pixels == NULL && error[0] != 0, name + ": decoded a truncated codestream");
-        check(hvc_openjpeg_decode(codestream + 2, size - 2, 0, HVC_IMAGE_SAMPLES, &none, error, sizeof error) == -1 &&
+        check(hvc_openjpeg_decode(codestream + 2, size - 2, 0, NULL, &none, error, sizeof error) == -1 &&
               none.pixels == NULL && error[0] != 0, name + ": decoded a codestream without SOC");
     }
 
@@ -647,7 +651,7 @@ int main() {
             if (hvc_reconstruct(&cache, 0, NULL, 0, error, sizeof error) != 0) {
                 Bytes bytes = reconstruct(cache, 0, name);
                 hvc_image decoded = {};
-                check(hvc_openjpeg_decode(bytes.data(), bytes.size(), 0, HVC_IMAGE_SAMPLES,
+                check(hvc_openjpeg_decode(bytes.data(), bytes.size(), 0, NULL,
                       &decoded, error, sizeof error) == 0, error);
                 free(decoded.pixels);
                 const hvc_bin *bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 0);

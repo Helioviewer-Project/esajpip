@@ -145,39 +145,9 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
     if (needed > held) {
         memcpy(bin->data + held, message->data + overlap, needed - held);
         bin->length = needed;
-        cache->bytes += needed - held;
     }
     if (message->last_byte) bin->complete = 1;
     return 1;
-}
-
-int hvc_cache_complete(const hvc_cache *cache, int bin_class, uint64_t codestream,
-                       uint64_t bin_id) {
-    const hvc_bin *bin = hvc_cache_find(cache, bin_class, codestream, bin_id);
-    return bin != NULL && bin->complete;
-}
-
-size_t hvc_cache_length(const hvc_cache *cache, int bin_class, uint64_t codestream,
-                        uint64_t bin_id) {
-    const hvc_bin *bin = hvc_cache_find(cache, bin_class, codestream, bin_id);
-    return bin != NULL ? bin->length : 0;
-}
-
-size_t hvc_cache_bin_count(const hvc_cache *cache) {
-    return cache->count;
-}
-
-size_t hvc_cache_total_bytes(const hvc_cache *cache) {
-    return cache->bytes;
-}
-
-size_t hvc_cache_complete_count(const hvc_cache *cache) {
-    size_t index;
-    size_t complete = 0;
-    for (index = 0; index < cache->capacity; index++) {
-        if (cache->bins[index].used && cache->bins[index].complete) complete++;
-    }
-    return complete;
 }
 
 const char *hvc_cache_error(const hvc_cache *cache) {

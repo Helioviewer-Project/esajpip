@@ -46,7 +46,6 @@ typedef struct {
     hvc_bin *bins;         /* the table: `capacity` slots, a power of two */
     size_t  count;        /* bins held */
     size_t  capacity;
-    size_t  bytes;        /* total payload held */
     const char *error;   /* NULL unless the last hvc_cache_apply failed */
 } hvc_cache;
 
@@ -62,20 +61,6 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message);
  * pointer is good until the next hvc_cache_apply(). */
 const hvc_bin *hvc_cache_find(const hvc_cache *cache, int bin_class,
                                uint64_t codestream, uint64_t bin_id);
-
-/* True when the named bin has been delivered in full. */
-int hvc_cache_complete(const hvc_cache *cache, int bin_class, uint64_t codestream,
-                       uint64_t bin_id);
-
-/* How many bytes of a bin the client holds. A replacement channel may know
- * a shorter prefix until the host declares its cache model. */
-size_t hvc_cache_length(const hvc_cache *cache, int bin_class, uint64_t codestream,
-                        uint64_t bin_id);
-
-/* Counts of each kind held, for a status line in the host. */
-size_t hvc_cache_bin_count(const hvc_cache *cache);
-size_t hvc_cache_total_bytes(const hvc_cache *cache);
-size_t hvc_cache_complete_count(const hvc_cache *cache);
 
 /* Writes a comma-separated explicit JPIP cache model, in batches. Start
  * *cursor at zero and repeat until it reaches cache->capacity. Do not change

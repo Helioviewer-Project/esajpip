@@ -41,6 +41,25 @@ static void check(int ok, const char *why) {
     }
 }
 
+static void encode(opj_image_t *input, output *out) {
+    opj_codec_t *codec = opj_create_compress(OPJ_CODEC_J2K);
+    opj_stream_t *stream = opj_stream_create(8192, OPJ_FALSE);
+    check(codec != NULL && stream != NULL, "encoder allocation");
+    opj_cparameters_t parameters;
+    opj_set_default_encoder_parameters(&parameters);
+    parameters.numresolution = 1;
+    parameters.tcp_numlayers = 1;
+    parameters.cp_disto_alloc = 1;
+    opj_stream_set_user_data(stream, out, NULL);
+    opj_stream_set_write_function(stream, write_bytes);
+    opj_stream_set_seek_function(stream, seek_bytes);
+    opj_stream_set_skip_function(stream, skip_bytes);
+    check(opj_setup_encoder(codec, &parameters, input) && opj_start_compress(codec, input, stream) &&
+          opj_encode(codec, stream) && opj_end_compress(codec, stream), "encode known samples");
+    opj_stream_destroy(stream);
+    opj_destroy_codec(codec);
+}
+
 static void verify(unsigned bits, int signed_samples) {
     output out = {{0}, 0, 0};
     opj_image_cmptparm_t component = {0};
@@ -55,27 +74,12 @@ static void verify(unsigned bits, int signed_samples) {
     for (unsigned i = 0; i < 256; i++)
         input->comps[0].data[i] = (int)(i * max / 255) - (signed_samples ? (1 << (bits - 1)) : 0);
 
-    opj_codec_t *codec = opj_create_compress(OPJ_CODEC_J2K);
-    opj_stream_t *stream = opj_stream_create(8192, OPJ_FALSE);
-    check(codec != NULL && stream != NULL, "encoder allocation");
-    opj_cparameters_t parameters;
-    opj_set_default_encoder_parameters(&parameters);
-    parameters.numresolution = 1;
-    parameters.tcp_numlayers = 1;
-    parameters.cp_disto_alloc = 1;
-    opj_stream_set_user_data(stream, &out, NULL);
-    opj_stream_set_write_function(stream, write_bytes);
-    opj_stream_set_seek_function(stream, seek_bytes);
-    opj_stream_set_skip_function(stream, skip_bytes);
-    check(opj_setup_encoder(codec, &parameters, input) && opj_start_compress(codec, input, stream) &&
-          opj_encode(codec, stream) && opj_end_compress(codec, stream), "encode known samples");
-    opj_stream_destroy(stream);
-    opj_destroy_codec(codec);
+    encode(input, &out);
     opj_image_destroy(input);
 
     hvc_image image;
     char error[256];
-    check(hvc_openjpeg_decode(out.data, out.size, 0, HVC_IMAGE_SAMPLES, &image, error, sizeof error) == 0,
+    check(hvc_openjpeg_decode(out.data, out.size, 0, NULL, &image, error, sizeof error) == 0,
           error);
     check(image.width == 16 && image.height == 16 && image.components == 1, "decoded dimensions");
     for (unsigned i = 0; i < 256; i++) {
@@ -85,7 +89,8 @@ static void verify(unsigned bits, int signed_samples) {
     }
     free(image.pixels);
 
-    int result = hvc_openjpeg_decode(out.data, out.size, 0, HVC_IMAGE_INDICES, &image, error, sizeof error);
+    hv_render render = {.channel_count = 1, .channel = {{0, 0}}};
+    int result = hvc_openjpeg_decode(out.data, out.size, 0, &render, &image, error, sizeof error);
     if (signed_samples || bits > 8) {
         check(result == -1 && image.pixels == NULL && strstr(error, "palette indices") != NULL,
               "unsupported palette index representation accepted");
@@ -97,11 +102,54 @@ static void verify(unsigned bits, int signed_samples) {
     }
 }
 
+static void verify_channels(void) {
+    output out = {{0}, 0, 0};
+    opj_image_cmptparm_t components[3] = {{0}};
+    for (int c = 0; c < 3; c++) {
+        components[c].dx = components[c].dy = 1;
+        components[c].w = components[c].h = 16;
+        components[c].prec = 8;
+    }
+    opj_image_t *input = opj_image_create(3, components, OPJ_CLRSPC_SRGB);
+    check(input != NULL, "color image allocation");
+    input->x1 = input->y1 = 16;
+    for (int c = 0; c < 3; c++)
+        for (unsigned i = 0; i < 256; i++)
+            input->comps[c].data[i] = (i + 37 * c) % 256;
+    encode(input, &out);
+    opj_image_destroy(input);
+
+    hvc_image image;
+    char error[256];
+    hv_render render = {.channel_count = 3, .channel = {{2, -1}, {0, -1}, {1, -1}}};
+    check(hvc_openjpeg_decode(out.data, out.size, 0, &render, &image, error, sizeof error) == 0, error);
+    check(image.components == 3, "mapped RGB channel count");
+    for (unsigned i = 0; i < 256; i++)
+        for (int c = 0; c < 3; c++)
+            check(image.pixels[i * 3 + c] == (i + 37 * render.channel[c].component) % 256,
+                  "display channels do not follow their selected components");
+    free(image.pixels);
+
+    render.channel_count = 1;
+    for (int column = -1; column <= 0; column++) {
+        render.channel[0].palette_column = column;
+        check(hvc_openjpeg_decode(out.data, out.size, 0, &render, &image, error, sizeof error) == 0, error);
+        check(image.components == 1, "selected gray/index plane count");
+        for (unsigned i = 0; i < 256; i++)
+            check(image.pixels[i] == (i + 74) % 256, "wrong gray/index component");
+        free(image.pixels);
+    }
+    render.channel[0].component = 3;
+    check(hvc_openjpeg_decode(out.data, out.size, 0, &render, &image, error, sizeof error) == -1 &&
+          image.pixels == NULL && strstr(error, "does not exist"), "missing selected component accepted");
+}
+
 int main(void) {
     verify(1, 0);
     verify(4, 0);
     verify(8, 0);
     verify(10, 0);
     verify(8, 1);
+    verify_channels();
     return 0;
 }

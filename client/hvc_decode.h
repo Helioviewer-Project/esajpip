@@ -30,8 +30,10 @@ typedef struct hvc_input hvc_input;
 hvc_input *hvc_input_open(hvc *client, uint64_t frame, int reduce);
 void hvc_input_close(hvc_input *input);
 size_t hvc_input_size(const hvc_input *input);
-/* EOF returns 0, invalid arguments or a failed read return SIZE_MAX. */
-size_t hvc_input_read(const hvc_input *input, size_t offset, uint8_t *out, size_t capacity);
+/* EOF returns 0. Invalid arguments or a failed read return SIZE_MAX with
+ * a message in the caller's error buffer; no mutable client state is accessed. */
+size_t hvc_input_read(const hvc_input *input, size_t offset, uint8_t *out, size_t capacity,
+                      char *error, size_t error_size);
 /* Optional contiguous view, NULL for local file inputs. Borrowed until
  * input close. Decoders using read need no source-specific path. */
 const uint8_t *hvc_input_data(const hvc_input *input);
