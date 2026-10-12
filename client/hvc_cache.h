@@ -46,7 +46,7 @@ typedef struct {
     hvc_bin *bins;         /* the table: `capacity` slots, a power of two */
     size_t  count;        /* bins held */
     size_t  capacity;
-    const char *error;   /* NULL unless the last hvc_cache_apply failed */
+    char error[256];     /* Empty unless the last hvc_cache_apply failed. */
 } hvc_cache;
 
 /* Prepares an empty store. */

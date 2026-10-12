@@ -28,7 +28,7 @@ requested resolution. Do not reuse another frame's geometry or approximate
 fit dimensions. Request:
 
 ```text
-cid=<cid>&stream=<view.codestream>&fsiz=W,H,closest&rsiz=W+1,H+1&roff=0,0&len=<budget>
+cid=<cid>&stream=<view.codestream>&fsiz=W,H,closest&rsiz=W+1,H+1&len=<budget>
 ```
 
 Evaluate W+1 and H+1 numerically. The one-pixel padding compensates for the

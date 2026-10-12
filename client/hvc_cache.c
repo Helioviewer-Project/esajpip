@@ -91,28 +91,33 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
                                             message->bin_id);
     size_t needed, held = bin != NULL ? bin->length : 0, overlap;
 
-    cache->error = NULL;
+    cache->error[0] = 0;
 
     if (message->offset > SIZE_MAX || message->length > SIZE_MAX - message->offset) {
-        cache->error = "Data-bin range overflows";
+        strcpy(cache->error, "Data-bin range overflows");
         return 0;
     }
     needed = (size_t) message->offset + (size_t) message->length;
 
     if (message->offset > held) {
-        cache->error = "Message leaves a gap in the data-bin";
+        strcpy(cache->error, "Message leaves a gap in the data-bin");
         return 0;
     }
     if ((bin != NULL && bin->complete && needed > held) ||
         (message->last_byte && needed < held)) {
-        cache->error = "Message disagrees with the data-bin's final size";
+        snprintf(cache->error, sizeof cache->error,
+                 "Message disagrees with the data-bin's final size: class=%d, "
+                 "codestream=%" PRIu64 ", bin=%" PRIu64 ", stored=%zu (final=%d), "
+                 "incoming-end=%zu (final=%d)",
+                 message->bin_class, message->codestream, message->bin_id,
+                 held, bin->complete, needed, message->last_byte);
         return 0;
     }
     overlap = held - (size_t)message->offset;
     if (overlap > message->length) overlap = (size_t)message->length;
     if (overlap != 0 && memcmp(bin->data + (size_t)message->offset,
                                 message->data, overlap) != 0) {
-        cache->error = "Message conflicts with cached data-bin bytes";
+        strcpy(cache->error, "Message conflicts with cached data-bin bytes");
         return 0;
     }
     if (bin != NULL && needed <= held) {
@@ -124,7 +129,7 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
     }
     if (bin == NULL) {
         if (Grow(cache) != 0) {
-            cache->error = "Out of memory for the data-bin table";
+            strcpy(cache->error, "Out of memory for the data-bin table");
             return 0;
         }
         fresh.used = 1;
@@ -133,7 +138,7 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
         fresh.bin_id = message->bin_id;
     }
     if (Reserve(bin != NULL ? bin : &fresh, needed, message->last_byte) != 0) {
-        cache->error = "Out of memory for a data-bin";
+        strcpy(cache->error, "Out of memory for a data-bin");
         return 0;
     }
     if (bin == NULL) {
@@ -151,7 +156,7 @@ int hvc_cache_apply(hvc_cache *cache, const hvc_jpp_message *message) {
 }
 
 const char *hvc_cache_error(const hvc_cache *cache) {
-    return cache->error != NULL ? cache->error : "";
+    return cache->error;
 }
 
 int hvc_cache_model(const hvc_cache *cache, size_t *cursor, char *text, size_t size) {

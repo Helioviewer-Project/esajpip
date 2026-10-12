@@ -64,26 +64,29 @@ static void TestGapsRejected(void) {
     /* A message that skips ahead of the recorded length would leave the client
      * and server disagreeing about the bin. */
     hvc_cache_begin(&cache);
-    message = Message(HVC_BIN_PRECINCT, 0, 1, 0, "abc", 3, 0);
+    message = Message(HVC_BIN_PRECINCT, 42, 5, 0, "abc", 3, 0);
     Check(hvc_cache_apply(&cache, &message), "seed accepted");
-    message = Message(HVC_BIN_PRECINCT, 0, 1, 5, "xyz", 3, 0);
+    message = Message(HVC_BIN_PRECINCT, 42, 5, 5, "xyz", 3, 0);
     Check(!hvc_cache_apply(&cache, &message), "gap rejected");
     Check(hvc_cache_error(&cache)[0] != 0, "gap has a diagnostic");
 
     /* Identical retransmissions leave the store unchanged. */
-    message = Message(HVC_BIN_PRECINCT, 0, 1, 0, "abc", 3, 0);
+    message = Message(HVC_BIN_PRECINCT, 42, 5, 0, "abc", 3, 0);
     Check(hvc_cache_apply(&cache, &message), "retransmission accepted");
 
     /* The rejected messages must not have changed the store. */
-    const hvc_bin *bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 1);
+    const hvc_bin *bin = hvc_cache_find(&cache, HVC_BIN_PRECINCT, 42, 5);
     Check(bin != NULL && bin->length == 3 && !bin->complete &&
           memcmp(bin->data, "abc", 3) == 0, "store unchanged after rejection");
 
     /* A completed bin takes no further bytes. */
-    message = Message(HVC_BIN_PRECINCT, 0, 1, 3, "d", 1, 1);
+    message = Message(HVC_BIN_PRECINCT, 42, 5, 3, "d", 1, 1);
     Check(hvc_cache_apply(&cache, &message), "bin completes");
-    message = Message(HVC_BIN_PRECINCT, 0, 1, 4, "e", 1, 0);
+    message = Message(HVC_BIN_PRECINCT, 42, 5, 4, "e", 1, 0);
     Check(!hvc_cache_apply(&cache, &message), "message after completion rejected");
+    Check(strcmp(hvc_cache_error(&cache), "Message disagrees with the data-bin's final size: "
+          "class=0, codestream=42, bin=5, stored=4 (final=1), incoming-end=5 (final=0)") == 0,
+          "extension diagnostic identifies the bin and conflicting lengths");
     hvc_cache_release(&cache);
 }
 
@@ -98,6 +101,9 @@ static void TestOverlap(void) {
     Check(!hvc_cache_apply(&cache, &m), "conflicting overlap rejected");
     m = Message(HVC_BIN_PRECINCT, 0, 0, 0, "abc", 3, 1);
     Check(!hvc_cache_apply(&cache, &m), "premature final size rejected");
+    Check(strcmp(hvc_cache_error(&cache), "Message disagrees with the data-bin's final size: "
+          "class=0, codestream=0, bin=0, stored=4 (final=0), incoming-end=3 (final=1)") == 0,
+          "short final diagnostic distinguishes incomplete stored bytes");
     hvc_bin *bin = (hvc_bin *)hvc_cache_find(&cache, HVC_BIN_PRECINCT, 0, 0);
     bin->layers = 1;
     bin->packet_bytes = 4;
