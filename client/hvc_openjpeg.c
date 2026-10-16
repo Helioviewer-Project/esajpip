@@ -5,7 +5,13 @@
 #include <string.h>
 
 #include "jpeg2000/hv_error.h"
-#include "openjpeg.h"
+/* Pinned OpenJPEG private API: borrow a pool only for our J2K decoder and
+ * restore its original pool before destruction. Never retain image/packet state. */
+#define OPJ_SKIP_POISON
+#include "opj_includes.h"
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 
 typedef struct {
     const uint8_t *data;
@@ -58,6 +64,86 @@ static void keep_error(const char *text, void *user) {
     m->reported = 1;
 }
 
+struct hvc_decoder {
+    opj_thread_pool_t *pool;
+    uint8_t *input, *output;
+    size_t input_capacity, output_capacity, growths;
+    struct {void *data; size_t capacity; int busy;} coefficients[3];
+    size_t coefficient_bytes, coefficient_allocations, coefficient_hits;
+};
+/* Only the sequential coordinator lends this cache to OpenJPEG. Tier-1/DWT
+ * worker scratch uses OpenJPEG's separate aligned allocator, not these hooks. */
+static _Thread_local hvc_decoder *active_decoder;
+#define COEFFICIENT_BUDGET ((size_t)64 * 1024 * 1024)
+void *hvc_image_data_alloc(size_t size) {
+    if (!size) return NULL;
+    hvc_decoder *d = active_decoder;
+    if (!d || size > COEFFICIENT_BUDGET) return opj_aligned_malloc(size);
+    int best = -1;
+    for (int i = 0; i < 3; ++i) {
+        if (!d->coefficients[i].busy && d->coefficients[i].capacity >= size &&
+            (best < 0 || d->coefficients[i].capacity < d->coefficients[best].capacity)) best = i;
+    }
+    if (best >= 0) {
+        d->coefficients[best].busy = 1; ++d->coefficient_hits;
+        return d->coefficients[best].data;
+    }
+    /* Evict idle smaller blocks before growing; never move a live tile buffer. */
+    for (int i = 0; i < 3; ++i) if (!d->coefficients[i].busy) {
+        d->coefficient_bytes -= d->coefficients[i].capacity;
+        opj_aligned_free(d->coefficients[i].data);
+        memset(&d->coefficients[i], 0, sizeof d->coefficients[i]);
+        best = i;
+    }
+    if (best < 0 || size > COEFFICIENT_BUDGET - d->coefficient_bytes) return opj_aligned_malloc(size);
+    void *data = opj_aligned_malloc(size);
+    if (!data) return NULL;
+    d->coefficients[best].data = data; d->coefficients[best].capacity = size;
+    d->coefficients[best].busy = 1; d->coefficient_bytes += size; ++d->coefficient_allocations;
+    return data;
+}
+void hvc_image_data_free(void *data) {
+    if (!data) return;
+    hvc_decoder *d = active_decoder;
+    if (d) for (int i = 0; i < 3; ++i) if (d->coefficients[i].data == data) {
+        d->coefficients[i].busy = 0; return;
+    }
+    opj_aligned_free(data);
+}
+size_t hvc_decoder_coefficient_allocations(const hvc_decoder *d) { return d ? d->coefficient_allocations : 0; }
+size_t hvc_decoder_coefficient_hits(const hvc_decoder *d) { return d ? d->coefficient_hits : 0; }
+
+static void *reserve(uint8_t **buffer, size_t *capacity, size_t size, size_t *growths) {
+    if (size > *capacity) {
+        /* Exact high-water capacity: no speculative multiplication of 4K buffers. */
+        uint8_t *next = realloc(*buffer, size);
+        if (!next) return NULL;
+        *buffer = next; *capacity = size; ++*growths;
+    }
+    return *buffer;
+}
+hvc_decoder *hvc_decoder_create(int threads) {
+    if (threads < 0 || threads > 4 || (threads && !opj_has_thread_support())) return NULL;
+    hvc_decoder *decoder = calloc(1, sizeof *decoder);
+    if (!decoder) return NULL;
+    decoder->pool = opj_thread_pool_create(threads);
+    if (!decoder->pool) { free(decoder); return NULL; }
+    return decoder;
+}
+void hvc_decoder_destroy(hvc_decoder *decoder) {
+    if (!decoder) return;
+    opj_thread_pool_destroy(decoder->pool);
+    for (int i = 0; i < 3; ++i) opj_aligned_free(decoder->coefficients[i].data);
+    free(decoder->input); free(decoder->output); free(decoder);
+}
+void *hvc_decoder_input(hvc_decoder *decoder, size_t size) {
+    return reserve(&decoder->input, &decoder->input_capacity, size, &decoder->growths);
+}
+size_t hvc_decoder_retained(const hvc_decoder *decoder) {
+    return decoder ? decoder->input_capacity + decoder->output_capacity + decoder->coefficient_bytes : 0;
+}
+size_t hvc_decoder_growths(const hvc_decoder *decoder) { return decoder ? decoder->growths : 0; }
+
 /* One sample as 8 bits: unsigned, and its most significant bits. */
 static uint8_t sample(const opj_image_comp_t *component, size_t i, int indexed) {
     int64_t value = component->data[i];
@@ -71,7 +157,36 @@ static uint8_t sample(const opj_image_comp_t *component, size_t i, int indexed) 
                                          : value << (8 - component->prec));
 }
 
-int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, const hv_render *render, hvc_image *out,
+/* DC shift has already clamped samples to their declared precision. Keep the
+ * general scalar path for RGB/interleaving and >16-bit scientific components. */
+static void pack_gray(const opj_image_comp_t *component, size_t count, uint8_t *out) {
+    size_t i = 0;
+    int bias = component->sgnd ? 1 << (component->prec - 1) : 0;
+#ifdef __wasm_simd128__
+    v128_t offset = wasm_i32x4_splat(bias);
+    for (; i + 16 <= count; i += 16) {
+        v128_t a = wasm_i32x4_add(wasm_v128_load(component->data + i), offset);
+        v128_t b = wasm_i32x4_add(wasm_v128_load(component->data + i + 4), offset);
+        v128_t c = wasm_i32x4_add(wasm_v128_load(component->data + i + 8), offset);
+        v128_t d = wasm_i32x4_add(wasm_v128_load(component->data + i + 12), offset);
+        if (component->prec > 8) {
+            a = wasm_u32x4_shr(a, component->prec - 8); b = wasm_u32x4_shr(b, component->prec - 8);
+            c = wasm_u32x4_shr(c, component->prec - 8); d = wasm_u32x4_shr(d, component->prec - 8);
+        } else {
+            a = wasm_i32x4_shl(a, 8 - component->prec); b = wasm_i32x4_shl(b, 8 - component->prec);
+            c = wasm_i32x4_shl(c, 8 - component->prec); d = wasm_i32x4_shl(d, 8 - component->prec);
+        }
+        wasm_v128_store(out + i, wasm_u8x16_narrow_i16x8(
+            wasm_i16x8_narrow_i32x4(a, b), wasm_i16x8_narrow_i32x4(c, d)));
+    }
+#endif
+    for (; i < count; ++i) {
+        unsigned value = (unsigned)(component->data[i] + bias);
+        out[i] = (uint8_t)(component->prec > 8 ? value >> (component->prec - 8) : value << (8 - component->prec));
+    }
+}
+
+static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, int reduce, const hv_render *render, const uint32_t *region, hvc_image *out,
                         char *error, size_t error_size) {
     memory input = {codestream, size, 0};
     message failure = {error, error_size, 0};
@@ -81,13 +196,21 @@ int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, cons
     opj_codec_t *codec = opj_create_decompress(OPJ_CODEC_J2K);
     opj_codestream_info_v2_t *info = NULL;
     opj_image_t *image = NULL;
+    opj_j2k_t *j2k = NULL;
+    opj_thread_pool_t *original_pool = NULL;
     size_t count, i;
     int status = -1, c, indexed = render && render->channel[0].palette_column >= 0;
     OPJ_UINT32 components[3] = {0, 1, 2};
 
+    active_decoder = context;
     memset(out, 0, sizeof *out);
     if (stream == NULL || codec == NULL)
         goto done;
+    if (context) {
+        j2k = (opj_j2k_t *)((opj_codec_private_t *)codec)->m_codec;
+        original_pool = j2k->m_tp;
+        j2k->m_tp = context->pool;
+    }
     opj_stream_set_read_function(stream, read_memory);
     opj_stream_set_skip_function(stream, skip_memory);
     opj_stream_set_seek_function(stream, seek_memory);
@@ -142,12 +265,30 @@ int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, cons
         reduce = 0;
     if (reduce > out->resolutions - 1)
         reduce = out->resolutions - 1;
-    if (!opj_set_decoded_resolution_factor(codec, (OPJ_UINT32)reduce) ||
-        !opj_decode(codec, stream, image) || !opj_end_decompress(codec, stream))
+    if (!opj_set_decoded_resolution_factor(codec, (OPJ_UINT32)reduce)) goto done;
+    if (region) {
+        why = "invalid decode region";
+        if (region[0] >= region[2] || region[1] >= region[3] ||
+            region[2] > out->full_width || region[3] > out->full_height ||
+            image->x1 > INT_MAX || image->y1 > INT_MAX) goto done;
+        for (c = 0; c < (int)image->numcomps; ++c)
+            if (image->comps[c].dx != 1 || image->comps[c].dy != 1) goto done;
+        const uint32_t gx = opj_uint_ceildivpow2(image->x0, reduce);
+        const uint32_t gy = opj_uint_ceildivpow2(image->y0, reduce);
+        out->grid_width = opj_uint_ceildivpow2(image->x1, reduce) - gx;
+        out->grid_height = opj_uint_ceildivpow2(image->y1, reduce) - gy;
+        out->x = opj_uint_ceildivpow2(image->x0 + region[0], reduce) - gx;
+        out->y = opj_uint_ceildivpow2(image->y0 + region[1], reduce) - gy;
+        if (!opj_set_decode_area(codec, image, image->x0 + region[0], image->y0 + region[1],
+                                image->x0 + region[2], image->y0 + region[3])) goto done;
+    }
+    why = "cannot decode the codestream";
+    if (!opj_decode(codec, stream, image) || !opj_end_decompress(codec, stream))
         goto done;
 
     out->width = image->comps[components[0]].w;
     out->height = image->comps[components[0]].h;
+    if (!region) { out->grid_width = out->width; out->grid_height = out->height; }
     for (c = 0; c < out->components; c++) {
         const opj_image_comp_t *component = &image->comps[components[c]];
         if (component->data == NULL || component->w != out->width ||
@@ -158,9 +299,13 @@ int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, cons
     }
     count = (size_t)out->width * out->height;
     why = "out of memory";
-    if (count > SIZE_MAX / 3 || (out->pixels = malloc(count * (size_t)out->components)) == NULL)
-        goto done;
-    for (c = 0; c < out->components; c++) {
+    if (count > SIZE_MAX / 3) goto done;
+    size_t bytes = count * (size_t)out->components;
+    out->pixels = context ? reserve(&context->output, &context->output_capacity, bytes, &context->growths) : malloc(bytes);
+    if (!out->pixels) goto done;
+    if (out->components == 1 && image->comps[components[0]].prec <= 16 && !indexed) {
+        pack_gray(&image->comps[components[0]], count, out->pixels);
+    } else for (c = 0; c < out->components; c++) {
         const opj_image_comp_t *component = &image->comps[components[c]];
         for (i = 0; i < count; i++)
             out->pixels[i * (size_t)out->components + (size_t)c] = sample(component, i, indexed);
@@ -168,6 +313,11 @@ int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, cons
     status = 0;
 
 done:
+    if (j2k) {
+        /* Also drain on malformed input before freeing any referenced tile state. */
+        opj_thread_pool_wait_completion(context->pool, 0);
+        j2k->m_tp = original_pool;
+    }
     if (status != 0 && !failure.reported)
         hv_fail(error, error_size, "%s", why);
     if (info != NULL)
@@ -175,5 +325,20 @@ done:
     opj_image_destroy(image);
     opj_destroy_codec(codec);
     opj_stream_destroy(stream);
+    active_decoder = NULL;
     return status;
+}
+
+int hvc_openjpeg_decode(const uint8_t *data, size_t size, int reduce, const hv_render *render,
+                        hvc_image *out, char *error, size_t error_size) {
+    return decode(NULL, data, size, reduce, render, NULL, out, error, error_size);
+}
+int hvc_openjpeg_decode_context(hvc_decoder *context, const uint8_t *data, size_t size, int reduce,
+    const hv_render *render, hvc_image *out, char *error, size_t error_size) {
+    return decode(context, data, size, reduce, render, NULL, out, error, error_size);
+}
+
+int hvc_openjpeg_decode_region(hvc_decoder *context, const uint8_t *data, size_t size, int reduce,
+    const hv_render *render, const uint32_t region[4], hvc_image *out, char *error, size_t error_size) {
+    return decode(context, data, size, reduce, render, region, out, error, error_size);
 }

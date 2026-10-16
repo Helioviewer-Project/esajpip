@@ -205,6 +205,13 @@ static OPJ_BOOL j2k_resolution_callback(void *codec, OPJ_UINT32 factor,
     return opj_j2k_set_decoded_resolution_factor(codec, factor, manager);
 }
 
+static OPJ_BOOL j2k_area_callback(void *codec, opj_image_t *image,
+        OPJ_INT32 x0, OPJ_INT32 y0, OPJ_INT32 x1, OPJ_INT32 y1,
+        opj_event_mgr_t *manager)
+{
+    return opj_j2k_set_decode_area(codec, image, x0, y0, x1, y1, manager);
+}
+
 static OPJ_BOOL j2k_decode_callback(void *codec, opj_stream_private_t *stream,
         opj_image_t *image, opj_event_mgr_t *manager)
 {
@@ -275,11 +282,7 @@ opj_codec_t* OPJ_CALLCONV opj_create_decompress(OPJ_CODEC_FORMAT p_format)
                          struct opj_stream_private *,
                          struct opj_event_mgr *)) opj_j2k_decode_tile;
 
-        l_codec->m_codec_data.m_decompression.opj_set_decode_area =
-            (OPJ_BOOL(*)(void *,
-                         opj_image_t*,
-                         OPJ_INT32, OPJ_INT32, OPJ_INT32, OPJ_INT32,
-                         struct opj_event_mgr *)) opj_j2k_set_decode_area;
+        l_codec->m_codec_data.m_decompression.opj_set_decode_area = j2k_area_callback;
 
         l_codec->m_codec_data.m_decompression.opj_get_decoded_tile =
             (OPJ_BOOL(*)(void *p_codec,
@@ -1168,9 +1171,12 @@ opj_stream_t* OPJ_CALLCONV opj_stream_create_file_stream(
 }
 
 
+/* Local esajpip extension: a bounded, coordinator-local coefficient workspace. */
+void *hvc_image_data_alloc(size_t size);
+void hvc_image_data_free(void *ptr);
 void* OPJ_CALLCONV opj_image_data_alloc(OPJ_SIZE_T size)
 {
-    void* ret = opj_aligned_malloc(size);
+    void* ret = hvc_image_data_alloc(size);
     /* printf("opj_image_data_alloc %p\n", ret); */
     return ret;
 }
@@ -1178,5 +1184,5 @@ void* OPJ_CALLCONV opj_image_data_alloc(OPJ_SIZE_T size)
 void OPJ_CALLCONV opj_image_data_free(void* ptr)
 {
     /* printf("opj_image_data_free %p\n", ptr); */
-    opj_aligned_free(ptr);
+    hvc_image_data_free(ptr);
 }
