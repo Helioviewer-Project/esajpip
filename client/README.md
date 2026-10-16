@@ -949,6 +949,7 @@ JP2 Header box or, in a JPX, from the frame's own codestream header box
 
 `hvc_decoder_create(threads)` owns one sequential decoder workspace and a persistent
 pool of 0–4 workers. Use one context per coordinator, not one per movie frame.
+Serialize all calls on that context, including statistics reads, with decoding.
 `hvc_openjpeg_decode_context` and `hvc_openjpeg_decode_region` return borrowed pixels
 until the next decode or context destruction. The existing `hvc_openjpeg_decode`
 still returns caller-owned pixels. All three take the same `hv_render` instructions.
@@ -957,6 +958,9 @@ The context retains input/output high-water capacities and up to 64 MiB of align
 coefficient buffers. That is not a total memory limit: codec scratch and worker
 stacks are additional. Malformed-input cleanup drains workers before releasing
 codec state. Destroy the context only after its active decode returns.
+`hvc_decoder_growths` counts successful input/output buffer growths; aligned
+coefficient cache allocations are counted by `hvc_decoder_coefficient_allocations`.
+Neither counter counts all allocations made by OpenJPEG.
 
 Region bounds `[x0,y0,x1,y1)` are relative to the full image before reduction.
 `hvc_image.x/y` locate the cropped output within `grid_width/grid_height`, with

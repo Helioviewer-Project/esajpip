@@ -37,7 +37,8 @@ typedef struct {
 int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, const hv_render *render, hvc_image *image,
                         char *error, size_t error_size);
 
-/* Reusable workspace with 0–4 workers; one coordinator calls it sequentially.
+/* Reusable workspace with 0–4 workers. All calls on a context, including
+ * statistics, must be serialized by one coordinator; none may overlap a decode.
  * Context/region pixels are borrowed until the next decode or destroy. */
 typedef struct hvc_decoder hvc_decoder;
 hvc_decoder *hvc_decoder_create(int threads);
@@ -48,6 +49,7 @@ size_t hvc_decoder_coefficient_allocations(const hvc_decoder *decoder);
 size_t hvc_decoder_coefficient_hits(const hvc_decoder *decoder);
 /* After a completed decode: bytes (0), hits (1), misses (2). */
 size_t hvc_decoder_codeblock_stat(const hvc_decoder *decoder, unsigned which);
+/* Successful input/output buffer growths; coefficient allocations are separate. */
 size_t hvc_decoder_growths(const hvc_decoder *decoder);
 int hvc_openjpeg_decode_context(hvc_decoder *decoder, const uint8_t *data, size_t size,
     int reduce, const hv_render *render, hvc_image *image, char *error, size_t error_size);
