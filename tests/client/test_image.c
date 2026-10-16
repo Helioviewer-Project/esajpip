@@ -61,7 +61,9 @@ static void verify_reuse(const output *encoded, const uint8_t *full, const hv_re
             }
             free(reference.pixels);
         }
-        check(hvc_decoder_retained(decoder) <= 64u * 1024 * 1024 + 768, "workspace budget");
+        check(hvc_decoder_codeblock_stat(decoder, 1) > 0, "codeblock reuse did not run");
+        check(hvc_decoder_codeblock_stat(decoder, 0) <= 8u * 1024 * 1024, "codeblock budget");
+        check(hvc_decoder_retained(decoder) <= 72u * 1024 * 1024 + 768, "workspace budget");
         const uint32_t region[4] = {1, 3, 11, 13};
         check(hvc_openjpeg_decode_region(decoder, encoded->data, encoded->size, 0,
             render, region, &image, error, sizeof error) == 0, error);

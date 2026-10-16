@@ -276,3 +276,5 @@ void EXPORT(hvc_wasm_reset)(void) {
     progress = 0;
     xml = NULL;
 }
+
+size_t EXPORT(hvc_wasm_codeblock_stat)(unsigned which) { return hvc_decoder_codeblock_stat(decoder, which); }

@@ -23,7 +23,8 @@ build for WebAssembly.
 ## Decoder optimizations
 
 Local changes touch `dwt.c`, `t1.c`, `tcd.c` and `openjpeg.c` and add
-`wasm-dwt-simd.h`. They preserve scalar tails and floating-point operation order;
+`wasm-dwt-simd.h`. `client/hvc_t1_cache.c` owns the bounded Tier-1 cache.
+They preserve scalar tails and floating-point operation order;
 compile without fast-math or fused multiply-add (`-ffp-contract=off`).
 The workspace borrows the pinned private J2K thread-pool field and restores it
 before codec destruction. Review that boundary when upgrading OpenJPEG.
