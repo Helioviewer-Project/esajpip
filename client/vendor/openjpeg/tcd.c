@@ -40,6 +40,9 @@
  */
 
 #include "opj_includes.h"
+#ifdef __wasm_simd128__
+#include <wasm_simd128.h>
+#endif
 #include "opj_common.h"
 
 // #define DEBUG_RATE_ALLOC
@@ -2330,6 +2333,36 @@ static OPJ_BOOL opj_tcd_dc_level_shift_decode(opj_tcd_t *p_tcd)
                 l_current_ptr += l_stride;
             }
         } else {
+#ifdef __wasm_simd128__
+            /* WASI uses round-to-nearest, ties-to-even. For <=16-bit samples
+             * these clamp bounds and the DC shift are exactly representable.
+             * Keep the scalar path for unusual precision/shift combinations. */
+            if (l_img_comp->prec <= 16 && l_tccp->m_dc_level_shift >= 0 &&
+                    l_tccp->m_dc_level_shift <= 65536) {
+                v128_t lo = wasm_f32x4_splat((float)(l_min - l_tccp->m_dc_level_shift));
+                v128_t hi = wasm_f32x4_splat((float)(l_max - l_tccp->m_dc_level_shift));
+                v128_t shift = wasm_i32x4_splat(l_tccp->m_dc_level_shift);
+                for (j = 0; j < l_height; ++j) {
+                    for (i = 0; i + 4 <= l_width; i += 4) {
+                        v128_t value = wasm_f32x4_nearest(wasm_v128_load(l_current_ptr));
+                        value = wasm_f32x4_min(wasm_f32x4_max(value, lo), hi);
+                        wasm_v128_store(l_current_ptr,
+                            wasm_i32x4_add(wasm_i32x4_trunc_sat_f32x4(value), shift));
+                        l_current_ptr += 4;
+                    }
+                    for (; i < l_width; ++i) {
+                        OPJ_FLOAT32 value = *((OPJ_FLOAT32 *)l_current_ptr);
+                        if (value > (OPJ_FLOAT32)INT_MAX) *l_current_ptr = l_max;
+                        else if (value < INT_MIN) *l_current_ptr = l_min;
+                        else *l_current_ptr = (OPJ_INT32)opj_int64_clamp(
+                            (OPJ_INT64)opj_lrintf(value) + l_tccp->m_dc_level_shift, l_min, l_max);
+                        ++l_current_ptr;
+                    }
+                    l_current_ptr += l_stride;
+                }
+                continue;
+            }
+#endif
             for (j = 0; j < l_height; ++j) {
                 for (i = 0; i < l_width; ++i) {
                     OPJ_FLOAT32 l_value = *((OPJ_FLOAT32 *) l_current_ptr);

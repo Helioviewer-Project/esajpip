@@ -22,6 +22,30 @@ static hvc *client;
 static hvc_image image;
 static char error[256];
 static int progress;
+static hvc_decoder *decoder;
+
+void EXPORT(hvc_wasm_decode_release)(void) {
+    image = (hvc_image){0};
+    hvc_decoder_destroy(decoder);
+    decoder = NULL;
+}
+
+int EXPORT(hvc_wasm_threads)(int threads) {
+    hvc_wasm_decode_release();
+    decoder = hvc_decoder_create(threads);
+    if (!decoder) snprintf(error, sizeof error, "cannot create decoder workspace");
+    return decoder ? 0 : -1;
+}
+
+void *EXPORT(hvc_wasm_decode_input)(size_t size) {
+    if (!decoder && hvc_wasm_threads(0)) return NULL;
+    return hvc_decoder_input(decoder, size);
+}
+
+size_t EXPORT(hvc_wasm_decode_retained)(void) { return hvc_decoder_retained(decoder); }
+size_t EXPORT(hvc_wasm_decode_growths)(void) { return hvc_decoder_growths(decoder); }
+size_t EXPORT(hvc_wasm_coefficient_allocations)(void) { return hvc_decoder_coefficient_allocations(decoder); }
+size_t EXPORT(hvc_wasm_coefficient_hits)(void) { return hvc_decoder_coefficient_hits(decoder); }
 
 /* Memory for the host to place a response body in. */
 void *EXPORT(hvc_wasm_alloc)(size_t size) {
@@ -165,13 +189,13 @@ const hvc_view *EXPORT(hvc_wasm_view)(uint32_t frame, int reduce,
 int EXPORT(hvc_wasm_decode)(uint32_t frame, int reduce) {
     error[0] = 0;
     if (!client) return -1;
-    free(image.pixels);
-    image.pixels = NULL;
+    image = (hvc_image){0};
+    if (!decoder && hvc_wasm_threads(0)) return -1;
     hv_render render;
     if (hvc_render_read(client, frame, SIZE_MAX, &render)) return -1;
     hvc_input *input = hvc_input_open(client, frame, reduce);
     if (!input) return -1;
-    int status = hvc_openjpeg_decode(hvc_input_data(input), hvc_input_size(input), reduce,
+    int status = hvc_openjpeg_decode_context(decoder, hvc_input_data(input), hvc_input_size(input), reduce,
                                      &render,
                                      &image, error, sizeof error);
     hvc_input_close(input);
@@ -188,12 +212,67 @@ const char *EXPORT(hvc_wasm_error)(void) {
     return error[0] ? error : client ? hvc_error(client) : "client is closed";
 }
 
-/* Forgets the channel: its data-bins and its image. */
+/* Immutable reconstructed input for a separate decoder worker. Copy the bytes
+ * and decoder instructions, then release the snapshot before resetting the source.
+ * The palette table is obtained separately through hvc_wasm_palette. */
+static hvc_input *decode_input;
+static hv_render decode_render;
+
+void EXPORT(hvc_wasm_release_codestream)(void) {
+    hvc_input_close(decode_input);
+    decode_input = NULL;
+    decode_render = (hv_render){0};
+}
+
+const uint8_t *EXPORT(hvc_wasm_codestream)(uint32_t frame, int reduce) {
+    error[0] = 0;
+    hvc_wasm_release_codestream();
+    if (!client || hvc_render_read(client, frame, SIZE_MAX, &decode_render)) return NULL;
+    decode_render.palette = (hv_palette){0}; /* No borrowed pointers cross workers. */
+    decode_input = hvc_input_open(client, frame, reduce);
+    return decode_input ? hvc_input_data(decode_input) : NULL;
+}
+
+size_t EXPORT(hvc_wasm_codestream_size)(void) {
+    return decode_input ? hvc_input_size(decode_input) : 0;
+}
+
+const hv_render *EXPORT(hvc_wasm_codestream_render)(void) {
+    return decode_input ? &decode_render : NULL;
+}
+
+size_t EXPORT(hvc_wasm_render_size)(void) { return sizeof(hv_render); }
+
+/* Direct decoder entries use the same channel instructions as frame decoding.
+ * render is NULL for default components, or a descriptor in this module's memory.
+ * All returned pixels borrow the workspace until the next decode or release. */
+int EXPORT(hvc_wasm_decode_codestream)(const uint8_t *data, size_t size, int reduce, const hv_render *render) {
+    error[0] = 0;
+    image = (hvc_image){0};
+    if (!decoder && hvc_wasm_threads(0)) return -1;
+    return hvc_openjpeg_decode_context(decoder, data, size, reduce, render, &image, error, sizeof error);
+}
+
+int EXPORT(hvc_wasm_decode_region)(const uint8_t *data, size_t size, int reduce, const hv_render *render,
+    uint32_t x0, uint32_t y0, uint32_t x1, uint32_t y1) {
+    const uint32_t region[4] = {x0, y0, x1, y1};
+    error[0] = 0;
+    image = (hvc_image){0};
+    if (!decoder && hvc_wasm_threads(0)) return -1;
+    return hvc_openjpeg_decode_region(decoder, data, size, reduce, render, region, &image, error, sizeof error);
+}
+
+uint32_t EXPORT(hvc_wasm_crop_x)(void) { return image.x; }
+uint32_t EXPORT(hvc_wasm_crop_y)(void) { return image.y; }
+uint32_t EXPORT(hvc_wasm_grid_width)(void) { return image.grid_width; }
+uint32_t EXPORT(hvc_wasm_grid_height)(void) { return image.grid_height; }
+
+/* Forgets the channel, snapshot and decoder workspace. */
 void EXPORT(hvc_wasm_reset)(void) {
+    hvc_wasm_release_codestream();
+    hvc_wasm_decode_release();
     hvc_destroy(client);
     client = NULL;
     progress = 0;
-    free(image.pixels);
-    image.pixels = NULL;
     xml = NULL;
 }

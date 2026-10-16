@@ -14,7 +14,14 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
         "hvc_wasm_frames", "hvc_wasm_codestreams", "hvc_wasm_xml_size", "hvc_wasm_xml",
         "hvc_wasm_palette", "hvc_wasm_palette_channels", "hvc_wasm_palette_table", "hvc_wasm_view",
         "hvc_wasm_decode", "hvc_wasm_pixels", "hvc_wasm_width", "hvc_wasm_height",
-        "hvc_wasm_components", "hvc_wasm_error", "hvc_wasm_reset"];
+        "hvc_wasm_components", "hvc_wasm_error", "hvc_wasm_reset",
+        "hvc_wasm_threads", "hvc_wasm_decode_release", "hvc_wasm_decode_input",
+        "hvc_wasm_decode_retained", "hvc_wasm_decode_growths",
+        "hvc_wasm_coefficient_allocations", "hvc_wasm_coefficient_hits",
+        "hvc_wasm_codestream", "hvc_wasm_codestream_size", "hvc_wasm_codestream_render",
+        "hvc_wasm_render_size", "hvc_wasm_release_codestream", "hvc_wasm_decode_codestream",
+        "hvc_wasm_decode_region", "hvc_wasm_crop_x", "hvc_wasm_crop_y",
+        "hvc_wasm_grid_width", "hvc_wasm_grid_height"];
     assert.deepEqual(WebAssembly.Module.exports(module).sort((a, b) => a.name.localeCompare(b.name)),
         [...functions.map(name => ({ name, kind: "function" })), { name: "memory", kind: "memory" }]
             .sort((a, b) => a.name.localeCompare(b.name)));
@@ -110,6 +117,51 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
         assert.equal(decodeFailures, 1, "fixture failed before calling the real WASM decoder");
         assert.equal(channel.cached(0).ready, true, "decoder failure discarded the cache");
         await channel.close();
+
+        for (const name of ["mapped-rgb.jp2", "shared-palette.jpx"]) {
+            channel = await JpipChannel.open(module, server, name);
+            const frame = await channel.frame(0);
+            const input = exports.hvc_wasm_codestream(0, 0) >>> 0;
+            assert.notEqual(input, 0);
+            const data = new Uint8Array(exports.memory.buffer, input, exports.hvc_wasm_codestream_size()).slice();
+            const render = new Uint8Array(exports.memory.buffer,
+                exports.hvc_wasm_codestream_render() >>> 0, exports.hvc_wasm_render_size()).slice();
+            await channel.close(); // The copied instructions must survive their source.
+            assert.equal(exports.hvc_wasm_codestream_size(), 0);
+            assert.equal(exports.hvc_wasm_codestream_render(), 0);
+            const decoder = (await instantiate(module, {
+                wasi_snapshot_preview1: Object.fromEntries(imports.map(name => [name, () => 0])),
+            })).exports;
+            decoder._initialize();
+            const at = decoder.hvc_wasm_decode_input(data.length) >>> 0;
+            const instructions = decoder.hvc_wasm_alloc(render.length) >>> 0;
+            try {
+                new Uint8Array(decoder.memory.buffer, at, data.length).set(data);
+                new Uint8Array(decoder.memory.buffer, instructions, render.length).set(render);
+                assert.equal(decoder.hvc_wasm_decode_codestream(at, data.length, 0, instructions), 0);
+                assert.equal(decoder.hvc_wasm_components(), frame.components);
+                assert.deepEqual(new Uint8Array(decoder.memory.buffer, decoder.hvc_wasm_pixels() >>> 0,
+                    frame.pixels.length), frame.pixels, "direct decode lost channel/index mapping");
+                assert.equal(decoder.hvc_wasm_decode_region(at, data.length, 0, instructions, 1, 3, 11, 13), 0);
+                assert.equal(decoder.hvc_wasm_crop_x(), 1);
+                assert.equal(decoder.hvc_wasm_crop_y(), 3);
+                assert.equal(decoder.hvc_wasm_grid_width(), frame.width);
+                assert.equal(decoder.hvc_wasm_grid_height(), frame.height);
+                const crop = new Uint8Array(decoder.memory.buffer, decoder.hvc_wasm_pixels() >>> 0, 100 * frame.components);
+                for (let y = 0; y < 10; y++)
+                    assert.deepEqual(crop.subarray(y * 10 * frame.components, (y + 1) * 10 * frame.components),
+                        frame.pixels.subarray(((y + 3) * frame.width + 1) * frame.components,
+                            ((y + 3) * frame.width + 11) * frame.components));
+                assert.equal(decoder.hvc_wasm_decode_region(at, data.length, 0, instructions, 0, 0, frame.width + 1, 10), -1);
+                assert.equal(decoder.hvc_wasm_decode_codestream(at, data.length, 0, instructions), 0);
+                assert.equal(decoder.hvc_wasm_width(), frame.width, "whole frame retained a previous crop");
+            } finally {
+                decoder.hvc_wasm_free(instructions);
+                decoder.hvc_wasm_decode_release();
+                assert.equal(decoder.hvc_wasm_pixels(), 0);
+                assert.equal(decoder.hvc_wasm_decode_retained(), 0);
+            }
+        }
 
         // Execute the demo's actual open handler. The source, decoder, worker
         // and server are real; only the controls used before failure are stubs.

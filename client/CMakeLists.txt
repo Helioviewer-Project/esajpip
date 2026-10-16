@@ -52,3 +52,15 @@ endif()
 target_include_directories(esajpip_client_wasm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(esajpip_client_wasm SYSTEM PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/openjpeg)
+
+# Preserve scalar/SIMD floating-point operation order, including 9/7 lifting.
+target_compile_options(esajpip_client_wasm PRIVATE -ffp-contract=off)
+if(NOT CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
+    if(WIN32)
+        target_compile_definitions(esajpip_client_wasm PRIVATE MUTEX_win32)
+    else()
+        find_package(Threads REQUIRED)
+        target_compile_definitions(esajpip_client_wasm PRIVATE MUTEX_pthread)
+        target_link_libraries(esajpip_client_wasm PRIVATE Threads::Threads)
+    endif()
+endif()

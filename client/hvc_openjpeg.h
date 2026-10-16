@@ -18,6 +18,7 @@ extern "C" {
 typedef struct {
     uint32_t width, height;             /* of the resolution decoded */
     uint32_t full_width, full_height;   /* of the whole image */
+    uint32_t x, y, grid_width, grid_height; /* cropped output in the reduced grid */
     int resolutions;                    /* in the codestream */
     int components;                     /* 1 (gray) or 3 (RGB) */
     uint8_t *pixels;                    /* width * height * components, rows
@@ -35,6 +36,25 @@ typedef struct {
  * 0, with image->pixels malloc'd; or -1 with a message in error. */
 int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, const hv_render *render, hvc_image *image,
                         char *error, size_t error_size);
+
+/* Reusable workspace with 0–4 workers; one coordinator calls it sequentially.
+ * Context/region pixels are borrowed until the next decode or destroy. */
+typedef struct hvc_decoder hvc_decoder;
+hvc_decoder *hvc_decoder_create(int threads);
+void hvc_decoder_destroy(hvc_decoder *decoder);
+void *hvc_decoder_input(hvc_decoder *decoder, size_t size);
+size_t hvc_decoder_retained(const hvc_decoder *decoder);
+size_t hvc_decoder_coefficient_allocations(const hvc_decoder *decoder);
+size_t hvc_decoder_coefficient_hits(const hvc_decoder *decoder);
+size_t hvc_decoder_growths(const hvc_decoder *decoder);
+int hvc_openjpeg_decode_context(hvc_decoder *decoder, const uint8_t *data, size_t size,
+    int reduce, const hv_render *render, hvc_image *image, char *error, size_t error_size);
+
+/* Region bounds are [x0,y0,x1,y1), relative to the full image, before reduction.
+ * Output x/y locate the crop within grid_width/grid_height. */
+int hvc_openjpeg_decode_region(hvc_decoder *decoder, const uint8_t *data, size_t size,
+    int reduce, const hv_render *render, const uint32_t region[4], hvc_image *image,
+    char *error, size_t error_size);
 
 #ifdef __cplusplus
 }
