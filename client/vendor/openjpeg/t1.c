@@ -40,6 +40,7 @@
 
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
+#include "hvc_t1_cache.h"
 
 #ifdef __SSE__
 #include <xmmintrin.h>
@@ -1591,6 +1592,7 @@ void opj_t1_destroy(opj_t1_t *p_t1)
 }
 
 typedef struct {
+    hvc_t1_cache *cache;
     OPJ_BOOL whole_tile_decoding;
     OPJ_UINT32 resno;
     opj_tcd_cblk_dec_t* cblk;
@@ -1686,7 +1688,15 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
     }
     t1->mustuse_cblkdatabuffer = job->mustuse_cblkdatabuffer;
 
-    if ((tccp->cblksty & J2K_CCP_CBLKSTY_HT) != 0) {
+    OPJ_BOOL reused = OPJ_FALSE;
+    if (job->cache && opj_t1_allocate_buffers(t1,
+            (OPJ_UINT32)(cblk->x1-cblk->x0), (OPJ_UINT32)(cblk->y1-cblk->y0)))
+        reused = hvc_t1_cache_transfer(job->cache, cblk, band->bandno,
+            (OPJ_UINT32)tccp->roishift, tccp->cblksty,
+            cblk->decoded_data ? cblk->decoded_data : t1->data, OPJ_FALSE);
+    if (reused) {
+        /* Raw coefficients still pass through the normal ROI/dequantization. */
+    } else if ((tccp->cblksty & J2K_CCP_CBLKSTY_HT) != 0) {
         if (OPJ_FALSE == opj_t1_ht_decode_cblk(
                     t1,
                     cblk,
@@ -1713,6 +1723,11 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
             return;
         }
     }
+
+    if (job->cache && !reused)
+        hvc_t1_cache_transfer(job->cache, cblk, band->bandno,
+            (OPJ_UINT32)tccp->roishift, tccp->cblksty,
+            cblk->decoded_data ? cblk->decoded_data : t1->data, OPJ_TRUE);
 
     x = cblk->x0 - band->x0;
     y = cblk->y0 - band->y0;
@@ -2000,6 +2015,10 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
                         return;
                     }
                     job->whole_tile_decoding = tcd->whole_tile_decoding;
+                    /* Preserve small subbands across resolution upgrades; large
+                     * newly decoded bands must not evict this working set. */
+                    job->cache = !check_pterm && !(tccp->cblksty & J2K_CCP_CBLKSTY_HT) &&
+                        res->x1-res->x0 <= 512 && res->y1-res->y0 <= 512 ? hvc_active_t1_cache() : NULL;
                     job->resno = resno;
                     job->cblk = cblk;
                     job->band = band;

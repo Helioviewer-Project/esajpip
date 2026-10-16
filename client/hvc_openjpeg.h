@@ -47,6 +47,8 @@ void *hvc_decoder_input(hvc_decoder *decoder, size_t size);
 size_t hvc_decoder_retained(const hvc_decoder *decoder);
 size_t hvc_decoder_coefficient_allocations(const hvc_decoder *decoder);
 size_t hvc_decoder_coefficient_hits(const hvc_decoder *decoder);
+/* After a completed decode: bytes (0), hits (1), misses (2). */
+size_t hvc_decoder_codeblock_stat(const hvc_decoder *decoder, unsigned which);
 /* Successful input/output buffer growths; coefficient allocations are separate. */
 size_t hvc_decoder_growths(const hvc_decoder *decoder);
 int hvc_openjpeg_decode_context(hvc_decoder *decoder, const uint8_t *data, size_t size,

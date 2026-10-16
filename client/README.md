@@ -983,3 +983,9 @@ in its own memory, or NULL for default components.
 
 See [vendored OpenJPEG notes](vendor/openjpeg/README.md) for the private-API
 upgrade boundary.
+
+The context also caches up to 8 MiB of low-resolution Tier-1 coefficients.
+Reuse requires matching compressed bytes and coding parameters, not a hash alone;
+changed blocks decode normally. This helps immediate refinement of a frame, but
+has no hits when a long movie is decoded in separate resolution passes.
+Allocation failure simply skips caching. Destroying the context releases it.

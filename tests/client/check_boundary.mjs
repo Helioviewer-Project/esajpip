@@ -17,7 +17,7 @@ export async function checkBoundary(wasm, wasmURL, server, image, repository) {
         "hvc_wasm_components", "hvc_wasm_error", "hvc_wasm_reset",
         "hvc_wasm_threads", "hvc_wasm_decode_release", "hvc_wasm_decode_input",
         "hvc_wasm_decode_retained", "hvc_wasm_decode_growths",
-        "hvc_wasm_coefficient_allocations", "hvc_wasm_coefficient_hits",
+        "hvc_wasm_coefficient_allocations", "hvc_wasm_coefficient_hits", "hvc_wasm_codeblock_stat",
         "hvc_wasm_codestream", "hvc_wasm_codestream_size", "hvc_wasm_codestream_render",
         "hvc_wasm_render_size", "hvc_wasm_release_codestream", "hvc_wasm_decode_codestream",
         "hvc_wasm_decode_region", "hvc_wasm_crop_x", "hvc_wasm_crop_y",
