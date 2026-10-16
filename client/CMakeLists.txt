@@ -52,3 +52,8 @@ endif()
 target_include_directories(esajpip_client_wasm PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_include_directories(esajpip_client_wasm SYSTEM PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/vendor/openjpeg)
+
+# Preserve scalar/SIMD floating-point operation order, including 9/7 lifting.
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(esajpip_client_wasm PRIVATE -ffp-contract=off)
+endif()
