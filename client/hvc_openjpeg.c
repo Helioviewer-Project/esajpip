@@ -9,6 +9,7 @@
  * restore its original pool before destruction. Never retain image/packet state. */
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
+#include "hvc_t1_cache.h"
 #ifdef __wasm_simd128__
 #include <wasm_simd128.h>
 #endif
@@ -66,6 +67,7 @@ static void keep_error(const char *text, void *user) {
 
 struct hvc_decoder {
     opj_thread_pool_t *pool;
+    hvc_t1_cache *codeblocks;
     uint8_t *input, *output;
     size_t input_capacity, output_capacity, growths;
     struct {void *data; size_t capacity; int busy;} coefficients[3];
@@ -74,6 +76,8 @@ struct hvc_decoder {
 /* Only the sequential coordinator lends this cache to OpenJPEG. Tier-1/DWT
  * worker scratch uses OpenJPEG's separate aligned allocator, not these hooks. */
 static _Thread_local hvc_decoder *active_decoder;
+hvc_t1_cache *hvc_active_t1_cache(void) { return active_decoder ? active_decoder->codeblocks : NULL; }
+size_t hvc_decoder_codeblock_stat(const hvc_decoder *d, unsigned which) { return hvc_t1_cache_stat(d ? d->codeblocks : NULL, which); }
 #define COEFFICIENT_BUDGET ((size_t)64 * 1024 * 1024)
 void *hvc_image_data_alloc(size_t size) {
     if (!size) return NULL;
@@ -128,11 +132,13 @@ hvc_decoder *hvc_decoder_create(int threads) {
     if (!decoder) return NULL;
     decoder->pool = opj_thread_pool_create(threads);
     if (!decoder->pool) { free(decoder); return NULL; }
+    decoder->codeblocks = hvc_t1_cache_create();
     return decoder;
 }
 void hvc_decoder_destroy(hvc_decoder *decoder) {
     if (!decoder) return;
     opj_thread_pool_destroy(decoder->pool);
+    hvc_t1_cache_destroy(decoder->codeblocks);
     for (int i = 0; i < 3; ++i) opj_aligned_free(decoder->coefficients[i].data);
     free(decoder->input); free(decoder->output); free(decoder);
 }
@@ -140,7 +146,7 @@ void *hvc_decoder_input(hvc_decoder *decoder, size_t size) {
     return reserve(&decoder->input, &decoder->input_capacity, size, &decoder->growths);
 }
 size_t hvc_decoder_retained(const hvc_decoder *decoder) {
-    return decoder ? decoder->input_capacity + decoder->output_capacity + decoder->coefficient_bytes : 0;
+    return decoder ? decoder->input_capacity + decoder->output_capacity + decoder->coefficient_bytes + hvc_t1_cache_stat(decoder->codeblocks, 0) : 0;
 }
 size_t hvc_decoder_growths(const hvc_decoder *decoder) { return decoder ? decoder->growths : 0; }
 

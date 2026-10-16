@@ -10,7 +10,7 @@ list(TRANSFORM openjpeg_srcs PREPEND vendor/openjpeg/)
 set_source_files_properties(${openjpeg_srcs} PROPERTIES COMPILE_OPTIONS -w)
 
 set(esajpip_client_wasm_srcs
-    ${esajpip_client_srcs} hvc_openjpeg.c hvc_wasm.c ${openjpeg_srcs})
+    ${esajpip_client_srcs} hvc_openjpeg.c hvc_t1_cache.c hvc_wasm.c ${openjpeg_srcs})
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
     # WASI libc's allocator avoids Zig's power-of-two block rounding.
