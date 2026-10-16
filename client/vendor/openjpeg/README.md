@@ -9,7 +9,7 @@ OpenJPEG version a system packages.
   `6c4a29b00211eb0430fa0e5e890f1ce5c80f409f`.
 - The 22 `.c` and 29 `.h` files are those of `src/lib/openjp2/` that upstream
   builds into `libopenjp2` without its JPIP option. The local callback fix below
-  changes `openjpeg.c`; the other upstream files are unmodified.
+  changes `openjpeg.c`; decoder performance changes are listed below.
 - `opj_config.h` and `opj_config_private.h` are not upstream files: upstream
   generates them with CMake. They are written by hand here.
 - `LICENSE` is from the upstream root. OpenJPEG is distributed under the
@@ -20,11 +20,19 @@ tests. The core `esajpip_client` target does not depend on it.
 `opj_clock.c` is not compiled: the library does not call it, and it does not
 build for WebAssembly.
 
+## Decoder optimizations
+
+Local changes touch `dwt.c`, `t1.c`, `tcd.c` and `openjpeg.c` and add
+`wasm-dwt-simd.h`. They preserve scalar tails and floating-point operation order;
+compile without fast-math or fused multiply-add (`-ffp-contract=off`).
+The workspace borrows the pinned private J2K thread-pool field and restores it
+before codec destruction. Review that boundary when upgrading OpenJPEG.
+
 ## Updating
 
 Keep local changes documented here. `openjpeg.c` uses exact-type callbacks
 for the raw J2K decoder calls reached by `hvc_openjpeg_decode`: setup, header
-read, codestream information, resolution selection, decode, end and destroy.
+read, codestream information, resolution/region selection, decode, end and destroy.
 The J2K encoder setup, start, encode and end calls used by `client_image` have
 the same adapters.
 Each adapter converts the opaque handle through an ordinary C call instead
@@ -34,13 +42,13 @@ JP2 and unused codec operations retain upstream dispatch and are not covered
 by this fix. No sanitizer checks are disabled.
 
 To change version, replace the files wholesale from a release tag, reapply or
-retire that fix after testing upstream dispatch, refresh `LICENSE`, and update the version in
+retire the callback and decoder changes after testing, refresh `LICENSE`, and update the version in
 the two configuration headers and the version, date and commit above. To check
 a copy against an upstream checkout:
 
 ```sh
 for f in client/vendor/openjpeg/*.[ch]; do
-    case $f in */opj_config*.h) continue;; esac
+    case $f in */opj_config*.h|*/wasm-dwt-simd.h) continue;; esac
     cmp $f /path/to/openjpeg/src/lib/openjp2/$(basename $f)
 done
 ```

@@ -946,3 +946,40 @@ JP2 Header box or, in a JPX, from the frame's own codestream header box
 | `js/jpip_channel.mjs` | `JpipChannel`: the HTTP exchange around the module |
 | `demo/index.html` | The demonstration page |
 | [`vendor/openjpeg/`](vendor/openjpeg/README.md) | OpenJPEG 2.5.4 |
+
+### Reusable OpenJPEG decoder
+
+`hvc_decoder_create(threads)` owns one sequential decoder workspace and a persistent
+pool of 0–4 workers. Use one context per coordinator, not one per movie frame.
+Serialize all calls on that context, including statistics reads, with decoding.
+`hvc_openjpeg_decode_context` and `hvc_openjpeg_decode_region` return borrowed pixels
+until the next decode or context destruction. The existing `hvc_openjpeg_decode`
+still returns caller-owned pixels. All three take the same `hv_render` instructions.
+
+The context retains input/output high-water capacities and up to 64 MiB of aligned
+coefficient buffers. That is not a total memory limit: codec scratch and worker
+stacks are additional. Malformed-input cleanup drains workers before releasing
+codec state. Destroy the context only after its active decode returns.
+`hvc_decoder_growths` counts successful input/output buffer growths; aligned
+coefficient cache allocations are counted by `hvc_decoder_coefficient_allocations`.
+Neither counter counts all allocations made by OpenJPEG.
+
+Region bounds `[x0,y0,x1,y1)` are relative to the full image before reduction.
+`hvc_image.x/y` locate the cropped output within `grid_width/grid_height`, with
+ceiling-rounded dimensions and the codestream's original grid origin respected.
+Subsampled regions are refused. Rebuild decoder consumers for the extended
+`hvc_image` layout.
+
+WASM exposes the same workspace through `hvc_wasm_threads`, `hvc_wasm_decode_input`,
+`hvc_wasm_decode_codestream`, `hvc_wasm_decode_region` and `hvc_wasm_decode_release`.
+`hvc_wasm_decode` also reuses it, preserving the existing JS client's frame API.
+`hvc_wasm_codestream` holds one reconstructed snapshot until release or reset;
+`hvc_wasm_codestream_render` provides its `hv_render` decoder instructions.
+To hand work to another module instance, copy both the codestream and the
+`hvc_wasm_render_size()` bytes of instructions into that instance before decoding.
+The instructions contain no borrowed palette pointer. Obtain display tables using
+the existing palette exports. Direct decode takes a pointer to these instructions
+in its own memory, or NULL for default components.
+
+See [vendored OpenJPEG notes](vendor/openjpeg/README.md) for the private-API
+upgrade boundary.

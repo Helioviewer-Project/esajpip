@@ -1468,6 +1468,7 @@ static OPJ_BOOL opj_t1_allocate_buffers(
 
         if (datasize > t1->datasize) {
             opj_aligned_free(t1->data);
+            t1->datasize = 0;
             t1->data = (OPJ_INT32*) opj_aligned_malloc(datasize * sizeof(OPJ_INT32));
             if (!t1->data) {
                 /* FIXME event manager error callback */
@@ -1494,14 +1495,15 @@ static OPJ_BOOL opj_t1_allocate_buffers(
         if (flagssize > t1->flagssize) {
 
             opj_aligned_free(t1->flags);
+            t1->flagssize = 0;
             t1->flags = (opj_flag_t*) opj_aligned_malloc(flagssize * sizeof(
                             opj_flag_t));
             if (!t1->flags) {
                 /* FIXME event manager error callback */
                 return OPJ_FALSE;
             }
+            t1->flagssize = flagssize;
         }
-        t1->flagssize = flagssize;
 
         memset(t1->flags, 0, flagssize * sizeof(opj_flag_t));
 
@@ -1642,7 +1644,6 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
                 opj_mutex_unlock(job->p_manager_mutex);
             }
             *(job->pret) = OPJ_FALSE;
-            opj_free(job);
             return;
         }
         /* Zero-init required */
@@ -1663,7 +1664,6 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
                           tilec->resolutions[tilec->minimum_num_resolutions - 1].x0);
 
     if (!*(job->pret)) {
-        opj_free(job);
         return;
     }
 
@@ -1674,7 +1674,6 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
             opj_event_msg(job->p_manager, EVT_ERROR,
                           "Cannot allocate Tier 1 handle\n");
             *(job->pret) = OPJ_FALSE;
-            opj_free(job);
             return;
         }
         if (!opj_tls_set(tls, OPJ_TLS_KEY_T1, t1, opj_t1_destroy_wrapper)) {
@@ -1682,7 +1681,6 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
                           "Unable to set t1 handle as TLS\n");
             opj_t1_destroy(t1);
             *(job->pret) = OPJ_FALSE;
-            opj_free(job);
             return;
         }
     }
@@ -1699,7 +1697,6 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
                     job->p_manager_mutex,
                     job->check_pterm)) {
             *(job->pret) = OPJ_FALSE;
-            opj_free(job);
             return;
         }
     } else {
@@ -1713,7 +1710,6 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
                     job->p_manager_mutex,
                     job->check_pterm)) {
             *(job->pret) = OPJ_FALSE;
-            opj_free(job);
             return;
         }
     }
@@ -1865,9 +1861,39 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
         }
     }
 
-    opj_free(job);
 }
 
+
+static void opj_t1_decode_single(void *data, opj_tls_t *tls)
+{
+    opj_t1_clbl_decode_processor(data, tls);
+    opj_free(data);
+}
+
+/* Four adjacent blocks share one allocation and queue operation. Keep batches
+ * small so expensive blocks do not monopolize a worker. */
+#define OPJ_T1_BATCH_SIZE 4
+
+typedef struct {
+    OPJ_UINT32 count;
+    opj_t1_cblk_decode_processing_job_t jobs[OPJ_T1_BATCH_SIZE];
+} opj_t1_decode_batch_t;
+
+static void opj_t1_decode_batch(void *data, opj_tls_t *tls)
+{
+    opj_t1_decode_batch_t *batch = (opj_t1_decode_batch_t *)data;
+    OPJ_UINT32 i;
+    for (i = 0; i < batch->count; ++i)
+        opj_t1_clbl_decode_processor(&batch->jobs[i], tls);
+    opj_free(batch);
+}
+
+static OPJ_BOOL opj_t1_submit_batch(opj_thread_pool_t *tp, opj_t1_decode_batch_t *batch)
+{
+    if (opj_thread_pool_submit_job(tp, opj_t1_decode_batch, batch)) return OPJ_TRUE;
+    opj_free(batch);
+    return OPJ_FALSE;
+}
 
 void opj_t1_decode_cblks(opj_tcd_t* tcd,
                          volatile OPJ_BOOL* pret,
@@ -1880,6 +1906,10 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
 {
     opj_thread_pool_t* tp = tcd->thread_pool;
     OPJ_UINT32 resno, bandno, precno, cblkno;
+    opj_t1_decode_batch_t *batch = NULL;
+    const opj_tcd_resolution_t *last = &tilec->resolutions[tilec->minimum_num_resolutions - 1];
+    const OPJ_BOOL batch_blocks = opj_thread_pool_get_thread_count(tp) > 1 &&
+        last->x1 - last->x0 >= 4096 && last->y1 - last->y0 >= 4096;
 
 #ifdef DEBUG_VERBOSE
     OPJ_UINT32 codeblocks_decoded = 0;
@@ -1959,8 +1989,12 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
 #endif
                     }
 
-                    job = (opj_t1_cblk_decode_processing_job_t*) opj_calloc(1,
-                            sizeof(opj_t1_cblk_decode_processing_job_t));
+                    if (batch_blocks) {
+                        if (!batch) batch = (opj_t1_decode_batch_t*)opj_calloc(1, sizeof(*batch));
+                        job = batch ? &batch->jobs[batch->count++] : NULL;
+                    } else {
+                        job = (opj_t1_cblk_decode_processing_job_t*)opj_calloc(1, sizeof(*job));
+                    }
                     if (!job) {
                         *pret = OPJ_FALSE;
                         return;
@@ -1976,17 +2010,27 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
                     job->p_manager = p_manager;
                     job->check_pterm = check_pterm;
                     job->mustuse_cblkdatabuffer = opj_thread_pool_get_thread_count(tp) > 1;
-                    opj_thread_pool_submit_job(tp, opj_t1_clbl_decode_processor, job);
+                    if (!batch_blocks) {
+                        if (!opj_thread_pool_submit_job(tp, opj_t1_decode_single, job)) {
+                            opj_free(job);
+                            *pret = OPJ_FALSE;
+                        }
+                    } else if (batch->count == OPJ_T1_BATCH_SIZE) {
+                        if (!opj_t1_submit_batch(tp, batch)) *pret = OPJ_FALSE;
+                        batch = NULL;
+                    }
 #ifdef DEBUG_VERBOSE
                     codeblocks_decoded ++;
 #endif
                     if (!(*pret)) {
+                        opj_free(batch);
                         return;
                     }
                 } /* cblkno */
             } /* precno */
         } /* bandno */
     } /* resno */
+    if (batch && !opj_t1_submit_batch(tp, batch)) *pret = OPJ_FALSE;
 
 #ifdef DEBUG_VERBOSE
     printf("Leave opj_t1_decode_cblks(). Number decoded: %d\n", codeblocks_decoded);

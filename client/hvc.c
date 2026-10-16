@@ -1,6 +1,6 @@
 #include "hvc_decode.h"
 #include "jpeg2000/hv_error.h"
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
 #include "jpeg2000/hv_local.h"
 #endif
 #include "hvc_delivery.h"
@@ -19,7 +19,7 @@ typedef struct {
 } hvc_palette_table;
 
 struct hvc {
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     hv_local *local;
 #endif
     hvc_info *info;
@@ -49,7 +49,7 @@ hvc *hvc_create(hvc_inspect_fn inspect, void *context) {
     return client;
 }
 
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
 hvc *hvc_open_local(const char *path, hvc_inspect_fn inspect, void *context,
                      char *error, size_t error_size) {
     hvc *client = hvc_create(inspect, context);
@@ -62,7 +62,7 @@ hvc *hvc_open_local(const char *path, hvc_inspect_fn inspect, void *context,
 #endif
 
 static const hv_presentation *presentation(hvc *client, const uint8_t **data) {
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (client->local) {
         const hv_presentation *view;
         if (hv_local_presentation(client->local, data, &view, client->error, sizeof client->error))
@@ -128,7 +128,7 @@ static const hvc_info *decoder_info(hvc *client, size_t frame, size_t codestream
             (r && (result.width[r] > result.width[r-1] || result.height[r] > result.height[r-1]))) {
             fail(client, "invalid decoder dimensions"); return NULL;
         }
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (!client->local)
 #endif
     {
@@ -156,7 +156,7 @@ const hvc_info *hvc_info_read(hvc *client, uint64_t frame) {
 }
 
 struct hvc_input {
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     hv_local_input *local;
 #endif
     size_t size;
@@ -169,7 +169,7 @@ hvc_input *hvc_input_open(hvc *client, uint64_t frame, int reduce) {
     if (frame_codestream(client, frame, &codestream)) return NULL;
     hvc_input *input = calloc(1, sizeof *input);
     if (!input) { fail(client, "out of memory"); return NULL; }
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (client->local) {
         input->local = hv_local_input_open(client->local, codestream, client->error, sizeof client->error);
         if (input->local)
@@ -186,7 +186,7 @@ hvc_input *hvc_input_open(hvc *client, uint64_t frame, int reduce) {
 
 void hvc_input_close(hvc_input *input) {
     if (!input) return;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     hv_local_input_close(input->local);
 #endif
     free(input->bytes);
@@ -204,7 +204,7 @@ size_t hvc_input_read(const hvc_input *input, size_t offset, uint8_t *out, size_
     size_t count = input->size - offset;
     if (count > capacity) count = capacity;
     if (!count) return 0;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (input->local) {
         size_t read = hv_local_input_read(input->local, offset, out, count, error, error_size);
         if (read == count) return count;
@@ -218,7 +218,7 @@ size_t hvc_input_read(const hvc_input *input, size_t offset, uint8_t *out, size_
 
 void hvc_destroy(hvc *client) {
     if (!client) return;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     hv_local_close(client->local);
 #endif
     hvc_delivery_free(client->delivery);
@@ -240,7 +240,7 @@ static int completed(int reason) {
 static int response(hvc *client, const uint8_t *body, size_t size,
                      uint64_t window, int restoring, int *progress) {
     if (progress) *progress = 0;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (client->local) return fail(client, "JPIP operations require a remote source");
 #endif
     hvc_delivery *delivery = NULL;
@@ -324,7 +324,7 @@ int hvc_status(hvc *client, uint64_t frame, const hvc_options *options,
     view->codestream = codestream;
     view->request = HVC_HEADER;
     int local = 0;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     local = client->local != NULL;
 #endif
     if (!local) {
@@ -401,7 +401,7 @@ int hvc_prepare(hvc *client, uint64_t frame, const hvc_options *options,
 }
 
 int hvc_model(hvc *client, size_t *cursor, char *text, size_t capacity) {
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (client->local) return fail(client, "JPIP operations require a remote source");
 #endif
     int result = hvc_cache_model(&client->cache, cursor, text, capacity);
@@ -426,7 +426,7 @@ int hvc_xml(hvc *client, uint64_t frame, const uint8_t **xml, size_t *size) {
     const uint8_t *data;
     const hv_presentation *view = frame_presentation(client, frame, &data);
     if (!view) return -1;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (client->local)
         return hv_local_layer_xml(client->local, (size_t)frame, xml, size, client->error, sizeof client->error);
 #endif
@@ -480,7 +480,7 @@ int hvc_palette(hvc *client, uint64_t frame, int *channels, uint8_t *table, size
 size_t hvc_codestream(hvc *client, uint64_t frame, uint8_t *out, size_t capacity) {
     size_t codestream;
     if (frame_codestream(client, frame, &codestream)) return 0;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (client->local)
         return hv_local_copy(client->local, codestream, out, capacity, client->error, sizeof client->error);
 #endif
@@ -499,7 +499,7 @@ static void export_bin(const hvc_cache *cache, int bin_class, uint64_t codestrea
 
 size_t hvc_export(hvc *client, uint64_t frame, uint8_t *out, size_t capacity) {
     size_t codestream, size = 0;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (client->local) { fail(client, "JPIP operations require a remote source"); return 0; }
 #endif
     if (frame_codestream(client, frame, &codestream)) return 0;
@@ -549,7 +549,7 @@ static int import_pass(hvc *client, uint64_t codestream, const uint8_t *block, s
 
 int hvc_import(hvc *client, uint64_t frame, const uint8_t *block, size_t size) {
     size_t codestream;
-#ifndef __wasi__
+#if !defined(__wasi__) && !defined(__EMSCRIPTEN__)
     if (client->local) return fail(client, "JPIP operations require a remote source");
 #endif
     if (frame_codestream(client, frame, &codestream)) return -1;

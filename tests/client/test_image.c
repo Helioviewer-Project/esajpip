@@ -41,13 +41,55 @@ static void check(int ok, const char *why) {
     }
 }
 
+/* Context outputs are borrowed; keep fresh-decoder references separately. */
+static void verify_reuse(const output *encoded, const uint8_t *full, const hv_render *render, size_t components) {
+    for (int threads = 0; threads <= 4; threads += 4) {
+        if (threads && !opj_has_thread_support()) continue;
+        hvc_decoder *decoder = hvc_decoder_create(threads);
+        check(decoder != NULL, "context allocation");
+        hvc_image image, reference;
+        char error[256] = {0};
+        for (int reduce = 2; reduce >= 0; --reduce) {
+            check(hvc_openjpeg_decode(encoded->data, encoded->size, reduce,
+                render, &reference, error, sizeof error) == 0, error);
+            for (int repeat = 0; repeat < 2; ++repeat) {
+                check(hvc_openjpeg_decode_context(decoder, encoded->data, encoded->size,
+                    reduce, render, &image, error, sizeof error) == 0, error);
+                check(image.width == reference.width && image.height == reference.height &&
+                    memcmp(image.pixels, reference.pixels, image.width * image.height * components) == 0,
+                    "context pixels differ from fresh decoding");
+            }
+            free(reference.pixels);
+        }
+        check(hvc_decoder_retained(decoder) <= 64u * 1024 * 1024 + 768, "workspace budget");
+        const uint32_t region[4] = {1, 3, 11, 13};
+        check(hvc_openjpeg_decode_region(decoder, encoded->data, encoded->size, 0,
+            render, region, &image, error, sizeof error) == 0, error);
+        check(image.width == 10 && image.height == 10 && image.x == 1 && image.y == 3 &&
+            image.grid_width == 16 && image.grid_height == 16, "crop geometry");
+        for (unsigned y = 0; y < image.height; ++y)
+            check(memcmp(image.pixels + y * image.width * components, full + ((y + 3) * 16 + 1) * components, 10 * components) == 0,
+                "crop pixels differ from whole image");
+        const uint32_t bad[4] = {0, 0, 17, 16};
+        check(hvc_openjpeg_decode_region(decoder, encoded->data, encoded->size, 0,
+            render, bad, &image, error, sizeof error) == -1, "invalid crop accepted");
+        check(hvc_openjpeg_decode_context(decoder, encoded->data, 3, 0,
+            render, &image, error, sizeof error) == -1, "truncated input accepted");
+        check(hvc_openjpeg_decode_context(decoder, encoded->data, encoded->size, 0,
+            render, &image, error, sizeof error) == 0, error);
+        check(image.width == 16 && image.height == 16 && memcmp(image.pixels, full, 256 * components) == 0,
+            "whole-frame recovery retained region or damaged pixels");
+        hvc_decoder_destroy(decoder);
+    }
+}
+
 static void encode(opj_image_t *input, output *out) {
     opj_codec_t *codec = opj_create_compress(OPJ_CODEC_J2K);
     opj_stream_t *stream = opj_stream_create(8192, OPJ_FALSE);
     check(codec != NULL && stream != NULL, "encoder allocation");
     opj_cparameters_t parameters;
     opj_set_default_encoder_parameters(&parameters);
-    parameters.numresolution = 1;
+    parameters.numresolution = 3;
     parameters.tcp_numlayers = 1;
     parameters.cp_disto_alloc = 1;
     opj_stream_set_user_data(stream, out, NULL);
@@ -87,6 +129,7 @@ static void verify(unsigned bits, int signed_samples) {
         unsigned expected = bits > 8 ? value >> (bits - 8) : value << (8 - bits);
         check(image.pixels[i] == expected, "sample scaling differs");
     }
+    verify_reuse(&out, image.pixels, NULL, 1);
     free(image.pixels);
 
     hv_render render = {.channel_count = 1, .channel = {{0, 0}}};
@@ -98,6 +141,7 @@ static void verify(unsigned bits, int signed_samples) {
         check(result == 0, error);
         for (unsigned i = 0; i < 256; i++)
             check(image.pixels[i] == i * max / 255, "palette index changed");
+        verify_reuse(&out, image.pixels, &render, 1);
         free(image.pixels);
     }
 }
@@ -128,6 +172,7 @@ static void verify_channels(void) {
         for (int c = 0; c < 3; c++)
             check(image.pixels[i * 3 + c] == (i + 37 * render.channel[c].component) % 256,
                   "display channels do not follow their selected components");
+    verify_reuse(&out, image.pixels, &render, 3);
     free(image.pixels);
 
     render.channel_count = 1;
@@ -137,6 +182,7 @@ static void verify_channels(void) {
         check(image.components == 1, "selected gray/index plane count");
         for (unsigned i = 0; i < 256; i++)
             check(image.pixels[i] == (i + 74) % 256, "wrong gray/index component");
+        verify_reuse(&out, image.pixels, &render, 1);
         free(image.pixels);
     }
     render.channel[0].component = 3;
