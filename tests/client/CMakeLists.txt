@@ -1,6 +1,7 @@
 # Tests of the JPIP client (client/). Protocol, reconstruction and source
 # tests link jpip to check the client against what the server writes.
 #
+#   client_metadata      XML associations, shared bins and proportional traversal limits
 #   client_cache         append, identical overlap, conflicts and completeness
 #   client_jpp           bytes from jpip::DataBinWriter read back by the client
 #   client_jpp_malformed damaged versions of those bytes, all rejected

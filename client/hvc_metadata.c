@@ -33,20 +33,34 @@ static const hvc_bin *metadata_bin(const hvc_cache *cache, uint64_t id, char *er
     return bin;
 }
 
+typedef struct {
+    const hvc_cache *cache;
+    size_t remaining;
+} metadata_walk;
+
 static int resolve_box(const void *context, uint32_t *type, const uint8_t **payload,
                        size_t *length, char *error, size_t error_size) {
-    if (*type != PHLD) return 1;
-    if (*length < 4) return hv_fail(error, error_size, "metadata: phld.header");
-    unsigned flags = (unsigned)big_endian(*payload, 4);
-    if (!(flags & PHLD_ORIGINAL) || (flags & PHLD_CODESTREAM)) return 0;
-    if (*length < PHLD_HEADER + 8) return hv_fail(error, error_size, "metadata: phld.header");
-    *type = (uint32_t)big_endian(*payload + PHLD_HEADER + 4, 4);
-    if (*type == HV_BOX_ASOC || *type == HV_BOX_GRP || *type == HV_BOX_NLST || *type == HV_BOX_XML) {
-        const hvc_bin *bin = metadata_bin(context, big_endian(*payload + 4, 8), error, error_size);
-        if (bin == NULL) return -1;
-        *payload = bin->data;
-        *length = bin->length;
+    metadata_walk *walk = (metadata_walk *)context;
+    if (walk->remaining == 0)
+        return hv_fail(error, error_size, "metadata: traversal.work-limit");
+    --walk->remaining;
+    if (*type == PHLD) {
+        if (*length < 4) return hv_fail(error, error_size, "metadata: phld.header");
+        unsigned flags = (unsigned)big_endian(*payload, 4);
+        if (!(flags & PHLD_ORIGINAL) || (flags & PHLD_CODESTREAM)) return 0;
+        if (*length < PHLD_HEADER + 8) return hv_fail(error, error_size, "metadata: phld.header");
+        *type = (uint32_t)big_endian(*payload + PHLD_HEADER + 4, 4);
+        if (*type == HV_BOX_ASOC || *type == HV_BOX_GRP || *type == HV_BOX_NLST || *type == HV_BOX_XML) {
+            const hvc_bin *bin = metadata_bin(walk->cache, big_endian(*payload + 4, 8), error, error_size);
+            if (bin == NULL) return -1;
+            *payload = bin->data;
+            *length = bin->length;
+        }
     }
+    size_t work = *type == HV_BOX_NLST ? *length / 4 : 0;
+    if (work > walk->remaining)
+        return hv_fail(error, error_size, "metadata: traversal.work-limit");
+    walk->remaining -= work;
     return 1;
 }
 
@@ -55,8 +69,22 @@ int hvc_metadata_open(const hvc_cache *cache, const hv_presentation *presentatio
     *metadata = (hv_metadata){0};
     const hvc_bin *bin = metadata_bin(cache, 0, error, error_size);
     if (!bin) return -1;
+    /* One work unit per received metadata byte. A box needs at least eight
+     * bytes and a number-list entry four; repeated references spend the same
+     * allowance rather than multiplying it. Pixel bins do not add allowance. */
+    metadata_walk walk = {cache, 0};
+    for (size_t i = 0; i < cache->capacity; i++) {
+        const hvc_bin *part = &cache->bins[i];
+        if (!part->used || part->bin_class != HVC_BIN_META_DATA || part->codestream != 0 || !part->complete)
+            continue;
+        if (part->length > SIZE_MAX - walk.remaining) {
+            walk.remaining = SIZE_MAX;
+            break;
+        }
+        walk.remaining += part->length;
+    }
     return hv_metadata_read(bin->data, bin->length, presentation->codestreams, presentation->layers,
-                            resolve_box, cache, metadata, error, error_size);
+                            resolve_box, &walk, metadata, error, error_size);
 }
 
 int hvc_metadata_presentation(const hvc_cache *cache, const uint8_t **data,

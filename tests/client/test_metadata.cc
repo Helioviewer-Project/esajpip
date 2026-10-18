@@ -134,6 +134,40 @@ int main() {
     { Fixture f(box("asoc", box("grp ", association(0, 'a')) + xml('f'))); f.reject("grp.asoc-first"); }
     { Fixture f(placeholder(1, "asoc")); f.reject("is missing"); }
     { Fixture f(placeholder(1, "asoc")); f.add(1, list(0) + xml('a'), false); f.reject("is incomplete"); }
+    // The same bin remains meaningful under distinct association scopes.
+    { Fixture f(box("asoc", list(0) + placeholder(1, "xml ")) +
+                box("asoc", list(1) + placeholder(1, "xml ")));
+      f.add(1, {'s'}); f.expect("ss--"); }
+    // Bound acyclic expansion by received metadata, before the depth limit.
+    for (int depth : {8, 12}) {
+        Fixture f(xml('f') + placeholder(1, "grp "));
+        for (int i = 1; i < depth; i++) {
+            Bytes next = placeholder(static_cast<uint8_t>(i + 1), "grp ");
+            f.add(static_cast<uint8_t>(i), next + next);
+        }
+        f.add(static_cast<uint8_t>(depth), xml('x'));
+        if (depth == 8) f.expect("ffff");
+        else f.reject("traversal.work-limit");
+    }
+    // Skipped codestream placeholders must not bypass visit accounting.
+    { Bytes skipped = placeholder(0, "jp2c"), references, contents;
+      skipped[11] = 4;
+      for (int i = 0; i < 64; i++) references = references + placeholder(2, "grp ");
+      for (int i = 0; i < 128; i++) contents = contents + skipped;
+      Fixture f(placeholder(1, "grp "));
+      f.add(1, references); f.add(2, contents); f.reject("traversal.work-limit"); }
+    // The allowance grows with metadata size, not a fixed box count.
+    for (size_t count : {32, 4096}) {
+        Bytes root, scope = box("asoc", list(0) + placeholder(1, "xml "));
+        for (size_t i = 0; i < count; i++)
+            root.insert(root.end(), scope.begin(), scope.end());
+        Fixture f(root); f.add(1, {'s'}); f.expect("s---");
+    }
+    // Re-expanding a shared list spends its entries as well as its box visit.
+    { Bytes root;
+      for (int i = 0; i < 8; i++)
+          root = root + box("asoc", placeholder(1, "nlst") + xml('x'));
+      Fixture f(root); f.add(1, Bytes(4 * 8192, 0)); f.reject("traversal.work-limit"); }
     { Fixture f(placeholder(1, "grp ")); f.add(1, placeholder(1, "grp ")); f.reject("box.depth-limit"); }
     { Bytes nested = association(0, 'a');
       for (int i = 1; i < HV_BOX_DEPTH_MAX; i++) nested = box("grp ", nested);
