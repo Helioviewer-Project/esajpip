@@ -1,6 +1,7 @@
 #include "request.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <climits>
 #include <cstring>
@@ -183,7 +184,9 @@ namespace jpip {
             return true;
         }
 
-        bool ParseTransports(const string &value, bool *accepts_http) {
+        bool ParseTransports(string value, bool *accepts_http) {
+            transform(value.begin(), value.end(), value.begin(),
+                      [](unsigned char c) { return static_cast<char>(tolower(c)); });
             *accepts_http = false;
             size_t begin = 0;
             for (;;) {
@@ -242,20 +245,15 @@ namespace jpip {
         }
 
         bool ParseContext(const string &value, uint64_t *first, uint64_t *last) {
-            string decoded;
-            if (!Decode(value, &decoded) || decoded.compare(0, 5, "jpxl<") != 0 ||
-                decoded.size() < 7 || decoded.back() != '>')
+            if (value.compare(0, 5, "jpxl<") != 0 || value.size() < 7)
                 return false;
-
-            decoded.pop_back();
-            const char *position = decoded.c_str() + 5;
-            return ParseRange(&position, first, last) && *position == '\0';
+            const char *position = value.c_str() + 5;
+            return ParseRange(&position, first, last) && *position == '>' && position[1] == '\0';
         }
 
         bool ParseModel(const string &value, vector<Request::ModelUpdate> *model,
                         string *error_message) {
-            string text;
-            if (!Decode(value, &text) || text.empty())
+            if (value.empty())
                 return false;
 
             model->clear();
@@ -263,7 +261,7 @@ namespace jpip {
             int maximum_codestream = 0;
             bool has_codestream_qualifier = false;
             bool descriptor_found = false;
-            const char *position = text.c_str();
+            const char *position = value.c_str();
 
             while (*position != '\0') {
                 if (*position == ',') {
@@ -387,6 +385,15 @@ namespace jpip {
 
         // Even a malformed path must leave query routing available for cleanup.
         Query query = ParseTargetQuery(uri);
+        for (QueryParameter &parameter : query) {
+            string decoded;
+            if (Decode(parameter.value, &decoded))
+                parameter.value.swap(decoded);
+            else {
+                valid = false;
+                SetError(error_message, "Invalid escaped JPIP parameter: " + parameter.name);
+            }
+        }
         const string *tid = FindParameter(query, "tid");
         bool accept_model = tid == NULL || *tid == "0";
         for (const QueryParameter &parameter : query) {
@@ -396,10 +403,7 @@ namespace jpip {
 
             if (name == "target") {
                 routing.target = true;
-                if (!Decode(value, &target)) {
-                    valid = false;
-                    SetError(error_message, "Invalid escaped target parameter");
-                }
+                target = value;
             } else if (name == "cid") {
                 routing.cid = true;
             } else if (name == "cnew") {

@@ -64,7 +64,9 @@ if sys.argv[1] == '--build':
 ''')
             cmake.chmod(0o755)
             ctest = commands / 'ctest'
-            ctest.write_text('#!/bin/sh\nexit 0\n')
+            ctest.write_text('#!/bin/sh\ncase "$*" in *missing*)\n'
+                             '  case "$*" in *--no-tests=error*) exit 8;; esac\n'
+                             'esac\nexit 0\n')
             ctest.chmod(0o755)
             env = {k: v for k, v in os.environ.items() if not k.startswith('ESAJPIP_')}
             env.update(PATH=str(commands) + os.pathsep + os.environ['PATH'],
@@ -84,6 +86,11 @@ if sys.argv[1] == '--build':
             self.assertEqual((work / 'src/rules.c').read_text(), original)
             self.assertEqual((work / 'original/rules.c').read_text(), original)
             self.assertEqual(live.read_text(), 'return "edited";\n')
+            env['ESAJPIP_MUTATION_TESTS'] = '-R missing'
+            result = subprocess.run(['sh', str(repo / 'tests/run_mutation.sh'), 'rules.c'],
+                                    env=env, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('unmutated sources fail the tests', result.stderr)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,8 @@
 /* Pixel conversion on lossless codestreams with known sample values. */
 #include "hvc_openjpeg.h"
-#include "openjpeg.h"
+#define OPJ_SKIP_POISON
+#include "opj_includes.h"
+#include "hvc_t1_cache.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -192,7 +194,31 @@ static void verify_channels(void) {
           image.pixels == NULL && strstr(error, "does not exist"), "missing selected component accepted");
 }
 
+static void verify_codeblock_cache(void) {
+    hvc_t1_cache *cache = hvc_t1_cache_create();
+    check(cache != NULL, "codeblock cache allocation");
+    OPJ_BYTE bytes[] = {0x55, 0x66};
+    opj_tcd_seg_data_chunk_t chunk = {bytes, sizeof bytes};
+    opj_tcd_cblk_dec_t block = {0};
+    block.x1 = block.y1 = 2;
+    block.numbps = 1;
+    block.Mb = 1;
+    block.numchunks = 1;
+    block.chunks = &chunk;
+    OPJ_INT32 pixels[] = {11, 22, 33, 44};
+    check(hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_TRUE), "cache insert");
+    block.Mb = 31;
+    memset(pixels, 0, sizeof pixels);
+    check(!hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) && pixels[0] == 0,
+          "cache hit bypassed HT bit-plane validation");
+    block.Mb = 1;
+    check(hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) &&
+          pixels[0] == 11 && pixels[3] == 44, "unchanged codeblock was not reused");
+    hvc_t1_cache_destroy(cache);
+}
+
 int main(void) {
+    verify_codeblock_cache();
     verify(1, 0);
     verify(4, 0);
     verify(8, 0);

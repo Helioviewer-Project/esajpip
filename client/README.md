@@ -323,7 +323,7 @@ A call that fails rejects its promise with an `Error` whose message says why.
 | --- | --- | --- |
 | `index` is not a frame, or the display options are not valid | `RangeError`; no request is made | Fix the call |
 | A transport interruption, or the server reports that the channel has ended or does not exist | Restore a replacement channel from the retained cache and retry the request once | No application action if recovery succeeds |
-| Recovery fails without an ingestion refusal, or its resumed request loses transport | The call rejects and retains the cache. A later call needing data tries a fresh replacement channel | Retry the call when service returns |
+| Recovery fails without a permanent HTTP error or ingestion refusal, or its resumed request loses transport | The call rejects and retains the cache. A later call needing data tries a fresh replacement channel | Retry the call when service returns |
 | Another HTTP error occurs | The call rejects. Later calls needing a request reject with the same error; valid cached frames remain usable | Close the source and open the image again |
 | JPP ingestion refuses a response | The cache is retired. Frame, cache, XML and palette calls report the refusal | Close the source and open the image again |
 | "the server did not complete the requested quality layers" | The call rejects because the response ended without completing the requested quality | |
@@ -849,7 +849,7 @@ checks below.
 | `client_jpp` | Messages written by the server's own writer and by the client's, read back |
 | `client_jpp_malformed` | Damaged messages, all refused |
 | `client_reconstruct` | Every codestream of the corpus, the transcoder's reference images and the merger's reference movie, served by the server's own code at each resolution: the written codestream, the cached levels, the decoded pixels, and the movie's frame count and XML |
-| `client_image` | Sample scaling at several precisions, component selection and display order, and unchanged color table indices |
+| `client_image` | Sample scaling, component selection and display order, unchanged palette indices, and exact codeblock cache keys |
 | `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality; frames exported and imported between sources, their replay by the server, and refused blocks leaving the source unchanged |
 | `client_converter` | Refusal of incomplete/header-only/unconfirmed quality input without overwriting output; completed continuation, reduced windows and replay |
 

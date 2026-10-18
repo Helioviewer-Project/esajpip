@@ -102,10 +102,10 @@ write_reports() {
     mkdir -p "$dir"
     report "$profile" "$dir/handwritten.txt" \
         "$repo/jpeg2000" "$repo/jpip" "$repo/merge" "$repo/transcode" "$repo/server" "$repo/tools" \
-        -ignore-filename-regex='/jpeg2000/generated/|/server/vendor/|/tests/'
+        -ignore-filename-regex='/jpeg2000/generated/|/server/vendor/|/tests/' || return $?
     report "$profile" "$dir/generated.txt" \
         "$repo/jpeg2000/generated" \
-        -ignore-filename-regex='/jpeg2000/generated/asn1crt'
+        -ignore-filename-regex='/jpeg2000/generated/asn1crt' || return $?
     report "$profile" "$dir/asn1-runtime.txt" \
         "$repo/jpeg2000/generated/asn1crt.c" \
         "$repo/jpeg2000/generated/asn1crt_encoding.c" \
@@ -132,8 +132,8 @@ run_split() {
     unset LLVM_PROFILE_FILE
     if ls "$dir"/profiles/*.profraw >/dev/null 2>&1; then
         "$llvm_profdata" merge -sparse "$dir"/profiles/*.profraw \
-            -o "$dir/coverage.profdata"
-        write_reports "$dir" "$dir/coverage.profdata"
+            -o "$dir/coverage.profdata" || return $?
+        write_reports "$dir" "$dir/coverage.profdata" || return $?
     else
         cat > "$dir/no-coverage.txt" <<EOF
 No instrumented C or C++ binaries ran for this group.

@@ -75,7 +75,7 @@ cmake -S "$src" -B "$build" -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo
 run_tests() {
     set +e
     # shellcheck disable=SC2086
-    esajpip_ctest "$build" $tests --timeout "$timeout" >"$work/ctest.log" 2>&1
+    esajpip_ctest "$build" $tests --no-tests=error --timeout "$timeout" >"$work/ctest.log" 2>&1
     status=$?
     set -e
     if [ "$status" -ne 0 ] && grep -q 'Timeout' "$work/ctest.log"; then

@@ -163,6 +163,7 @@ rm -f "$work/empty.jp2"
 [ -s "$work/links.jpx" ] || fail "-links wrote nothing"
 
 # Arguments from standard input.
+rm -f "$work/argfile.jpx"
 [ "$(status "$exe" -s - <"$work/args")" = 0 ] || fail "-s - failed: $(cat "$work/stderr")"
 cmp -s "$work/argfile.jpx" "$expected" || fail "-s - gives other bytes"
 

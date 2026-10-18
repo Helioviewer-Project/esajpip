@@ -391,9 +391,9 @@ int main(int argc, char **argv) {
             }
             memcpy(m, buf, size);
             n = mutate(m, n);
-            snprintf(name, sizeof name, "%s#%lu", line, i);
+            snprintf(name, sizeof name, "%s#%lu.%s", line, i, hv_is_jpx_name(line) ? "jpx" : "jp2");
             /* The linked merge records the mutant's path: write it there. */
-            snprintf(mutant_path, sizeof mutant_path, "%s/mutant.jp2", argv[4]);
+            snprintf(mutant_path, sizeof mutant_path, "%s/mutant.%s", argv[4], hv_is_jpx_name(line) ? "jpx" : "jp2");
             if ((f = fopen(mutant_path, "wb")) == NULL || fwrite(m, 1, n, f) != n ||
                 fclose(f) != 0) {
                 fail(name, "cannot write", mutant_path);

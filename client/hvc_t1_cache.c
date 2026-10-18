@@ -41,7 +41,7 @@ OPJ_BOOL hvc_t1_cache_transfer(hvc_t1_cache *c, const opj_tcd_cblk_dec_t *b,
      * untrusted chunk counts/lengths, and never survives this call. */
     unsigned char key[12288], *p = key;
     OPJ_UINT32 header[] = {(OPJ_UINT32)(b->x1-b->x0), (OPJ_UINT32)(b->y1-b->y0),
-        orient, roishift, style, b->numbps, b->real_num_segs, b->numchunks};
+        orient, roishift, style, b->numbps, b->Mb, b->real_num_segs, b->numchunks};
     size_t size = sizeof(header), pixel_size = (size_t)header[0]*header[1]*sizeof(*pixels);
     if (!c || b->corrupted || !b->numchunks || header[0]>1024 || header[1]>1024 || !pixel_size || pixel_size>16384 ||
         b->real_num_segs > (sizeof(key)-size)/8) return OPJ_FALSE;

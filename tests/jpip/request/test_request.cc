@@ -74,8 +74,26 @@ static void CheckJHVRequests() {
               "/movie.jpx?cnew=http-tcp") &&
               !transport_request.accepts_http,
           "An unsupported transport offer was not preserved");
+    Check(transport_request.ParseTarget("/movie.jpx?cnew=HtTp-TcP%2CHTTP") &&
+                  transport_request.accepts_http,
+          "An escaped mixed-case HTTP transport list was not accepted");
     Check(RejectRequest("/movie.jpx?cnew=http,,http-tcp"),
           "Accepted a malformed transport list");
+
+    jpip::Request escaped_fields;
+    Check(escaped_fields.ParseTarget("/jpip?cid=%37&fsiz=640%2C480%2Cclosest&roff=1%2C2&"
+                                    "rsiz=30%2C40&stream=%30&layers=%32&len=%35%31%32&tid=%30&model=%5B0%5DP0%3A1") &&
+                  escaped_fields.channel == "7" && escaped_fields.resolution_size == jpip::Size(640, 480) &&
+                  escaped_fields.round_direction == jpip::ResponseRequest::CLOSEST &&
+                  escaped_fields.woi_position == jpip::Point(1, 2) && escaped_fields.woi_size == jpip::Size(30, 40) &&
+                  escaped_fields.layers == 2 && escaped_fields.length_response == 512 && escaped_fields.has.model,
+          "Escaped JPIP fields were not decoded before parsing");
+    Check(RejectRequest("/jpip?fsiz=640%252C480&cid=7") &&
+                  RejectRequest("/jpip?fsiz=640%GG480&cid=7"),
+          "JPIP fields were decoded twice or malformed escaping was accepted");
+    jpip::Request escaped_close;
+    Check(escaped_close.ParseTarget("/jpip?cclose=%37") && escaped_close.channel == "7" && escaped_close.routing.cclose,
+          "An escaped close channel was not decoded");
 
     jpip::Request target_request;
     Check(target_request.ParseTarget(

@@ -105,6 +105,8 @@ static Bytes reconstruct(const hvc_cache &cache, int stream, const std::string &
     Bytes out(size + 1, 0xAA);
     check(hvc_reconstruct(&cache, stream, out.data(), size - 1, error, sizeof error) == size,
           name + ": size changed with a short buffer");
+    check(std::all_of(out.begin(), out.end(), [](uint8_t b) { return b == 0xAA; }),
+          name + ": short buffer was modified");
     check(hvc_reconstruct(&cache, stream, out.data(), size, error, sizeof error) == size &&
           out[size] == 0xAA, name + ": wrote other than its size");
     out.pop_back();
