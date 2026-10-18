@@ -42,8 +42,8 @@ function system(module, memory) {
 
 // A JPIP request is a set of fields (T.808 Annex C), written as the query
 // of a URL: { stream: 3, fsiz: [512, 512, "closest"] } is
-// "stream=3&fsiz=512,512,closest". The server reads them as they are,
-// without percent-decoding the JPIP grammar fields.
+// "stream=3&fsiz=512,512,closest". Grammar punctuation stays literal;
+// image path components are escaped separately.
 function query(fields) {
     return Object.entries(fields)
         .map(([name, value]) => `${name}=${Array.isArray(value) ? value.join(",") : value}`)
@@ -320,7 +320,7 @@ export class JpipChannel {
                 return await this.#exchange(fields, false, window);
             }
         } catch (error) {
-            if ((error.recoverable || restoring) && this.frames !== 0 && !this.#closing) {
+            if ((error.recoverable || (restoring && error.recoverable !== false)) && this.frames !== 0 && !this.#closing) {
                 this.#needsRecovery = true;
                 this.#wasm.hvc_wasm_cancel_request();
             } else this.#failed = error;
@@ -347,7 +347,8 @@ export class JpipChannel {
             const message = new TextDecoder().decode(body).trim();
             const error = new Error(`${response.status} ${message}`);
             error.recoverable = response.status === 503 &&
-                (message === "JPIP channel does not exist" || message === "JPIP channel has ended");
+                (message === "JPIP channel does not exist" || message === "JPIP channel has ended" ||
+                 (restoring && message !== "JPIP channel is busy" && message !== "JPIP channel limit has been reached"));
             throw error;
         }
         if (this.#cid === null)

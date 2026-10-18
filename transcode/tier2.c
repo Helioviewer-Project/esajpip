@@ -130,14 +130,15 @@ static uint64_t read_bits(bit_reader *rd, int64_t n) {
     return value;
 }
 
-/* The header's end: past the stuffed byte after a final 0xFF, which B.10.1
- * requires. When that byte is past the tile-part, the caller finds the
- * header's end past the tile-part's. */
+/* The header ends after the stuffed byte required after a final 0xFF (B.10.1). */
 static const uint8_t *read_end(bit_reader *rd) {
     if (rd->buf != 0xFF)
         return rd->p;
-    if (rd->p < rd->end && (*rd->p & 0x80))
-        rd->error = HEADER_STUFFING;
+    if (rd->p == rd->end) {
+        rd->error = HEADER_OVERRUN;
+        return rd->p;
+    }
+    if (*rd->p & 0x80) rd->error = HEADER_STUFFING;
     return rd->p + 1;
 }
 

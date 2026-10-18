@@ -65,6 +65,10 @@ fuzz_corpus() {
         fuzz_merge) echo merge-fuzz ;;
         fuzz_client_response) echo client-response ;;
         fuzz_client_source) echo client-source ;;
+        fuzz_jpip_request) echo jpip-request ;;
+        fuzz_jpip_writer) echo jpip-writer ;;
+        fuzz_jpip_cache) echo jpip-cache ;;
+        fuzz_jpip_session) echo jpip-session ;;
         *)
             echo "unknown fuzz target: $1" >&2
             return 2
@@ -92,6 +96,7 @@ run_fuzz_campaign() {
         "$@" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo
 
+    build=$(CDPATH= cd -- "$build" && pwd)
     fuzz_targets=${ESAJPIP_FUZZ_TARGETS:-"fuzz_reader_rewrite fuzz_deferred_plt fuzz_asn1 fuzz_transcode fuzz_merge fuzz_client_response fuzz_client_source"}
     # shellcheck disable=SC2086
     esajpip_build "$build" --target $fuzz_targets

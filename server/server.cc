@@ -374,11 +374,14 @@ class Server {
         server::ChannelEngine *engine = channel->engine.get();
         string target = Target(*channel->exchange);
         asio::post(opens, [this, channel, engine, target] {
-            OpenResult result = OpenResult::INVALID;
+            OpenResult result = OpenResult::UNREADABLE;
             if (!channel->open_cancelled.load()) {
                 try {
                     result = engine->Open(target);
+                } catch (const exception &error) {
+                    ERROR("Cannot open '" << server::EscapeForLog(target) << "': " << server::EscapeForLog(error.what()));
                 } catch (...) {
+                    ERROR("Cannot open '" << server::EscapeForLog(target) << "': unknown exception");
                 }
             }
             asio::post(control, [this, channel, result] {

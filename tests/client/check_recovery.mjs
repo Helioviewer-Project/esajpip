@@ -47,7 +47,7 @@ async function start() {
     let log = "";
     processServer.stderr.on("data", bytes => { log += bytes; });
     for (let attempt = 0; attempt < 100; attempt++) {
-        if (processServer.exitCode !== null) throw new Error(`server exited: ${log}`);
+        if (processServer.exitCode !== null || processServer.signalCode !== null) throw new Error(`server exited: ${log}`);
         const connected = await new Promise(resolve => {
             const socket = createConnection({ port, host: "127.0.0.1" });
             socket.once("connect", () => { socket.destroy(); resolve(true); });
@@ -59,7 +59,7 @@ async function start() {
     throw new Error(`server did not start: ${log}`);
 }
 async function stop() {
-    if (!processServer || processServer.exitCode !== null) return;
+    if (!processServer || processServer.exitCode !== null || processServer.signalCode !== null) return;
     const exited = once(processServer, "exit");
     processServer.kill("SIGTERM");
     await exited;
@@ -199,6 +199,27 @@ try {
         assert.equal(calls, 1);
         await assert.rejects(terminal.frame(0, { fit: [2048, 2048] }));
         assert.equal(calls, 1, "terminal error retried");
+        globalThis.fetch = trackedFetch;
+    }
+
+    for (const code of [400, 404, 500]) {
+        const terminal = await open();
+        const preview = await terminal.frame(0, { fit: [2048, 2048], layers: 1 });
+        let attempts = 0;
+        globalThis.fetch = (url, options) => {
+            const request = new URL(url);
+            if (request.searchParams.has("cclose")) return trackedFetch(url, options);
+            attempts++;
+            return Promise.resolve(request.searchParams.has("cnew")
+                ? new Response("restoration failed", { status: code })
+                : new Response("JPIP channel does not exist", { status: 503 }));
+        };
+        await assert.rejects(terminal.frame(0, { fit: [2048, 2048] }), new RegExp(String(code)));
+        assert.equal(attempts, 2);
+        await assert.rejects(terminal.frame(0, { fit: [2048, 2048] }), new RegExp(String(code)));
+        assert.equal(attempts, 2, "permanent restoration error retried");
+        assert.deepEqual((await terminal.frame(0, { fit: [2048, 2048], layers: 1 })).pixels, preview.pixels);
+        assert.equal(attempts, 2, "cached preview made a request after terminal recovery failure");
         globalThis.fetch = trackedFetch;
     }
 
@@ -373,6 +394,10 @@ try {
         proxy.closeAllConnections();
         await new Promise(resolve => proxy.close(resolve));
     }
+    const crashed = once(processServer, "exit");
+    processServer.kill("SIGKILL");
+    await crashed;
+    await stop();
 } finally {
     globalThis.fetch = realFetch;
     for (const source of sources) await source.close().catch(() => {});

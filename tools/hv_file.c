@@ -27,7 +27,7 @@ static char output_buffer[128 * 1024];
 static const int cleanup_signals[] = {SIGINT, SIGTERM, SIGHUP, SIGQUIT, SIGBUS};
 #define NSIGNALS (sizeof cleanup_signals / sizeof *cleanup_signals)
 static struct sigaction previous[NSIGNALS];
-static int installed[NSIGNALS];         /* not for a signal ignored before */
+static volatile sig_atomic_t installed[NSIGNALS];         /* not for a signal ignored before */
 static char *volatile pending;          /* the temporary file, while it exists */
 
 /* Removes the temporary file, says why for SIGBUS, puts back the handler
@@ -47,8 +47,8 @@ static void on_signal(int sig) {
         (void)written;                  /* nothing more to do here */
     }
     for (i = 0; i < NSIGNALS; i++)
-        if (cleanup_signals[i] == sig && installed[i]) {
-            sigaction(sig, &previous[i], NULL);
+        if (installed[i]) {
+            sigaction(cleanup_signals[i], &previous[i], NULL);
             installed[i] = 0;
         }
     raise(sig);

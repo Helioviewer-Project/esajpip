@@ -1582,6 +1582,27 @@ static void test_layouts(void) {
     result r;
     size_t i;
 
+    /* One code-block: included, zero skipped bit-planes, six passes,
+     * Lblock 6 and length 255. Its last header byte is exactly 0xFF. */
+    b = synthetic(16, 16, 0, 1, 4, 4, NULL);
+    b.size -= 3;  /* Replace the empty packet and EOC. */
+    append(&b, "\xFE\x0E\xFF", 3);
+    eoc(&b);
+    set_psot(&b);
+    expect_error("final 0xFF without stuffed byte", &b,
+                 "truncated input is not supported: incomplete packet header");
+    b.size -= 2;
+    {
+        const uint8_t stuffed_and_data[256] = {0};
+        append(&b, stuffed_and_data, sizeof stuffed_and_data);
+    }
+    eoc(&b);
+    set_psot(&b);
+    r = transcode(b.data, b.size, 7, 7);
+    check(r.status == 0, "final 0xFF with stuffed byte: %s", r.error);
+    bytes_free(&r.out);
+    bytes_free(&b);
+
     for (i = 0; i < sizeof partitions / sizeof *partitions; i++) {
         b = synthetic(64, 64, 2, 1, 7, 5, partitions[i].precincts);
         if (partitions[i].same) {

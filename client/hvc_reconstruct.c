@@ -78,7 +78,10 @@ static size_t reconstruct(const hvc_cache *cache, uint64_t codestream, int reduc
 
 size_t hvc_reconstruct(const hvc_cache *cache, uint64_t codestream, uint8_t *out,
                        size_t capacity, char *error, size_t error_size) {
-    output o = {out, out ? capacity : 0, 0, 0, 0};
+    output o = {NULL, 0, 0, 0, 0};
+    size_t size = reconstruct(cache, codestream, 0, &o, error, error_size);
+    if (!out || !size || capacity < size) return size;
+    o = (output){out, capacity, 0, 0, 0};
     return reconstruct(cache, codestream, 0, &o, error, error_size);
 }
 

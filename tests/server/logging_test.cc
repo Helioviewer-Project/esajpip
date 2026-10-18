@@ -224,6 +224,7 @@ int main() {
     unlink(backup.c_str());
     unlink(active.c_str());
     unlink(shutdown_log.c_str());
-    rmdir(directory);
+    unlink(escaped_log.c_str());
+    Check(rmdir(directory) == 0, "Logging test left temporary files");
     return EXIT_SUCCESS;
 }

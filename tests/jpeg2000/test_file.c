@@ -124,6 +124,17 @@ int main(void) {
     hv_file_abort(&f);
     check(sigaction(SIGTERM, NULL, &now) == 0 && now.sa_handler == handler,
           "the previous handler after", NULL);
+    signal(SIGINT, handler);
+    check(hv_file_create(&f, out, 0600, error, sizeof error) == 0, "create before returning signal", error);
+    raise(SIGTERM);
+    check(sigaction(SIGINT, NULL, &now) == 0 && now.sa_handler == handler &&
+          sigaction(SIGTERM, NULL, &now) == 0 && now.sa_handler == handler,
+          "all handlers restored after a signal returns", NULL);
+    hv_file_abort(&f);
+    check(hv_file_create(&f, out, 0600, error, sizeof error) == 0, "create after returning signal", error);
+    hv_file_abort(&f);
+    raise(SIGINT);
+    signal(SIGINT, SIG_DFL);
     signal(SIGTERM, SIG_DFL);
 
     /* An ignored signal stays ignored. */

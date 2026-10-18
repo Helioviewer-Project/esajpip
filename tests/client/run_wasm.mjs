@@ -73,7 +73,7 @@ try {
     processServer.stderr.on("data", bytes => { log += bytes; });
     let connected = false;
     for (let attempt = 0; attempt < 100 && !connected; attempt++) {
-        if (processServer.exitCode !== null) throw new Error(`server exited: ${log}`);
+        if (processServer.exitCode !== null || processServer.signalCode !== null) throw new Error(`server exited: ${log}`);
         connected = await new Promise(resolve => {
             const socket = createConnection({ port, host: "127.0.0.1" });
             socket.once("connect", () => { socket.destroy(); resolve(true); });
@@ -268,7 +268,7 @@ try {
 } finally {
     host.closeAllConnections();
     if (host.listening) await new Promise(resolve => host.close(resolve));
-    if (processServer && processServer.exitCode === null) {
+    if (processServer && processServer.exitCode === null && processServer.signalCode === null) {
         const exited = once(processServer, "exit");
         processServer.kill("SIGTERM");
         await exited;
