@@ -2,7 +2,7 @@
 # and hv_merge, their command lines, the server, and the libFuzzer targets.
 # The component CMakeLists.txt files build libraries and tools only.
 #
-#   cmake -S . -B build -DBUILD_TESTING=ON   (the default)
+#   cmake -S . -B build -DBUILD_TESTING=ON
 #   ctest --test-dir build -L tools          jpeg2000, hv_transcode, hv_merge
 #   ctest --test-dir build -L jpip           JPIP library tests
 #   ctest --test-dir build -L server         the server's
@@ -14,12 +14,14 @@
 
 # The two switches of the suite. Everything else about the tests -- the
 # helper, the labels, the targets -- is below or in the group directories.
-option(BUILD_TESTING "Build and run the tests" ON)
+option(BUILD_TESTING "Build and run the tests" OFF)
 option(ESAJPIP_FUZZ "Build the libFuzzer targets in tests/fuzz" OFF)
 
 if(NOT BUILD_TESTING)
     return()
 endif()
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # A sanitizer report fails every test, and every test is registered through
 # this one helper, so labels and environment cannot drift between groups.
@@ -76,15 +78,11 @@ add_subdirectory(client)
 # inside.
 add_subdirectory(fuzz)
 
-# Python is needed by the mutation runner, not by the library or server.
-find_package(Python3 COMPONENTS Interpreter QUIET)
-if(Python3_Interpreter_FOUND)
-    esajpip_add_test(standards_regression
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/jpeg2000/standards_test.py
-            $<TARGET_FILE:hv_walk> $<TARGET_FILE:hv_merge> $<TARGET_FILE:hv_transcode>
-            ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/standards
-        LABELS tools)
-    esajpip_add_test(mutation_runner
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_mutation.py
-        LABELS infrastructure)
-endif()
+esajpip_add_test(standards_regression
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/jpeg2000/standards_test.py
+        $<TARGET_FILE:hv_walk> $<TARGET_FILE:hv_merge> $<TARGET_FILE:hv_transcode>
+        ${PROJECT_SOURCE_DIR} ${CMAKE_CURRENT_BINARY_DIR}/standards
+    LABELS tools)
+esajpip_add_test(mutation_runner
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_mutation.py
+    LABELS infrastructure)

@@ -38,9 +38,9 @@ ESAJPIP_JOBS=8 ESAJPIP_CTEST_JOBS=8 ./tests/run.sh sanitize
 
 The runner configures, builds and runs CTest. Normal and ASan/UBSan builds use
 separate directories under `build/`, so neither changes your installation
-build. It needs the same compiler and libraries as the server, but no external
-image collection, running server, JHV, Docker, or ASN.1 compiler. Tests create
-their own files and use loopback sockets.
+build. It needs Python 3 and the same compiler and libraries as the server,
+but no external image collection, running server, JHV, Docker, or ASN.1 compiler.
+Tests create their own files and use loopback sockets.
 
 Options:
 
@@ -52,7 +52,7 @@ Options:
   CTest equivalents, used when the `ESAJPIP_*` variables are not set.
 - `ESAJPIP_FUZZ=ON` — also build the fuzz targets (the compiler then needs the
   libFuzzer runtime).
-- `BUILD_TESTING` (default ON) gates every test.
+- `BUILD_TESTING` (default OFF) gates every test. The runners enable it explicitly.
 
 CTest labels: `tools` (jpeg2000, jpip and the two tools), `server`, `client`,
 `cli` (the two command-line tests), `model` (`model_static`) and `fuzz` (the
@@ -60,8 +60,16 @@ fuzz targets).
 The JPIP library also has the `jpip` label and responsibility labels described
 in [its test guide](jpip/README.md). The server has `server_tests` and
 responsibility labels described in [its test guide](server/README.md).
-For an already built tree, `ctest --test-dir build --output-on-failure` remains
-sufficient.
+For a manual test build:
+
+```sh
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+For an already built tree configured with `BUILD_TESTING=ON`, the CTest command
+is sufficient.
 
 ## The other runners
 

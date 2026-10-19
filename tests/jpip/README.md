@@ -28,7 +28,7 @@ connection handling remain integration tests under `tests/server/`.
 From the repository root:
 
 ```sh
-cmake -S . -B build/jpip-tests -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build/jpip-tests -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/jpip-tests --target jpip_tests -j8
 ctest --test-dir build/jpip-tests -L '^jpip$' --output-on-failure
 ctest --test-dir build/jpip-tests -L '^jpip_response$' --output-on-failure

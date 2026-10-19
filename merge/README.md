@@ -216,7 +216,7 @@ Fixtures are described in `../tests/merge/fixtures/FIXTURES.md`.
 Fuzzing (Clang):
 
 ```sh
-cmake -S . -B fuzz -DCMAKE_C_COMPILER=clang -DESAJPIP_SANITIZE=ON -DESAJPIP_FUZZ=ON
+cmake -S . -B fuzz -DBUILD_TESTING=ON -DCMAKE_C_COMPILER=clang -DESAJPIP_SANITIZE=ON -DESAJPIP_FUZZ=ON
 cmake --build fuzz --target fuzz_merge
 fuzz/tests/fuzz/fuzz_merge -max_len=262144 corpus/
 ```

@@ -25,6 +25,8 @@ build for WebAssembly.
 Keep local changes documented here. `openjpeg.c` uses exact-type callbacks
 for the raw J2K decoder calls reached by `hvc_openjpeg_decode`: setup, header
 read, codestream information, resolution selection, decode, end and destroy.
+The J2K encoder setup, start, encode and end calls used by `client_image` have
+the same adapters.
 Each adapter converts the opaque handle through an ordinary C call instead
 of calling a typed function through an incompatible function pointer. The
 original dispatch triggers Clang function-type UBSan even on valid inputs.

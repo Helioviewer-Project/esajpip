@@ -27,8 +27,12 @@ The ordinary `replay` target builds without libFuzzer. `make_corpus.py` produces
 separate seed directories for every target, including boundary cases and
 viewport/crop/zoom histories. CTest registers the four JPIP seed replays with
 the `jpip_fuzz` label in every test configuration.
+CTest gives each corpus a resource lock shared by its replay and fuzzer smoke
+tests, preventing concurrent reads while libFuzzer changes corpus files.
+Tests using different corpora can run in parallel.
 
 ```sh
+cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build --target replay
 ctest --test-dir build -L '^jpip_fuzz$' --output-on-failure
 build/tests/fuzz/replay jpip-session INPUT_OR_DIRECTORY
@@ -127,6 +131,7 @@ and four components. Larger frames still exercise cache and reconstruction.
 These are harness work bounds, not production limits.
 
 ```sh
+cmake -S . -B build -DBUILD_TESTING=ON
 cmake --build build --target replay
 ctest --test-dir build -L '^client_fuzz$' --output-on-failure
 build/tests/fuzz/replay client-source INPUT_OR_DIRECTORY

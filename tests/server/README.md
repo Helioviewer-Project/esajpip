@@ -55,7 +55,7 @@ waiting request then expires a second before the response would.
 From the repository root:
 
 ```sh
-cmake -S . -B build/server-tests -DCMAKE_BUILD_TYPE=Debug
+cmake -S . -B build/server-tests -DBUILD_TESTING=ON -DCMAKE_BUILD_TYPE=Debug
 cmake --build build/server-tests --target server_tests jpip_tests -j8
 ctest --test-dir build/server-tests -L '^(server|jpip)$' --output-on-failure -j8
 ctest --test-dir build/server-tests -L '^server_channel$' --output-on-failure
