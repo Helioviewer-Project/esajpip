@@ -49,6 +49,8 @@ function(esajpip_fuzz_target name corpus)
             COMMAND ${name} -runs=1000 -seed=1 -max_len=262144
                     ${ESAJPIP_FUZZ_CORPUS_DIR}/${corpus}
             LABELS fuzz client_fuzz TIMEOUT 60)
+        set_tests_properties(fuzz_smoke_${name} PROPERTIES
+            RESOURCE_LOCK fuzz_corpus_${corpus})
         return()
     elseif(name MATCHES "^fuzz_jpip_")
         target_link_libraries(${name} PRIVATE jpip)
@@ -60,17 +62,13 @@ function(esajpip_fuzz_target name corpus)
     if(name STREQUAL "fuzz_jpip_request")
         list(APPEND fuzz_options -dict=${CMAKE_CURRENT_SOURCE_DIR}/jpip.dict)
     endif()
-    if(TARGET fuzz_corpus)
-        add_dependencies(${name} fuzz_corpus)
-        esajpip_add_test(fuzz_smoke_${name}
-            COMMAND ${name} -runs=20000 -seed=1 -max_len=4096 ${fuzz_options}
-                    ${ESAJPIP_FUZZ_CORPUS_DIR}/${corpus}
-            LABELS ${fuzz_labels} ${fuzz_timeout})
-    else()
-        esajpip_add_test(fuzz_smoke_${name}
-            COMMAND ${name} -runs=20000 -seed=1 -max_len=4096 ${fuzz_options}
-            LABELS ${fuzz_labels} ${fuzz_timeout})
-    endif()
+    add_dependencies(${name} fuzz_corpus)
+    esajpip_add_test(fuzz_smoke_${name}
+        COMMAND ${name} -runs=20000 -seed=1 -max_len=4096 ${fuzz_options}
+                ${ESAJPIP_FUZZ_CORPUS_DIR}/${corpus}
+        LABELS ${fuzz_labels} ${fuzz_timeout})
+    set_tests_properties(fuzz_smoke_${name} PROPERTIES
+        RESOURCE_LOCK fuzz_corpus_${corpus})
 endfunction()
 
 # The library: the container reader and writer, deferred PLT consumption, and

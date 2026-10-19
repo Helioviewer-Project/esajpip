@@ -198,7 +198,7 @@ cmake --build build --target hv_transcode
 Fuzzing (Clang):
 
 ```sh
-cmake -S . -B fuzz -DCMAKE_C_COMPILER=clang -DESAJPIP_SANITIZE=ON -DESAJPIP_FUZZ=ON
+cmake -S . -B fuzz -DBUILD_TESTING=ON -DCMAKE_C_COMPILER=clang -DESAJPIP_SANITIZE=ON -DESAJPIP_FUZZ=ON
 cmake --build fuzz --target fuzz_transcode
 fuzz/tests/fuzz/fuzz_transcode -max_len=131072 corpus/
 ```

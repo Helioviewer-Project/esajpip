@@ -1,23 +1,19 @@
-if(Python3_Interpreter_FOUND)
-    file(GLOB_RECURSE ESAJPIP_FUZZ_CORPUS_INPUTS CONFIGURE_DEPENDS
-        ${PROJECT_SOURCE_DIR}/tests/vectors/j2k/*.jp2
-        ${PROJECT_SOURCE_DIR}/tests/vectors/j2k/*.jpx
-        ${PROJECT_SOURCE_DIR}/tests/transcode/fixtures/input/*.jp2
-        ${PROJECT_SOURCE_DIR}/tests/merge/fixtures/input/*.jp2)
-    add_custom_command(
-        OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/corpus.stamp
-        COMMAND ${Python3_EXECUTABLE}
-                ${CMAKE_CURRENT_SOURCE_DIR}/make_corpus.py
-                ${PROJECT_SOURCE_DIR}
-                ${ESAJPIP_FUZZ_CORPUS_DIR}
-        COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/corpus.stamp
-        DEPENDS
+file(GLOB_RECURSE ESAJPIP_FUZZ_CORPUS_INPUTS CONFIGURE_DEPENDS
+    ${PROJECT_SOURCE_DIR}/tests/vectors/j2k/*.jp2
+    ${PROJECT_SOURCE_DIR}/tests/vectors/j2k/*.jpx
+    ${PROJECT_SOURCE_DIR}/tests/transcode/fixtures/input/*.jp2
+    ${PROJECT_SOURCE_DIR}/tests/merge/fixtures/input/*.jp2)
+add_custom_command(
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/corpus.stamp
+    COMMAND ${Python3_EXECUTABLE}
             ${CMAKE_CURRENT_SOURCE_DIR}/make_corpus.py
-            ${ESAJPIP_FUZZ_CORPUS_INPUTS})
-    add_custom_target(fuzz_corpus DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/corpus.stamp)
-else()
-    message(WARNING "Python3 not found: fuzz corpus replay tests will not be registered")
-endif()
+            ${PROJECT_SOURCE_DIR}
+            ${ESAJPIP_FUZZ_CORPUS_DIR}
+    COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/corpus.stamp
+    DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/make_corpus.py
+        ${ESAJPIP_FUZZ_CORPUS_INPUTS})
+add_custom_target(fuzz_corpus DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/corpus.stamp)
 
 # asn1_pdus.h, for fuzz_asn1: PDU(T) for every type with a T_ACN_Decode in
 # the generated headers, in the order of the headers' names and then of

@@ -820,6 +820,8 @@ A decoder using it needs no source-specific branch.
 ## Tests
 
 ```sh
+cmake -S . -B build -DBUILD_TESTING=ON
+cmake --build build --target client_tests
 ctest --test-dir build -L client --output-on-failure
 ```
 

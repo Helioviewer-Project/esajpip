@@ -53,7 +53,6 @@ cmake -S . -B build \
     -DESAJPIP_IMAGE_DIRECTORY="$HOME/esajpip/images" \
     -DESAJPIP_LOG_DIRECTORY="$HOME/esajpip/log"
 cmake --build build
-ctest --test-dir build --output-on-failure
 cmake --install build
 ```
 
@@ -65,6 +64,10 @@ and MinSizeRel builds when both compilers support it, including GCC on Debian 13
 This applies to the server, library, and tools. Disable it with
 `-DCMAKE_INTERPROCEDURAL_OPTIMIZATION=OFF`. Debug and sanitizer builds do not
 use LTO by default.
+
+Tests are disabled by default. Add `-DBUILD_TESTING=ON` to enable them. Existing
+build directories retain their cached setting; use `-DBUILD_TESTING=OFF` to
+disable tests there.
 
 For a separate test build, run `./tests/run.sh`, or `./tests/run.sh sanitize`
 to build with AddressSanitizer and UndefinedBehaviorSanitizer. The

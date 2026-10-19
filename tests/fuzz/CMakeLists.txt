@@ -17,7 +17,6 @@
 #
 #   ctest --test-dir build -L fuzz
 
-find_package(Python3 COMPONENTS Interpreter QUIET)
 set(ESAJPIP_FUZZ_CORPUS_DIR ${CMAKE_CURRENT_BINARY_DIR}/corpus)
 set(ESAJPIP_FUZZ_INCLUDES ${CMAKE_CURRENT_BINARY_DIR})
 set(ESAJPIP_FUZZ_SOURCES

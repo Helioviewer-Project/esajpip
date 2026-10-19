@@ -682,6 +682,30 @@ OPJ_BOOL OPJ_CALLCONV opj_set_decoded_resolution_factor(opj_codec_t *p_codec,
 /* ---------------------------------------------------------------------- */
 /* COMPRESSION FUNCTIONS*/
 
+static OPJ_BOOL j2k_setup_encoder_callback(void *codec,
+        opj_cparameters_t *parameters, opj_image_t *image, opj_event_mgr_t *manager)
+{
+    return opj_j2k_setup_encoder(codec, parameters, image, manager);
+}
+
+static OPJ_BOOL j2k_start_compress_callback(void *codec,
+        opj_stream_private_t *stream, opj_image_t *image, opj_event_mgr_t *manager)
+{
+    return opj_j2k_start_compress(codec, stream, image, manager);
+}
+
+static OPJ_BOOL j2k_encode_callback(void *codec, opj_stream_private_t *stream,
+        opj_event_mgr_t *manager)
+{
+    return opj_j2k_encode(codec, stream, manager);
+}
+
+static OPJ_BOOL j2k_end_compress_callback(void *codec,
+        opj_stream_private_t *stream, opj_event_mgr_t *manager)
+{
+    return opj_j2k_end_compress(codec, stream, manager);
+}
+
 opj_codec_t* OPJ_CALLCONV opj_create_compress(OPJ_CODEC_FORMAT p_format)
 {
     opj_codec_private_t *l_codec = 00;
@@ -695,18 +719,11 @@ opj_codec_t* OPJ_CALLCONV opj_create_compress(OPJ_CODEC_FORMAT p_format)
 
     switch (p_format) {
     case OPJ_CODEC_J2K:
-        l_codec->m_codec_data.m_compression.opj_encode = (OPJ_BOOL(*)(void *,
-                struct opj_stream_private *,
-                struct opj_event_mgr *)) opj_j2k_encode;
+        l_codec->m_codec_data.m_compression.opj_encode = j2k_encode_callback;
 
-        l_codec->m_codec_data.m_compression.opj_end_compress = (OPJ_BOOL(*)(void *,
-                struct opj_stream_private *,
-                struct opj_event_mgr *)) opj_j2k_end_compress;
+        l_codec->m_codec_data.m_compression.opj_end_compress = j2k_end_compress_callback;
 
-        l_codec->m_codec_data.m_compression.opj_start_compress = (OPJ_BOOL(*)(void *,
-                struct opj_stream_private *,
-                struct opj_image *,
-                struct opj_event_mgr *)) opj_j2k_start_compress;
+        l_codec->m_codec_data.m_compression.opj_start_compress = j2k_start_compress_callback;
 
         l_codec->m_codec_data.m_compression.opj_write_tile = (OPJ_BOOL(*)(void *,
                 OPJ_UINT32,
@@ -717,10 +734,7 @@ opj_codec_t* OPJ_CALLCONV opj_create_compress(OPJ_CODEC_FORMAT p_format)
 
         l_codec->m_codec_data.m_compression.opj_destroy = j2k_destroy_callback;
 
-        l_codec->m_codec_data.m_compression.opj_setup_encoder = (OPJ_BOOL(*)(void *,
-                opj_cparameters_t *,
-                struct opj_image *,
-                struct opj_event_mgr *)) opj_j2k_setup_encoder;
+        l_codec->m_codec_data.m_compression.opj_setup_encoder = j2k_setup_encoder_callback;
 
         l_codec->m_codec_data.m_compression.opj_encoder_set_extra_options = (OPJ_BOOL(
                     *)(void *,

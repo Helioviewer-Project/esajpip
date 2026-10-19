@@ -53,7 +53,6 @@ target_compile_definitions(test_client_local PRIVATE
     IMAGE="${ESAJPIP_CLIENT_RGB_FIXTURE}"
     MOVIE="${ESAJPIP_CLIENT_MOVIE_FIXTURE}")
 
-find_package(Python3 REQUIRED COMPONENTS Interpreter)
 esajpip_add_test(client_converter COMMAND ${Python3_EXECUTABLE}
     ${CMAKE_CURRENT_SOURCE_DIR}/check_converter.py $<TARGET_FILE:hvc_jpp2j2k>
     $<TARGET_FILE:test_client_source> LABELS client cli)
