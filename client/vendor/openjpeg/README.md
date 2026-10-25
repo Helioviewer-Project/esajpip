@@ -24,6 +24,9 @@ build for WebAssembly.
 
 Local changes touch `dwt.c`, `t1.c`, `tcd.c` and `openjpeg.c` and add
 `wasm-dwt-simd.h`. `client/hvc_t1_cache.c` owns the bounded Tier-1 cache.
+`tcd.c` splits the DC shift, rounding and clamping of decoded samples into row
+bands on the decoder's thread pool and rounds irreversible samples with
+WebAssembly SIMD, SSE2 or NEON, with the same results as `lrintf`.
 They preserve scalar tails and floating-point operation order;
 compile without fast-math or fused multiply-add (`-ffp-contract=off`).
 The workspace borrows the pinned private J2K thread-pool field and restores it
