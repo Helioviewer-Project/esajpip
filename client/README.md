@@ -950,7 +950,7 @@ JP2 Header box or, in a JPX, from the frame's own codestream header box
 ### Reusable OpenJPEG decoder
 
 `hvc_decoder_create(threads)` owns one sequential decoder workspace and a persistent
-pool of 0–4 workers. Use one context per coordinator, not one per movie frame.
+pool of 0–8 workers. Use one context per coordinator, not one per movie frame.
 Serialize all calls on that context, including statistics reads, with decoding.
 `hvc_openjpeg_decode_context` and `hvc_openjpeg_decode_region` return borrowed pixels
 until the next decode or context destruction. The existing `hvc_openjpeg_decode`

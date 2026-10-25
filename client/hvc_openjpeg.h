@@ -37,7 +37,7 @@ typedef struct {
 int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, const hv_render *render, hvc_image *image,
                         char *error, size_t error_size);
 
-/* Reusable workspace with 0–4 workers. All calls on a context, including
+/* Reusable workspace with 0–8 workers. All calls on a context, including
  * statistics, must be serialized by one coordinator; none may overlap a decode.
  * Context/region pixels are borrowed until the next decode or destroy. */
 typedef struct hvc_decoder hvc_decoder;

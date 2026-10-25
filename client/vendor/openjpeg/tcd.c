@@ -39,10 +39,14 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "opj_includes.h"
-#ifdef __wasm_simd128__
+#if defined(__wasm_simd128__)
 #include <wasm_simd128.h>
+#elif defined(__SSE2__)
+#include <emmintrin.h>
+#elif defined(__aarch64__)
+#include <arm_neon.h>
 #endif
+#include "opj_includes.h"
 #include "opj_common.h"
 
 // #define DEBUG_RATE_ALLOC
@@ -2265,6 +2269,89 @@ static OPJ_BOOL opj_tcd_mct_decode(opj_tcd_t *p_tcd, opj_event_mgr_t *p_manager)
 }
 
 
+/* Rows of one component: DC shift, rounding of irreversible samples, clamping. */
+typedef struct {
+    OPJ_INT32 *data;
+    OPJ_UINT32 width, height, stride; /* stride: samples skipped after each row */
+    OPJ_INT32 min, max, shift;
+    OPJ_BOOL reversible, vector;      /* vector: <=16-bit with an exact float shift */
+} opj_dc_shift_band_t;
+
+static void opj_dc_shift_band(const opj_dc_shift_band_t *b)
+{
+    OPJ_INT32 *l_current_ptr = b->data;
+    OPJ_UINT32 i, j;
+    if (b->reversible) {
+        for (j = 0; j < b->height; ++j) {
+            for (i = 0; i < b->width; ++i) {
+                /* TODO: do addition on int64 ? */
+                *l_current_ptr = opj_int_clamp(*l_current_ptr + b->shift, b->min, b->max);
+                ++l_current_ptr;
+            }
+            l_current_ptr += b->stride;
+        }
+        return;
+    }
+    for (j = 0; j < b->height; ++j) {
+        i = 0;
+        /* Round to nearest, ties to even, as lrintf in the default mode. For
+         * <=16-bit samples the clamp bounds and the DC shift are exact floats. */
+        if (b->vector) {
+#if defined(__wasm_simd128__)
+            v128_t lo = wasm_f32x4_splat((float)(b->min - b->shift));
+            v128_t hi = wasm_f32x4_splat((float)(b->max - b->shift));
+            v128_t shift = wasm_i32x4_splat(b->shift);
+            for (; i + 4 <= b->width; i += 4, l_current_ptr += 4) {
+                v128_t value = wasm_f32x4_nearest(wasm_v128_load(l_current_ptr));
+                value = wasm_f32x4_min(wasm_f32x4_max(value, lo), hi);
+                wasm_v128_store(l_current_ptr,
+                                wasm_i32x4_add(wasm_i32x4_trunc_sat_f32x4(value), shift));
+            }
+#elif defined(__SSE2__)
+            __m128 lo = _mm_set1_ps((float)(b->min - b->shift));
+            __m128 hi = _mm_set1_ps((float)(b->max - b->shift));
+            __m128i shift = _mm_set1_epi32(b->shift);
+            for (; i + 4 <= b->width; i += 4, l_current_ptr += 4) {
+                __m128 value = _mm_loadu_ps((const float *)l_current_ptr);
+                value = _mm_min_ps(_mm_max_ps(value, lo), hi);
+                _mm_storeu_si128((__m128i *)l_current_ptr,
+                                 _mm_add_epi32(_mm_cvtps_epi32(value), shift));
+            }
+#elif defined(__aarch64__)
+            float32x4_t lo = vdupq_n_f32((float)(b->min - b->shift));
+            float32x4_t hi = vdupq_n_f32((float)(b->max - b->shift));
+            int32x4_t shift = vdupq_n_s32(b->shift);
+            for (; i + 4 <= b->width; i += 4, l_current_ptr += 4) {
+                float32x4_t value = vld1q_f32((const float *)l_current_ptr);
+                value = vminq_f32(vmaxq_f32(value, lo), hi);
+                vst1q_s32(l_current_ptr, vaddq_s32(vcvtnq_s32_f32(value), shift));
+            }
+#endif
+        }
+        for (; i < b->width; ++i) {
+            OPJ_FLOAT32 l_value = *((OPJ_FLOAT32 *) l_current_ptr);
+            if (l_value > (OPJ_FLOAT32)INT_MAX) {
+                *l_current_ptr = b->max;
+            } else if (l_value < INT_MIN) {
+                *l_current_ptr = b->min;
+            } else {
+                /* Do addition on int64 to avoid overflows */
+                OPJ_INT64 l_value_int = (OPJ_INT64)opj_lrintf(l_value);
+                *l_current_ptr = (OPJ_INT32)opj_int64_clamp(l_value_int + b->shift, b->min, b->max);
+            }
+            ++l_current_ptr;
+        }
+        l_current_ptr += b->stride;
+    }
+}
+
+static void opj_dc_shift_job(void *user_data, opj_tls_t *tls)
+{
+    (void)tls;
+    opj_dc_shift_band((const opj_dc_shift_band_t *)user_data);
+    opj_free(user_data);
+}
+
 static OPJ_BOOL opj_tcd_dc_level_shift_decode(opj_tcd_t *p_tcd)
 {
     OPJ_UINT32 compno;
@@ -2273,10 +2360,7 @@ static OPJ_BOOL opj_tcd_dc_level_shift_decode(opj_tcd_t *p_tcd)
     opj_image_comp_t * l_img_comp = 00;
     opj_tcd_resolution_t* l_res = 00;
     opj_tcd_tile_t * l_tile;
-    OPJ_UINT32 l_width, l_height, i, j;
-    OPJ_INT32 * l_current_ptr;
-    OPJ_INT32 l_min, l_max;
-    OPJ_UINT32 l_stride;
+    int l_threads = opj_thread_pool_get_thread_count(p_tcd->thread_pool);
 
     l_tile = p_tcd->tcd_image->tiles;
     l_tile_comp = l_tile->comps;
@@ -2285,6 +2369,8 @@ static OPJ_BOOL opj_tcd_dc_level_shift_decode(opj_tcd_t *p_tcd)
 
     for (compno = 0; compno < l_tile->numcomps;
             compno++, ++l_img_comp, ++l_tccp, ++l_tile_comp) {
+        opj_dc_shift_band_t b;
+        OPJ_UINT32 l_bands, l_rows, j;
 
         if (p_tcd->used_component != NULL && !p_tcd->used_component[compno]) {
             continue;
@@ -2293,95 +2379,68 @@ static OPJ_BOOL opj_tcd_dc_level_shift_decode(opj_tcd_t *p_tcd)
         l_res = l_tile_comp->resolutions + l_img_comp->resno_decoded;
 
         if (!p_tcd->whole_tile_decoding) {
-            l_width = l_res->win_x1 - l_res->win_x0;
-            l_height = l_res->win_y1 - l_res->win_y0;
-            l_stride = 0;
-            l_current_ptr = l_tile_comp->data_win;
+            b.width = l_res->win_x1 - l_res->win_x0;
+            b.height = l_res->win_y1 - l_res->win_y0;
+            b.stride = 0;
+            b.data = l_tile_comp->data_win;
         } else {
-            l_width = (OPJ_UINT32)(l_res->x1 - l_res->x0);
-            l_height = (OPJ_UINT32)(l_res->y1 - l_res->y0);
-            l_stride = (OPJ_UINT32)(
+            b.width = (OPJ_UINT32)(l_res->x1 - l_res->x0);
+            b.height = (OPJ_UINT32)(l_res->y1 - l_res->y0);
+            b.stride = (OPJ_UINT32)(
                            l_tile_comp->resolutions[l_tile_comp->minimum_num_resolutions - 1].x1 -
                            l_tile_comp->resolutions[l_tile_comp->minimum_num_resolutions - 1].x0)
-                       - l_width;
-            l_current_ptr = l_tile_comp->data;
+                       - b.width;
+            b.data = l_tile_comp->data;
 
-            assert(l_height == 0 ||
-                   l_width + l_stride <= l_tile_comp->data_size / l_height); /*MUPDF*/
+            assert(b.height == 0 ||
+                   b.width + b.stride <= l_tile_comp->data_size / b.height); /*MUPDF*/
         }
 
         if (l_img_comp->sgnd) {
-            l_min = -(1 << (l_img_comp->prec - 1));
-            l_max = (1 << (l_img_comp->prec - 1)) - 1;
+            b.min = -(1 << (l_img_comp->prec - 1));
+            b.max = (1 << (l_img_comp->prec - 1)) - 1;
         } else {
-            l_min = 0;
-            l_max = (OPJ_INT32)((1U << l_img_comp->prec) - 1);
+            b.min = 0;
+            b.max = (OPJ_INT32)((1U << l_img_comp->prec) - 1);
         }
+        b.shift = l_tccp->m_dc_level_shift;
+        b.reversible = l_tccp->qmfbid == 1;
+        b.vector = l_img_comp->prec <= 16 && b.shift >= 0 && b.shift <= 65536;
 
-        if (l_width == 0 || l_height == 0) {
+        if (b.width == 0 || b.height == 0) {
             continue;
         }
 
-        if (l_tccp->qmfbid == 1) {
-            for (j = 0; j < l_height; ++j) {
-                for (i = 0; i < l_width; ++i) {
-                    /* TODO: do addition on int64 ? */
-                    *l_current_ptr = opj_int_clamp(*l_current_ptr + l_tccp->m_dc_level_shift, l_min,
-                                                   l_max);
-                    ++l_current_ptr;
-                }
-                l_current_ptr += l_stride;
+        /* Bands of at least 64K samples, a few per worker. */
+        l_bands = 1;
+        if (l_threads > 1) {
+            OPJ_UINT64 l_samples = (OPJ_UINT64)b.width * b.height;
+            l_bands = (OPJ_UINT32)l_threads * 4;
+            if (l_samples / 65536 < l_bands) {
+                l_bands = (OPJ_UINT32)(l_samples / 65536);
             }
-        } else {
-#ifdef __wasm_simd128__
-            /* WASI uses round-to-nearest, ties-to-even. For <=16-bit samples
-             * these clamp bounds and the DC shift are exactly representable.
-             * Keep the scalar path for unusual precision/shift combinations. */
-            if (l_img_comp->prec <= 16 && l_tccp->m_dc_level_shift >= 0 &&
-                    l_tccp->m_dc_level_shift <= 65536) {
-                v128_t lo = wasm_f32x4_splat((float)(l_min - l_tccp->m_dc_level_shift));
-                v128_t hi = wasm_f32x4_splat((float)(l_max - l_tccp->m_dc_level_shift));
-                v128_t shift = wasm_i32x4_splat(l_tccp->m_dc_level_shift);
-                for (j = 0; j < l_height; ++j) {
-                    for (i = 0; i + 4 <= l_width; i += 4) {
-                        v128_t value = wasm_f32x4_nearest(wasm_v128_load(l_current_ptr));
-                        value = wasm_f32x4_min(wasm_f32x4_max(value, lo), hi);
-                        wasm_v128_store(l_current_ptr,
-                            wasm_i32x4_add(wasm_i32x4_trunc_sat_f32x4(value), shift));
-                        l_current_ptr += 4;
-                    }
-                    for (; i < l_width; ++i) {
-                        OPJ_FLOAT32 value = *((OPJ_FLOAT32 *)l_current_ptr);
-                        if (value > (OPJ_FLOAT32)INT_MAX) *l_current_ptr = l_max;
-                        else if (value < INT_MIN) *l_current_ptr = l_min;
-                        else *l_current_ptr = (OPJ_INT32)opj_int64_clamp(
-                            (OPJ_INT64)opj_lrintf(value) + l_tccp->m_dc_level_shift, l_min, l_max);
-                        ++l_current_ptr;
-                    }
-                    l_current_ptr += l_stride;
-                }
-                continue;
-            }
-#endif
-            for (j = 0; j < l_height; ++j) {
-                for (i = 0; i < l_width; ++i) {
-                    OPJ_FLOAT32 l_value = *((OPJ_FLOAT32 *) l_current_ptr);
-                    if (l_value > (OPJ_FLOAT32)INT_MAX) {
-                        *l_current_ptr = l_max;
-                    } else if (l_value < INT_MIN) {
-                        *l_current_ptr = l_min;
-                    } else {
-                        /* Do addition on int64 to avoid overflows */
-                        OPJ_INT64 l_value_int = (OPJ_INT64)opj_lrintf(l_value);
-                        *l_current_ptr = (OPJ_INT32)opj_int64_clamp(
-                                             l_value_int + l_tccp->m_dc_level_shift, l_min, l_max);
-                    }
-                    ++l_current_ptr;
-                }
-                l_current_ptr += l_stride;
+            l_bands = opj_uint_min(l_bands, b.height);
+            if (l_bands == 0) {
+                l_bands = 1;
             }
         }
+        l_rows = (b.height + l_bands - 1) / l_bands;
+        for (j = 0; j < b.height; j += l_rows) {
+            opj_dc_shift_band_t band = b, *job;
+            band.data = b.data + (OPJ_SIZE_T)j * (b.width + b.stride);
+            band.height = opj_uint_min(l_rows, b.height - j);
+            job = l_bands > 1 ? (opj_dc_shift_band_t *)opj_malloc(sizeof(band)) : NULL;
+            if (job) {
+                *job = band;
+                if (opj_thread_pool_submit_job(p_tcd->thread_pool, opj_dc_shift_job, job)) {
+                    continue;
+                }
+                opj_free(job);
+            }
+            opj_dc_shift_band(&band);
+        }
     }
+    opj_thread_pool_wait_completion(p_tcd->thread_pool, 0);
 
     return OPJ_TRUE;
 }

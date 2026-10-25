@@ -127,7 +127,7 @@ static void *reserve(uint8_t **buffer, size_t *capacity, size_t size, size_t *gr
     return *buffer;
 }
 hvc_decoder *hvc_decoder_create(int threads) {
-    if (threads < 0 || threads > 4 || (threads && !opj_has_thread_support())) return NULL;
+    if (threads < 0 || threads > 8 || (threads && !opj_has_thread_support())) return NULL;
     hvc_decoder *decoder = calloc(1, sizeof *decoder);
     if (!decoder) return NULL;
     decoder->pool = opj_thread_pool_create(threads);
@@ -186,10 +186,40 @@ static void pack_gray(const opj_image_comp_t *component, size_t count, uint8_t *
             wasm_i16x8_narrow_i32x4(a, b), wasm_i16x8_narrow_i32x4(c, d)));
     }
 #endif
-    for (; i < count; ++i) {
-        unsigned value = (unsigned)(component->data[i] + bias);
-        out[i] = (uint8_t)(component->prec > 8 ? value >> (component->prec - 8) : value << (8 - component->prec));
+    /* Locals, as out may alias the component: compilers vectorize these loops. */
+    const OPJ_INT32 *data = component->data;
+    int prec = (int)component->prec;
+    if (prec > 8) {
+        for (; i < count; ++i) out[i] = (uint8_t)((unsigned)(data[i] + bias) >> (prec - 8));
+    } else {
+        for (; i < count; ++i) out[i] = (uint8_t)((unsigned)(data[i] + bias) << (8 - prec));
     }
+}
+
+/* Samples [start, end) of the selected components, interleaved. */
+typedef struct {
+    const opj_image_comp_t *components[3];
+    int count, indexed;
+    size_t start, end;
+    uint8_t *pixels;
+} pack_band;
+
+static void pack(const pack_band *b) {
+    if (b->count == 1 && b->components[0]->prec <= 16 && !b->indexed) {
+        opj_image_comp_t shifted = *b->components[0];
+        shifted.data += b->start;
+        pack_gray(&shifted, b->end - b->start, b->pixels + b->start);
+        return;
+    }
+    for (int c = 0; c < b->count; c++)
+        for (size_t i = b->start; i < b->end; i++)
+            b->pixels[i * (size_t)b->count + (size_t)c] = sample(b->components[c], i, b->indexed);
+}
+
+static void pack_job(void *user, opj_tls_t *tls) {
+    (void)tls;
+    pack(user);
+    opj_free(user);
 }
 
 static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, int reduce, const hv_render *render, const uint32_t *region, hvc_image *out,
@@ -204,7 +234,7 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     opj_image_t *image = NULL;
     opj_j2k_t *j2k = NULL;
     opj_thread_pool_t *original_pool = NULL;
-    size_t count, i;
+    size_t count;
     int status = -1, c, indexed = render && render->channel[0].palette_column >= 0;
     OPJ_UINT32 components[3] = {0, 1, 2};
 
@@ -309,12 +339,28 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     size_t bytes = count * (size_t)out->components;
     out->pixels = context ? reserve(&context->output, &context->output_capacity, bytes, &context->growths) : malloc(bytes);
     if (!out->pixels) goto done;
-    if (out->components == 1 && image->comps[components[0]].prec <= 16 && !indexed) {
-        pack_gray(&image->comps[components[0]], count, out->pixels);
-    } else for (c = 0; c < out->components; c++) {
-        const opj_image_comp_t *component = &image->comps[components[c]];
-        for (i = 0; i < count; i++)
-            out->pixels[i * (size_t)out->components + (size_t)c] = sample(component, i, indexed);
+    pack_band whole = {{NULL, NULL, NULL}, out->components, indexed, 0, count, out->pixels};
+    for (c = 0; c < out->components; c++)
+        whole.components[c] = &image->comps[components[c]];
+    /* Bands of at least 64K samples, a few per worker. */
+    size_t bands = context ? (size_t)opj_thread_pool_get_thread_count(context->pool) * 4 : 1;
+    if (bands > count / 65536) bands = count / 65536;
+    if (bands < 2) {
+        pack(&whole);
+    } else {
+        size_t step = (count + bands - 1) / bands;
+        for (size_t start = 0; start < count; start += step) {
+            pack_band band = whole, *job = opj_malloc(sizeof band);
+            band.start = start;
+            band.end = count - start < step ? count : start + step;
+            if (job) {
+                *job = band;
+                if (opj_thread_pool_submit_job(context->pool, pack_job, job)) continue;
+                opj_free(job);
+            }
+            pack(&band);
+        }
+        opj_thread_pool_wait_completion(context->pool, 0);
     }
     status = 0;
 
