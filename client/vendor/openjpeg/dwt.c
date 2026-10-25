@@ -47,6 +47,12 @@
 #include "wasm-dwt-simd.h"
 #define OPJ_DWT_SIMD_F32
 #define OPJ_DWT_SIMD_I32
+#define HVC_DWT_TRANSPOSE4
+#elif defined(__aarch64__)
+#include "neon-dwt-simd.h"
+#define OPJ_DWT_SIMD_F32
+#define OPJ_DWT_SIMD_I32
+#define HVC_DWT_TRANSPOSE4
 #else
 #ifdef __SSE__
 #include <xmmintrin.h>
@@ -63,6 +69,7 @@
 
 #ifdef __SSE__
 #define OPJ_DWT_SIMD_F32
+#define HVC_DWT_TRANSPOSE4
 #endif
 #ifdef __SSE2__
 #define OPJ_DWT_SIMD_I32
@@ -3104,13 +3111,39 @@ static void opj_dwt_transpose4(const OPJ_FLOAT32 *src, OPJ_SIZE_T ss,
     wasm_v128_store(dst + 2 * ds, wasm_i32x4_shuffle(ab1, cd1, 0, 1, 4, 5));
     wasm_v128_store(dst + 3 * ds, wasm_i32x4_shuffle(ab1, cd1, 2, 3, 6, 7));
 }
+#elif defined(__aarch64__)
+static void opj_dwt_transpose4(const OPJ_FLOAT32 *src, OPJ_SIZE_T ss,
+                              OPJ_FLOAT32 *dst, OPJ_SIZE_T ds)
+{
+    float32x4_t a = vld1q_f32(src), b = vld1q_f32(src + ss);
+    float32x4_t c = vld1q_f32(src + 2 * ss), d = vld1q_f32(src + 3 * ss);
+    float32x4_t ab0 = vzip1q_f32(a, b), ab1 = vzip2q_f32(a, b);
+    float32x4_t cd0 = vzip1q_f32(c, d), cd1 = vzip2q_f32(c, d);
+    vst1q_f32(dst, vcombine_f32(vget_low_f32(ab0), vget_low_f32(cd0)));
+    vst1q_f32(dst + ds, vcombine_f32(vget_high_f32(ab0), vget_high_f32(cd0)));
+    vst1q_f32(dst + 2 * ds, vcombine_f32(vget_low_f32(ab1), vget_low_f32(cd1)));
+    vst1q_f32(dst + 3 * ds, vcombine_f32(vget_high_f32(ab1), vget_high_f32(cd1)));
+}
+#elif defined(__SSE__)
+static void opj_dwt_transpose4(const OPJ_FLOAT32 *src, OPJ_SIZE_T ss,
+                              OPJ_FLOAT32 *dst, OPJ_SIZE_T ds)
+{
+    __m128 a = _mm_loadu_ps(src), b = _mm_loadu_ps(src + ss);
+    __m128 c = _mm_loadu_ps(src + 2 * ss), d = _mm_loadu_ps(src + 3 * ss);
+    __m128 ab0 = _mm_unpacklo_ps(a, b), ab1 = _mm_unpackhi_ps(a, b);
+    __m128 cd0 = _mm_unpacklo_ps(c, d), cd1 = _mm_unpackhi_ps(c, d);
+    _mm_storeu_ps(dst, _mm_movelh_ps(ab0, cd0));
+    _mm_storeu_ps(dst + ds, _mm_movehl_ps(cd0, ab0));
+    _mm_storeu_ps(dst + 2 * ds, _mm_movelh_ps(ab1, cd1));
+    _mm_storeu_ps(dst + 3 * ds, _mm_movehl_ps(cd1, ab1));
+}
 #endif
 
 static void opj_v8dwt_store_h(const opj_v8dwt_t *dwt, OPJ_FLOAT32 *a,
                             OPJ_UINT32 width, OPJ_UINT32 count)
 {
     OPJ_UINT32 i = 0, row;
-#if defined(__wasm_simd128__)
+#ifdef HVC_DWT_TRANSPOSE4
     for (; i + 4 <= count; i += 4) {
         opj_dwt_transpose4(dwt->wavelet[i].f, NB_ELTS_V8, a + i, width);
         opj_dwt_transpose4(dwt->wavelet[i].f + 4, NB_ELTS_V8,
@@ -3137,7 +3170,7 @@ static void opj_v8dwt_interleave_h(opj_v8dwt_t* OPJ_RESTRICT dwt,
                 ((OPJ_SIZE_T) bi & 0x0f) == 0) {
             /* Fast code path */
             i = x0;
-#if defined(__wasm_simd128__)
+#ifdef HVC_DWT_TRANSPOSE4
             for (; i + 4 <= x1; i += 4) {
                 opj_dwt_transpose4(a + i, width, bi + i * 2 * NB_ELTS_V8, 2 * NB_ELTS_V8);
                 opj_dwt_transpose4(a + i + (OPJ_SIZE_T)width * 4, width,
