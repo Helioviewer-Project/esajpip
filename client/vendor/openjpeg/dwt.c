@@ -3508,6 +3508,58 @@ static void opj_v8dwt_decode(opj_v8dwt_t* OPJ_RESTRICT dwt)
 #endif
 }
 
+/* Full-resolution rows are often a power-of-two stride apart, which maps a
+ * column strip onto few cache sets. The vertical pass therefore loads and
+ * stores HVC_V8_STRIPS adjacent strips row by row, so that each fetched line
+ * is used whole. Each strip keeps its own buffer and lifting. */
+#define HVC_V8_STRIPS 4
+
+/* Vertical pass over nb_columns (a multiple of NB_ELTS_V8) of a. Strip s
+ * uses the buffer at v->wavelet + s * rh. */
+static void opj_v8dwt_decode_v_strips(const opj_v8dwt_t* v,
+                                      OPJ_FLOAT32* OPJ_RESTRICT a,
+                                      OPJ_UINT32 width,
+                                      OPJ_UINT32 rh,
+                                      OPJ_UINT32 nb_columns)
+{
+    opj_v8dwt_t dwt[HVC_V8_STRIPS];
+    OPJ_UINT32 i, j, s, count;
+
+    for (s = 0; s < HVC_V8_STRIPS; ++s) {
+        dwt[s] = *v;
+        dwt[s].wavelet = v->wavelet + s * (OPJ_SIZE_T)rh;
+    }
+    for (j = 0; j < nb_columns; j += count * NB_ELTS_V8) {
+        const OPJ_FLOAT32* OPJ_RESTRICT l = a + j;
+        const OPJ_FLOAT32* OPJ_RESTRICT h = l + (OPJ_UINT32)v->sn * (OPJ_SIZE_T)width;
+
+        count = opj_uint_min(HVC_V8_STRIPS, (nb_columns - j) / NB_ELTS_V8);
+        for (i = v->win_l_x0; i < v->win_l_x1; ++i) {
+            for (s = 0; s < count; ++s) {
+                memcpy(&dwt[s].wavelet[v->cas + i * 2],
+                       &l[i * (OPJ_SIZE_T)width + s * NB_ELTS_V8],
+                       NB_ELTS_V8 * sizeof(OPJ_FLOAT32));
+            }
+        }
+        for (i = v->win_h_x0; i < v->win_h_x1; ++i) {
+            for (s = 0; s < count; ++s) {
+                memcpy(&dwt[s].wavelet[1 - v->cas + i * 2],
+                       &h[i * (OPJ_SIZE_T)width + s * NB_ELTS_V8],
+                       NB_ELTS_V8 * sizeof(OPJ_FLOAT32));
+            }
+        }
+        for (s = 0; s < count; ++s) {
+            opj_v8dwt_decode(&dwt[s]);
+        }
+        for (i = 0; i < rh; ++i) {
+            for (s = 0; s < count; ++s) {
+                memcpy(&a[i * (OPJ_SIZE_T)width + j + s * NB_ELTS_V8], &dwt[s].wavelet[i],
+                       NB_ELTS_V8 * sizeof(OPJ_FLOAT32));
+            }
+        }
+    }
+}
+
 typedef struct {
     opj_v8dwt_t h;
     OPJ_UINT32 rw;
@@ -3554,28 +3606,14 @@ typedef struct {
 
 static void opj_dwt97_decode_v_func(void* user_data, opj_tls_t* tls)
 {
-    OPJ_UINT32 j;
     opj_dwt97_decode_v_job_t* job;
-    OPJ_FLOAT32 * OPJ_RESTRICT aj;
     (void)tls;
 
     job = (opj_dwt97_decode_v_job_t*)user_data;
 
     assert((job->nb_columns % NB_ELTS_V8) == 0);
 
-    aj = job->aj;
-    for (j = 0; j + NB_ELTS_V8 <= job->nb_columns; j += NB_ELTS_V8) {
-        OPJ_UINT32 k;
-
-        opj_v8dwt_interleave_v(&job->v, aj, job->w, NB_ELTS_V8);
-        opj_v8dwt_decode(&job->v);
-
-        for (k = 0; k < job->rh; ++k) {
-            memcpy(&aj[k * (OPJ_SIZE_T)job->w], &job->v.wavelet[k],
-                   NB_ELTS_V8 * sizeof(OPJ_FLOAT32));
-        }
-        aj += NB_ELTS_V8;
-    }
+    opj_v8dwt_decode_v_strips(&job->v, job->aj, job->w, job->rh, job->nb_columns);
 
     opj_aligned_free(job->v.wavelet);
     opj_free(job);
@@ -3613,11 +3651,12 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
 
     l_data_size = opj_dwt_max_resolution(res, numres);
     /* overflow check */
-    if (l_data_size > (SIZE_MAX / sizeof(opj_v8_t))) {
+    if (l_data_size > (SIZE_MAX / sizeof(opj_v8_t) / HVC_V8_STRIPS)) {
         /* FIXME event manager error callback */
         return OPJ_FALSE;
     }
-    h.wavelet = (opj_v8_t*) opj_aligned_malloc(l_data_size * sizeof(opj_v8_t));
+    h.wavelet = (opj_v8_t*) opj_aligned_malloc(HVC_V8_STRIPS * l_data_size *
+                                               sizeof(opj_v8_t));
     if (!h.wavelet) {
         /* FIXME event manager error callback */
         return OPJ_FALSE;
@@ -3719,17 +3758,9 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
 
         aj = (OPJ_FLOAT32*) tilec->data;
         if (num_threads <= 1 || rw < 2 * NB_ELTS_V8) {
-            for (j = rw; j > (NB_ELTS_V8 - 1); j -= NB_ELTS_V8) {
-                OPJ_UINT32 k;
-
-                opj_v8dwt_interleave_v(&v, aj, w, NB_ELTS_V8);
-                opj_v8dwt_decode(&v);
-
-                for (k = 0; k < rh; ++k) {
-                    memcpy(&aj[k * (OPJ_SIZE_T)w], &v.wavelet[k], NB_ELTS_V8 * sizeof(OPJ_FLOAT32));
-                }
-                aj += NB_ELTS_V8;
-            }
+            j = rw & (OPJ_UINT32)~(NB_ELTS_V8 - 1);
+            opj_v8dwt_decode_v_strips(&v, aj, w, rh, j);
+            aj += j;
         } else {
             /* WASM measurements benefit from four workers at large levels.
              * Keep the upstream bandwidth limit for smaller reconstructions. */
@@ -3750,7 +3781,8 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
                     opj_aligned_free(h.wavelet);
                     return OPJ_FALSE;
                 }
-                job->v.wavelet = (opj_v8_t*)opj_aligned_malloc(l_data_size * sizeof(opj_v8_t));
+                job->v.wavelet = (opj_v8_t*)opj_aligned_malloc(HVC_V8_STRIPS * l_data_size *
+                                 sizeof(opj_v8_t));
                 if (!job->v.wavelet) {
                     opj_thread_pool_wait_completion(tp, 0);
                     opj_free(job);
