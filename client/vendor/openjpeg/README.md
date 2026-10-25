@@ -30,8 +30,9 @@ WebAssembly SIMD, SSE2 or NEON, with the same results as `lrintf`.
 `neon-dwt-simd.h` maps the DWT's SSE kernels to AArch64 NEON, as
 `wasm-dwt-simd.h` does for WebAssembly, and `dwt.c` transposes four rows at a
 time with SSE or NEON as it does with WebAssembly SIMD.
-The irreversible vertical pass loads and stores four 8-column strips row by
-row, so that rows a power-of-two stride apart do not refetch each cache line.
+The vertical passes load and store four column strips row by row (9/7
+directly, 5/3 through a copy), so that rows a power-of-two stride apart do not
+refetch each cache line.
 They preserve scalar tails and floating-point operation order;
 compile without fast-math or fused multiply-add (`-ffp-contract=off`).
 The workspace borrows the pinned private J2K thread-pool field and restores it

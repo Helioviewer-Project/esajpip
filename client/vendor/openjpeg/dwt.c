@@ -2270,6 +2270,38 @@ typedef struct {
     OPJ_UINT32 max_j;
 } opj_dwt_decode_v_job_t;
 
+/* As for the 9/7 pass (see HVC_V8_STRIPS), copy HVC_53_STRIPS strips of
+ * PARALLEL_COLS_53 columns row by row into the buffer after the lifting
+ * scratch, transform them there and copy them back. Returns the number of
+ * columns done, a multiple of HVC_53_STRIPS * PARALLEL_COLS_53. */
+#define HVC_53_STRIPS 4
+
+static OPJ_UINT32 opj_idwt53_v_strips(const opj_dwt_t *dwt,
+                                      OPJ_INT32* tiledp_col,
+                                      OPJ_SIZE_T stride,
+                                      OPJ_UINT32 nb_cols)
+{
+    const OPJ_UINT32 cols = HVC_53_STRIPS * PARALLEL_COLS_53;
+    const OPJ_UINT32 len = (OPJ_UINT32)(dwt->sn + dwt->dn);
+    OPJ_INT32* strips = dwt->mem + (OPJ_SIZE_T)len * PARALLEL_COLS_53;
+    OPJ_UINT32 j, k, s;
+
+    for (j = 0; j + cols <= nb_cols; j += cols) {
+        for (k = 0; k < len; ++k) {
+            memcpy(strips + (OPJ_SIZE_T)k * cols, tiledp_col + j + k * stride,
+                   cols * sizeof(OPJ_INT32));
+        }
+        for (s = 0; s < HVC_53_STRIPS; ++s) {
+            opj_idwt53_v(dwt, strips + s * PARALLEL_COLS_53, cols, PARALLEL_COLS_53);
+        }
+        for (k = 0; k < len; ++k) {
+            memcpy(tiledp_col + j + k * stride, strips + (OPJ_SIZE_T)k * cols,
+                   cols * sizeof(OPJ_INT32));
+        }
+    }
+    return j;
+}
+
 static void opj_dwt_decode_v_func(void* user_data, opj_tls_t* tls)
 {
     OPJ_UINT32 j;
@@ -2277,7 +2309,9 @@ static void opj_dwt_decode_v_func(void* user_data, opj_tls_t* tls)
     (void)tls;
 
     job = (opj_dwt_decode_v_job_t*)user_data;
-    for (j = job->min_j; j + PARALLEL_COLS_53 <= job->max_j;
+    j = job->min_j + opj_idwt53_v_strips(&job->v, &job->tiledp[job->min_j],
+                                         (OPJ_SIZE_T)job->w, job->max_j - job->min_j);
+    for (; j + PARALLEL_COLS_53 <= job->max_j;
             j += PARALLEL_COLS_53) {
         opj_idwt53_v(&job->v, &job->tiledp[j], (OPJ_SIZE_T)job->w,
                      PARALLEL_COLS_53);
@@ -2321,14 +2355,16 @@ static OPJ_BOOL opj_dwt_decode_tile(opj_thread_pool_t* tp,
     num_threads = opj_thread_pool_get_thread_count(tp);
     h_mem_size = opj_dwt_max_resolution(tr, numres);
     /* overflow check */
-    if (h_mem_size > (SIZE_MAX / PARALLEL_COLS_53 / sizeof(OPJ_INT32))) {
+    if (h_mem_size > (SIZE_MAX / PARALLEL_COLS_53 / sizeof(OPJ_INT32) /
+                      (1 + HVC_53_STRIPS))) {
         /* FIXME event manager error callback */
         return OPJ_FALSE;
     }
     /* We need PARALLEL_COLS_53 times the height of the array, */
     /* since for the vertical pass */
-    /* we process PARALLEL_COLS_53 columns at a time */
-    h_mem_size *= PARALLEL_COLS_53 * sizeof(OPJ_INT32);
+    /* we process PARALLEL_COLS_53 columns at a time, */
+    /* plus the strips of opj_idwt53_v_strips() */
+    h_mem_size *= PARALLEL_COLS_53 * sizeof(OPJ_INT32) * (1 + HVC_53_STRIPS);
     h.mem = (OPJ_INT32*)opj_aligned_32_malloc(h_mem_size);
     if (! h.mem) {
         /* FIXME event manager error callback */
@@ -2403,7 +2439,8 @@ static OPJ_BOOL opj_dwt_decode_tile(opj_thread_pool_t* tp,
         v.cas = tr->y0 % 2;
 
         if (num_threads <= 1 || rw <= 1) {
-            for (j = 0; j + PARALLEL_COLS_53 <= rw;
+            for (j = opj_idwt53_v_strips(&v, tiledp, (OPJ_SIZE_T)w, rw);
+                    j + PARALLEL_COLS_53 <= rw;
                     j += PARALLEL_COLS_53) {
                 opj_idwt53_v(&v, &tiledp[j], (OPJ_SIZE_T)w, PARALLEL_COLS_53);
             }
