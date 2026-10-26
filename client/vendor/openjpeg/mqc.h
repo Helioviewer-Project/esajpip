@@ -90,6 +90,10 @@ typedef struct opj_mqc {
     const opj_mqc_state_t *ctxs[MQC_NUMCTXS];
     /** Active context */
     const opj_mqc_state_t **curctx;
+    /** Contexts for the decoder, packed as in opj_mqc_dstates */
+    OPJ_UINT32 dctxs[MQC_NUMCTXS];
+    /** Active decoder context */
+    OPJ_UINT32 *dcurctx;
     /* lut_ctxno_zc shifted by (1 << 9) * bandno */
     const OPJ_BYTE* lut_ctxno_zc_orient;
     /** Original value of the 2 bytes at end[0] and end[1] */
@@ -137,6 +141,9 @@ Set the current context used for coding/decoding
 @param ctxno Number that identifies the context
 */
 #define opj_mqc_setcurctx(mqc, ctxno)   (mqc)->curctx = &(mqc)->ctxs[(OPJ_UINT32)(ctxno)]
+#define opj_mqc_setdcurctx(mqc, ctxno)   (mqc)->dcurctx = &(mqc)->dctxs[(OPJ_UINT32)(ctxno)]
+
+extern const OPJ_UINT32 opj_mqc_dstates_next[47 * 2 * 2];
 
 /**
 Flush the encoder, so that all remaining data is written
