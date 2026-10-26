@@ -73,7 +73,7 @@ MQ coder
 */
 typedef struct opj_mqc {
     /** temporary buffer where bits are coded or decoded */
-    OPJ_UINT32 c;
+    OPJ_UINT64 c;
     /** only used by MQ decoder */
     OPJ_UINT32 a;
     /** number of bits already read or free to write */
@@ -253,6 +253,14 @@ opj_mqc_raw_init_dec()
 @param mqc MQC handle
 */
 void opq_mqc_finish_dec(opj_mqc_t *mqc);
+
+/**
+Give back the bytes and synthesized 0xFF markers that the MQ decoder read ahead
+of the bit-serial decoder in ISO 15444-1 C.3, so that bp and
+end_of_byte_stream_counter match it
+@param mqc MQC handle
+*/
+void opj_mqc_dec_unread(opj_mqc_t *mqc);
 
 /**
 Decode a symbol

@@ -99,26 +99,41 @@ static INLINE OPJ_UINT32 opj_mqc_raw_decode(opj_mqc_t *mqc)
 }
 
 
+/* c holds the 16-bit code value in its top bits (48..63) and buffers up to 48
+ * following bits below it. ct is the number of buffered bits, at most 16 when
+ * a refill starts. A refill adds whole bytes, four at a time when no 0xff
+ * byte stuffing is involved. Reading ahead only adds bits below the ones in
+ * use, so decisions do not change. */
 #define opj_mqc_bytein_macro(mqc, c, ct) \
 { \
-        OPJ_UINT32 l_c;  \
+        const OPJ_BYTE *bp_ = mqc->bp; \
         /* Given opj_mqc_init_dec() we know that at some point we will */ \
         /* have a 0xFF 0xFF artificial marker */ \
-        l_c = *(mqc->bp + 1); \
-        if (*mqc->bp == 0xff) { \
-            if (l_c > 0x8f) { \
-                c += 0xff00; \
-                ct = 8; \
-                mqc->end_of_byte_stream_counter ++; \
-            } else { \
-                mqc->bp++; \
-                c += l_c << 9; \
-                ct = 7; \
-            } \
+        if (bp_[0] != 0xff && bp_[1] != 0xff && bp_[2] != 0xff && \
+                bp_[3] != 0xff) { \
+            c += (OPJ_UINT64)(((OPJ_UINT32)bp_[1] << 24) | \
+                              ((OPJ_UINT32)bp_[2] << 16) | \
+                              ((OPJ_UINT32)bp_[3] << 8) | bp_[4]) << (16 - ct); \
+            mqc->bp += 4; \
+            ct += 32; \
         } else { \
-            mqc->bp++; \
-            c += l_c << 8; \
-            ct = 8; \
+            do { \
+                if (*mqc->bp == 0xff) { \
+                    if (mqc->bp[1] > 0x8f) { \
+                        c += (OPJ_UINT64)0xff << (40 - ct); \
+                        ct += 8; \
+                        mqc->end_of_byte_stream_counter ++; \
+                    } else { \
+                        mqc->bp++; \
+                        c += (OPJ_UINT64)*mqc->bp << (41 - ct); \
+                        ct += 7; \
+                    } \
+                } else { \
+                    mqc->bp++; \
+                    c += (OPJ_UINT64)*mqc->bp << (40 - ct); \
+                    ct += 8; \
+                } \
+            } while (ct <= 40); \
         } \
 }
 
@@ -142,11 +157,11 @@ static INLINE OPJ_UINT32 opj_mqc_raw_decode(opj_mqc_t *mqc)
     /* software-conventions decoder" has been tried, but does not bring any */ \
     /* improvement. See https://github.com/uclouvain/openjpeg/issues/921 */ \
     a -= (*curctx)->qeval;  \
-    if ((c >> 16) < (*curctx)->qeval) {  \
+    if ((c >> 48) < (*curctx)->qeval) {  \
         opj_mqc_lpsexchange_macro(d, curctx, a);  \
         opj_mqc_renormd_macro(mqc, a, c, ct);  \
     } else {  \
-        c -= (*curctx)->qeval << 16;  \
+        c -= (OPJ_UINT64)(*curctx)->qeval << 48;  \
         if ((a & 0x8000) == 0) { \
             opj_mqc_mpsexchange_macro(d, curctx, a); \
             opj_mqc_renormd_macro(mqc, a, c, ct); \
@@ -184,10 +199,10 @@ static INLINE OPJ_UINT32 opj_mqc_renorm_shift(OPJ_UINT32 a)
     OPJ_UINT32 qeval_ = state_->qeval, lps_, exchange_, shift_; \
     OPJ_SIZE_T next_, mask_; \
     a -= qeval_; \
-    lps_ = (c >> 16) < qeval_; \
+    lps_ = (c >> 48) < qeval_; \
     exchange_ = lps_ ^ (a < qeval_); \
     d = state_->mps ^ exchange_; \
-    c -= lps_ ? 0 : qeval_ << 16; \
+    c -= lps_ ? 0 : (OPJ_UINT64)qeval_ << 48; \
     a = lps_ ? qeval_ : a; \
     shift_ = opj_mqc_renorm_shift(a); \
     /* The state changes only with a renormalization. */ \
@@ -195,25 +210,17 @@ static INLINE OPJ_UINT32 opj_mqc_renorm_shift(OPJ_UINT32 a)
     mask_ = (OPJ_SIZE_T)0 - (OPJ_SIZE_T)(shift_ != 0); \
     *(curctx) = (const opj_mqc_state_t *)((OPJ_SIZE_T)state_ ^ \
                 (((OPJ_SIZE_T)state_ ^ next_) & mask_)); \
-    if (shift_ <= ct) { \
-        a <<= shift_; \
-        c <<= shift_; \
-        ct -= shift_; \
-    } else { \
-        do { \
-            if (ct == 0) { \
-                opj_mqc_bytein_macro(mqc, c, ct); \
-            } \
-            a <<= 1; \
-            c <<= 1; \
-            ct--; \
-        } while (--shift_); \
+    if (shift_ > ct) { \
+        opj_mqc_bytein_macro(mqc, c, ct); \
     } \
+    a <<= shift_; \
+    c <<= shift_; \
+    ct -= shift_; \
 }
 
 #define DOWNLOAD_MQC_VARIABLES(mqc, curctx, a, c, ct) \
         register const opj_mqc_state_t **curctx = mqc->curctx; \
-        register OPJ_UINT32 c = mqc->c; \
+        register OPJ_UINT64 c = mqc->c; \
         register OPJ_UINT32 a = mqc->a; \
         register OPJ_UINT32 ct = mqc->ct
 

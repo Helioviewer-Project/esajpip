@@ -2211,6 +2211,9 @@ static OPJ_BOOL opj_t1_decode_cblk(opj_t1_t *t1,
             }
         }
 
+        if (check_pterm && type == T1_TYPE_MQ) {
+            opj_mqc_dec_unread(mqc);
+        }
         opq_mqc_finish_dec(mqc);
     }
 
