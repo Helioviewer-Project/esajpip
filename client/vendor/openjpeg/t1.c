@@ -2104,10 +2104,7 @@ static OPJ_BOOL opj_t1_decode_cblk(opj_t1_t *t1,
     }
     passtype = 2;
 
-    opj_mqc_resetstates(mqc);
-    opj_mqc_setstate(mqc, T1_CTXNO_UNI, 0, 46);
-    opj_mqc_setstate(mqc, T1_CTXNO_AGG, 0, 3);
-    opj_mqc_setstate(mqc, T1_CTXNO_ZC, 0, 4);
+    opj_mqc_reset_dec(mqc);
 
     if (cblk->corrupted) {
         assert(cblk->numchunks == 0);
@@ -2201,10 +2198,7 @@ static OPJ_BOOL opj_t1_decode_cblk(opj_t1_t *t1,
             }
 
             if ((cblksty & J2K_CCP_CBLKSTY_RESET) && type == T1_TYPE_MQ) {
-                opj_mqc_resetstates(mqc);
-                opj_mqc_setstate(mqc, T1_CTXNO_UNI, 0, 46);
-                opj_mqc_setstate(mqc, T1_CTXNO_AGG, 0, 3);
-                opj_mqc_setstate(mqc, T1_CTXNO_ZC, 0, 4);
+                opj_mqc_reset_dec(mqc);
             }
             if (++passtype == 3) {
                 passtype = 0;

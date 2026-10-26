@@ -2284,79 +2284,86 @@ static void opj_dc_shift_pack_row(const OPJ_INT32 *row, OPJ_UINT32 width,
     }
 }
 
-static void opj_dc_shift_band(const opj_dc_shift_band_t *b)
+/* DC shift, rounding and clamping of n samples from src to dst, which may be
+ * the same. */
+static void opj_dc_shift_run(const opj_dc_shift_band_t *b,
+                             const OPJ_INT32 *src, OPJ_INT32 *dst, OPJ_UINT32 n)
 {
-    OPJ_INT32 *l_current_ptr = b->data;
-    OPJ_UINT32 i, j;
+    OPJ_UINT32 i = 0;
     if (b->reversible) {
-        for (j = 0; j < b->height; ++j) {
-            for (i = 0; i < b->width; ++i) {
-                /* TODO: do addition on int64 ? */
-                *l_current_ptr = opj_int_clamp(*l_current_ptr + b->shift, b->min, b->max);
-                ++l_current_ptr;
-            }
-            if (b->gray8) {
-                opj_dc_shift_pack_row(l_current_ptr - b->width, b->width, b->min, b->prec,
-                                      b->gray8 + (OPJ_SIZE_T)j * b->width);
-            }
-            l_current_ptr += b->stride;
+        for (; i < n; ++i) {
+            /* TODO: do addition on int64 ? */
+            dst[i] = opj_int_clamp(src[i] + b->shift, b->min, b->max);
         }
         return;
     }
-    for (j = 0; j < b->height; ++j) {
-        i = 0;
-        /* Round to nearest, ties to even, as lrintf in the default mode. For
-         * <=16-bit samples the clamp bounds and the DC shift are exact floats. */
-        if (b->vector) {
+    /* Round to nearest, ties to even, as lrintf in the default mode. For
+     * <=16-bit samples the clamp bounds and the DC shift are exact floats. */
+    if (b->vector) {
 #if defined(__wasm_simd128__)
-            v128_t lo = wasm_f32x4_splat((float)(b->min - b->shift));
-            v128_t hi = wasm_f32x4_splat((float)(b->max - b->shift));
-            v128_t shift = wasm_i32x4_splat(b->shift);
-            for (; i + 4 <= b->width; i += 4, l_current_ptr += 4) {
-                v128_t value = wasm_f32x4_nearest(wasm_v128_load(l_current_ptr));
-                value = wasm_f32x4_min(wasm_f32x4_max(value, lo), hi);
-                wasm_v128_store(l_current_ptr,
-                                wasm_i32x4_add(wasm_i32x4_trunc_sat_f32x4(value), shift));
-            }
+        v128_t lo = wasm_f32x4_splat((float)(b->min - b->shift));
+        v128_t hi = wasm_f32x4_splat((float)(b->max - b->shift));
+        v128_t shift = wasm_i32x4_splat(b->shift);
+        for (; i + 4 <= n; i += 4) {
+            v128_t value = wasm_f32x4_nearest(wasm_v128_load(src + i));
+            value = wasm_f32x4_min(wasm_f32x4_max(value, lo), hi);
+            wasm_v128_store(dst + i,
+                            wasm_i32x4_add(wasm_i32x4_trunc_sat_f32x4(value), shift));
+        }
 #elif defined(__SSE2__)
-            __m128 lo = _mm_set1_ps((float)(b->min - b->shift));
-            __m128 hi = _mm_set1_ps((float)(b->max - b->shift));
-            __m128i shift = _mm_set1_epi32(b->shift);
-            for (; i + 4 <= b->width; i += 4, l_current_ptr += 4) {
-                __m128 value = _mm_loadu_ps((const float *)l_current_ptr);
-                value = _mm_min_ps(_mm_max_ps(value, lo), hi);
-                _mm_storeu_si128((__m128i *)l_current_ptr,
-                                 _mm_add_epi32(_mm_cvtps_epi32(value), shift));
-            }
+        __m128 lo = _mm_set1_ps((float)(b->min - b->shift));
+        __m128 hi = _mm_set1_ps((float)(b->max - b->shift));
+        __m128i shift = _mm_set1_epi32(b->shift);
+        for (; i + 4 <= n; i += 4) {
+            __m128 value = _mm_loadu_ps((const float *)(src + i));
+            value = _mm_min_ps(_mm_max_ps(value, lo), hi);
+            _mm_storeu_si128((__m128i *)(dst + i),
+                             _mm_add_epi32(_mm_cvtps_epi32(value), shift));
+        }
 #elif defined(__aarch64__)
-            float32x4_t lo = vdupq_n_f32((float)(b->min - b->shift));
-            float32x4_t hi = vdupq_n_f32((float)(b->max - b->shift));
-            int32x4_t shift = vdupq_n_s32(b->shift);
-            for (; i + 4 <= b->width; i += 4, l_current_ptr += 4) {
-                float32x4_t value = vld1q_f32((const float *)l_current_ptr);
-                value = vminq_f32(vmaxq_f32(value, lo), hi);
-                vst1q_s32(l_current_ptr, vaddq_s32(vcvtnq_s32_f32(value), shift));
-            }
+        float32x4_t lo = vdupq_n_f32((float)(b->min - b->shift));
+        float32x4_t hi = vdupq_n_f32((float)(b->max - b->shift));
+        int32x4_t shift = vdupq_n_s32(b->shift);
+        for (; i + 4 <= n; i += 4) {
+            float32x4_t value = vld1q_f32((const float *)(src + i));
+            value = vminq_f32(vmaxq_f32(value, lo), hi);
+            vst1q_s32(dst + i, vaddq_s32(vcvtnq_s32_f32(value), shift));
+        }
 #endif
+    }
+    for (; i < n; ++i) {
+        OPJ_FLOAT32 l_value = *((const OPJ_FLOAT32 *)(src + i));
+        if (l_value > (OPJ_FLOAT32)INT_MAX) {
+            dst[i] = b->max;
+        } else if (l_value < INT_MIN) {
+            dst[i] = b->min;
+        } else {
+            /* Do addition on int64 to avoid overflows */
+            OPJ_INT64 l_value_int = (OPJ_INT64)opj_lrintf(l_value);
+            dst[i] = (OPJ_INT32)opj_int64_clamp(l_value_int + b->shift, b->min, b->max);
         }
-        for (; i < b->width; ++i) {
-            OPJ_FLOAT32 l_value = *((OPJ_FLOAT32 *) l_current_ptr);
-            if (l_value > (OPJ_FLOAT32)INT_MAX) {
-                *l_current_ptr = b->max;
-            } else if (l_value < INT_MIN) {
-                *l_current_ptr = b->min;
-            } else {
-                /* Do addition on int64 to avoid overflows */
-                OPJ_INT64 l_value_int = (OPJ_INT64)opj_lrintf(l_value);
-                *l_current_ptr = (OPJ_INT32)opj_int64_clamp(l_value_int + b->shift, b->min, b->max);
-            }
-            ++l_current_ptr;
+    }
+}
+
+static void opj_dc_shift_band(const opj_dc_shift_band_t *b)
+{
+    /* Gray8 rows go through this buffer instead of back to the tile: nothing
+     * reads the shifted samples, and the tile's cache lines then stay clean,
+     * so they are not written back to memory again. */
+    OPJ_INT32 buffer[256];
+    OPJ_INT32 *row = b->data;
+    OPJ_UINT32 i, j, n;
+    for (j = 0; j < b->height; ++j, row += b->width + b->stride) {
+        if (!b->gray8) {
+            opj_dc_shift_run(b, row, row, b->width);
+            continue;
         }
-        if (b->gray8) {
-            opj_dc_shift_pack_row(l_current_ptr - b->width, b->width, b->min, b->prec,
-                                  b->gray8 + (OPJ_SIZE_T)j * b->width);
+        for (i = 0; i < b->width; i += n) {
+            n = opj_uint_min(b->width - i, 256);
+            opj_dc_shift_run(b, row + i, buffer, n);
+            opj_dc_shift_pack_row(buffer, n, b->min, b->prec,
+                                  b->gray8 + (OPJ_SIZE_T)j * b->width + i);
         }
-        l_current_ptr += b->stride;
     }
 }
 
