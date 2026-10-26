@@ -447,12 +447,8 @@ void opj_mqc_init_dec(opj_mqc_t *mqc, OPJ_BYTE *bp, OPJ_UINT32 len,
     opj_mqc_init_dec_common(mqc, bp, len, extra_writable_bytes);
     opj_mqc_setcurctx(mqc, 0);
     mqc->end_of_byte_stream_counter = 0;
-    if (len == 0) {
-        mqc->c = 0xff << 16;
-    } else {
-        mqc->c = (OPJ_UINT32)(*mqc->bp << 16);
-    }
-
+    mqc->c = (OPJ_UINT64)(len == 0 ? 0xff : *mqc->bp) << 48;
+    mqc->ct = 0;
     opj_mqc_bytein(mqc);
     mqc->c <<= 7;
     mqc->ct -= 7;
@@ -473,6 +469,26 @@ void opq_mqc_finish_dec(opj_mqc_t *mqc)
 {
     /* Restore the bytes overwritten by opj_mqc_init_dec_common() */
     memcpy(mqc->end, mqc->backup, OPJ_COMMON_CBLK_DATA_EXTRA);
+}
+
+void opj_mqc_dec_unread(opj_mqc_t *mqc)
+{
+    /* The bit-serial decoder reads a byte only when it needs its first bit, */
+    /* so it holds fewer buffered bits than the last byte read has. */
+    /* Synthesized markers come last and hold 8 bits each. */
+    while (mqc->ct >= 8 && mqc->end_of_byte_stream_counter > 0) {
+        mqc->ct -= 8;
+        mqc->end_of_byte_stream_counter --;
+    }
+    /* A byte after 0xFF holds 7 bits. The byte at start is not buffered. */
+    while (mqc->bp > mqc->start) {
+        OPJ_UINT32 bits = mqc->bp[-1] == 0xff ? 7 : 8;
+        if (mqc->ct < bits) {
+            break;
+        }
+        mqc->ct -= bits;
+        mqc->bp --;
+    }
 }
 
 void opj_mqc_resetstates(opj_mqc_t *mqc)
