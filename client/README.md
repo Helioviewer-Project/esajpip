@@ -39,12 +39,9 @@ another configuration. Native builds use the usual project configuration.
 `jpip_channel.mjs`, and the demonstration page as `index.html`. Keep
 `OpenJPEG-NOTICES.txt` and `dlmalloc-LICENSE.txt` with the distributed output.
 
-To require WebAssembly SIMD for decoding, add `-DESAJPIP_WASM_SIMD=ON` to the
-WASM configuration. It defaults to off so the standard module also runs on
-engines without SIMD support. A local Node.js 24.19.0 benchmark of a 4096x4096
-grayscale cached decode
-fell from 247 ms to 228 ms (10 measured decodes after 3 warmups, identical pixel
-hashes); performance depends on the engine and image.
+WebAssembly SIMD is enabled by default. For an engine without SIMD support,
+configure with `-DESAJPIP_WASM_SIMD=OFF`. Supported native ARM64 and x86-64
+builds use NEON and SSE2 respectively as part of their target architecture.
 
 On the page:
 
