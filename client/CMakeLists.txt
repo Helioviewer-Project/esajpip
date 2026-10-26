@@ -3,14 +3,14 @@ set(esajpip_client_srcs
     hvc.c hvc_jpp.c hvc_delivery.c hvc_cache.c hvc_frame.c hvc_reconstruct.c hvc_metadata.c)
 
 set(openjpeg_srcs
-    bio.c cio.c dwt.c event.c function_list.c ht_dec.c image.c invert.c j2k.c
-    jp2.c mct.c mqc.c openjpeg.c opj_malloc.c pi.c sparse_array.c t1.c t2.c
-    tcd.c tgt.c thread.c)
+    bio.c cio.c decoder_workspace.c dwt.c event.c function_list.c ht_dec.c image.c
+    invert.c j2k.c jp2.c mct.c mqc.c openjpeg.c opj_malloc.c pi.c sparse_array.c
+    t1.c t1_cache.c t2.c tcd.c tgt.c thread.c)
 list(TRANSFORM openjpeg_srcs PREPEND vendor/openjpeg/)
 set_source_files_properties(${openjpeg_srcs} PROPERTIES COMPILE_OPTIONS -w)
 
 set(esajpip_client_wasm_srcs
-    ${esajpip_client_srcs} hvc_openjpeg.c hvc_t1_cache.c hvc_wasm.c ${openjpeg_srcs})
+    ${esajpip_client_srcs} hvc_openjpeg.c hvc_wasm.c ${openjpeg_srcs})
 
 if(CMAKE_SYSTEM_PROCESSOR STREQUAL "wasm32")
     # WASI libc's allocator avoids Zig's power-of-two block rounding.

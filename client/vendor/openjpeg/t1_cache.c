@@ -2,7 +2,7 @@
  * retained. Cache allocation failure is a miss, never a decoding failure. */
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
-#include "hvc_t1_cache.h"
+#include "t1_cache.h"
 /* Direct-mapped, so keep the load low: a 4096x4096 frame caches about 190
  * blocks, those up to its 1024x1024 resolution. */
 #define SLOTS 1024
@@ -13,32 +13,32 @@ typedef struct {
 } entry;
 #define KEY_MAX 12288
 #define PIXELS_MAX 16384
-struct hvc_t1_cache {
+struct opj_t1_cache {
     opj_mutex_t *mutex;
     entry *slots[SLOTS];
     size_t bytes, hits, misses;
 };
-hvc_t1_cache *hvc_t1_cache_create(void) {
-    hvc_t1_cache *c = opj_calloc(1, sizeof(*c));
+opj_t1_cache *opj_t1_cache_create(void) {
+    opj_t1_cache *c = opj_calloc(1, sizeof(*c));
     if (!c) return NULL;
     c->mutex = opj_mutex_create();
     if (!c->mutex && opj_has_thread_support()) { opj_free(c); return NULL; }
     c->bytes = sizeof(*c);
     return c;
 }
-void hvc_t1_cache_destroy(hvc_t1_cache *c) {
+void opj_t1_cache_destroy(opj_t1_cache *c) {
     if (!c) return;
     for (unsigned i=0; i<SLOTS; ++i) opj_free(c->slots[i]);
     opj_mutex_destroy(c->mutex); opj_free(c);
 }
-size_t hvc_t1_cache_stat(const hvc_t1_cache *c, unsigned which) {
+size_t opj_t1_cache_stat(const opj_t1_cache *c, unsigned which) {
     /* Called by coordinator only after the pool has drained. */
     return !c ? 0 : which == 0 ? c->bytes : which == 1 ? c->hits : c->misses;
 }
 static void append(unsigned char **p, const void *data, size_t n) {
     memcpy(*p, data, n); *p += n;
 }
-OPJ_BOOL hvc_t1_cache_transfer(hvc_t1_cache *c, const opj_tcd_cblk_dec_t *b,
+OPJ_BOOL opj_t1_cache_transfer(opj_t1_cache *c, const opj_tcd_cblk_dec_t *b,
     OPJ_UINT32 orient, OPJ_UINT32 roishift, OPJ_UINT32 style, OPJ_INT32 *pixels, OPJ_BOOL store) {
     /* Small low-resolution blocks only. Stack key is bounded independently of
      * untrusted chunk counts/lengths, and never survives this call. */
@@ -83,7 +83,7 @@ OPJ_BOOL hvc_t1_cache_transfer(hvc_t1_cache *c, const opj_tcd_cblk_dec_t *b,
     size_t need=sizeof(*e)+pixel_size+size;
     if (!e || e->capacity<need) {
         /* A full cache keeps its entries rather than replace them. */
-        if (c->bytes-(e ? e->capacity : 0)+need > HVC_T1_CACHE_BUDGET) { opj_mutex_unlock(c->mutex); return OPJ_FALSE; }
+        if (c->bytes-(e ? e->capacity : 0)+need > OPJ_T1_CACHE_BUDGET) { opj_mutex_unlock(c->mutex); return OPJ_FALSE; }
         if (e) { c->bytes-=e->capacity; opj_free(e); }
         c->slots[slot]=e=opj_malloc(need);
         if (!e) { opj_mutex_unlock(c->mutex); return OPJ_FALSE; }
