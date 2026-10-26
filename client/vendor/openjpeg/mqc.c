@@ -363,6 +363,18 @@ void opj_mqc_bypass_flush_enc(opj_mqc_t *mqc, OPJ_BOOL erterm)
     assert(mqc->bp[-1] != 0xff);
 }
 
+void opj_mqc_reset_dec(opj_mqc_t *mqc)
+{
+    /* The states of opj_mqc_setstate(mqc, ctxno, 0, prob) are prob << 1. */
+    OPJ_UINT32 i;
+    for (i = 0; i < MQC_NUMCTXS; i++) {
+        mqc->dctxs[i] = opj_mqc_dstates[0];
+    }
+    mqc->dctxs[T1_CTXNO_UNI] = opj_mqc_dstates[46 << 1];
+    mqc->dctxs[T1_CTXNO_AGG] = opj_mqc_dstates[3 << 1];
+    mqc->dctxs[T1_CTXNO_ZC] = opj_mqc_dstates[4 << 1];
+}
+
 void opj_mqc_reset_enc(opj_mqc_t *mqc)
 {
     opj_mqc_resetstates(mqc);
@@ -501,7 +513,6 @@ void opj_mqc_init_dec(opj_mqc_t *mqc, OPJ_BYTE *bp, OPJ_UINT32 len,
     /* not bring any improvement. */
     /* See https://github.com/uclouvain/openjpeg/issues/921 */
     opj_mqc_init_dec_common(mqc, bp, len, extra_writable_bytes);
-    opj_mqc_setcurctx(mqc, 0);
     opj_mqc_setdcurctx(mqc, 0);
     mqc->end_of_byte_stream_counter = 0;
     mqc->c = (OPJ_UINT64)(len == 0 ? 0xff : *mqc->bp) << 48;
@@ -553,7 +564,6 @@ void opj_mqc_resetstates(opj_mqc_t *mqc)
     OPJ_UINT32 i;
     for (i = 0; i < MQC_NUMCTXS; i++) {
         mqc->ctxs[i] = mqc_states;
-        mqc->dctxs[i] = opj_mqc_dstates[0];
     }
 }
 
@@ -561,7 +571,6 @@ void opj_mqc_setstate(opj_mqc_t *mqc, OPJ_UINT32 ctxno, OPJ_UINT32 msb,
                       OPJ_INT32 prob)
 {
     mqc->ctxs[ctxno] = &mqc_states[msb + (OPJ_UINT32)(prob << 1)];
-    mqc->dctxs[ctxno] = opj_mqc_dstates[msb + (OPJ_UINT32)(prob << 1)];
 }
 
 void opj_mqc_byteout(opj_mqc_t *mqc)

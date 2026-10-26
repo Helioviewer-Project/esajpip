@@ -826,6 +826,30 @@ static opj_worker_thread_job_t* opj_thread_pool_get_next_job(
     }
 }
 
+/* Runs the next queued job on the calling thread instead of idling until the
+ * workers get to it. tp->mutex is held on entry and on return. Returns
+ * OPJ_FALSE if the queue is empty. */
+static OPJ_BOOL opj_thread_pool_run_queued_job(opj_thread_pool_t* tp)
+{
+    opj_job_list_t* item = tp->job_queue;
+    opj_worker_thread_job_t* job;
+
+    if (item == NULL) {
+        return OPJ_FALSE;
+    }
+    job = item->job;
+    tp->job_queue = item->next;
+    opj_mutex_unlock(tp->mutex);
+    opj_free(item);
+    if (job->job_fn) {
+        job->job_fn(job->user_data, tp->tls);
+    }
+    opj_free(job);
+    opj_mutex_lock(tp->mutex);
+    tp->pending_jobs_count --;
+    return OPJ_TRUE;
+}
+
 OPJ_BOOL opj_thread_pool_submit_job(opj_thread_pool_t* tp,
                                     opj_job_fn job_fn,
                                     void* user_data)
@@ -856,9 +880,9 @@ OPJ_BOOL opj_thread_pool_submit_job(opj_thread_pool_t* tp,
 
     tp->signaling_threshold = 100 * tp->worker_threads_count;
     while (tp->pending_jobs_count > tp->signaling_threshold) {
-        /* printf("%d jobs enqueued. Waiting\n", tp->pending_jobs_count); */
-        opj_cond_wait(tp->cond, tp->mutex);
-        /* printf("...%d jobs enqueued.\n", tp->pending_jobs_count); */
+        if (!opj_thread_pool_run_queued_job(tp)) {
+            opj_cond_wait(tp->cond, tp->mutex);
+        }
     }
 
     item->next = tp->job_queue;
@@ -906,19 +930,7 @@ void opj_thread_pool_wait_completion(opj_thread_pool_t* tp,
     opj_mutex_lock(tp->mutex);
     tp->signaling_threshold = max_remaining_jobs;
     while (tp->pending_jobs_count > max_remaining_jobs) {
-        opj_job_list_t* item = tp->job_queue;
-        if (item) {
-            /* Run a queued job instead of idling until the workers finish. */
-            opj_worker_thread_job_t* job = item->job;
-            tp->job_queue = item->next;
-            opj_mutex_unlock(tp->mutex);
-            opj_free(item);
-            if (job->job_fn) {
-                job->job_fn(job->user_data, tp->tls);
-            }
-            opj_free(job);
-            opj_mutex_lock(tp->mutex);
-            tp->pending_jobs_count --;
+        if (opj_thread_pool_run_queued_job(tp)) {
             continue;
         }
         /*printf("tp=%p, jobs before wait = %d, max_remaining_jobs = %d\n", tp, tp->pending_jobs_count, max_remaining_jobs);*/
