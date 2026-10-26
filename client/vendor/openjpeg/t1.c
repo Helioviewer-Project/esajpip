@@ -442,7 +442,7 @@ static INLINE void opj_t1_dec_sigpass_step_raw(
         (flags & (T1_SIGMA_NEIGHBOURS << (ci * 3U))) != 0U) { \
         OPJ_UINT32 ctxt1 = opj_t1_getctxno_zc(mqc, flags >> (ci * 3U)); \
         opj_t1_setcurctx(curctx, ctxt1); \
-        opj_mqc_decode_macro(v, mqc, curctx, a, c, ct); \
+        opj_mqc_decode_branchless_macro(v, mqc, curctx, a, c, ct); \
         if (v) { \
             OPJ_UINT32 lu = opj_t1_getctxtno_sc_or_spb_index( \
                                 flags, \
@@ -451,7 +451,7 @@ static INLINE void opj_t1_dec_sigpass_step_raw(
             OPJ_UINT32 ctxt2 = opj_t1_getctxno_sc(lu); \
             OPJ_UINT32 spb = opj_t1_getspb(lu); \
             opj_t1_setcurctx(curctx, ctxt2); \
-            opj_mqc_decode_macro(v, mqc, curctx, a, c, ct); \
+            opj_mqc_decode_branchless_macro(v, mqc, curctx, a, c, ct); \
             v = v ^ spb; \
             data[ci*data_stride] = v ? -oneplushalf : oneplushalf; \
             opj_t1_update_flags_macro(flags, flagsp, ci, v, flags_stride, vsc); \
@@ -791,7 +791,7 @@ static INLINE void opj_t1_dec_refpass_step_raw(
             (T1_SIGMA_THIS << (ci * 3U))) { \
         OPJ_UINT32 ctxt = opj_t1_getctxno_mag(flags >> (ci * 3U)); \
         opj_t1_setcurctx(curctx, ctxt); \
-        opj_mqc_decode_macro(v, mqc, curctx, a, c, ct); \
+        opj_mqc_decode_branchless_macro(v, mqc, curctx, a, c, ct); \
         data[ci*data_stride] += (v ^ (data[ci*data_stride] < 0)) ? poshalf : -poshalf; \
         flags |= T1_MU_THIS << (ci * 3U); \
     } \
@@ -1126,7 +1126,7 @@ Encode clean-up pass step
             if( !partial ) { \
                 OPJ_UINT32 ctxt1 = opj_t1_getctxno_zc(mqc, flags >> (ci * 3U)); \
                 opj_t1_setcurctx(curctx, ctxt1); \
-                opj_mqc_decode_macro(v, mqc, curctx, a, c, ct); \
+                opj_mqc_decode_branchless_macro(v, mqc, curctx, a, c, ct); \
                 if( !v ) \
                     break; \
             } \
@@ -1135,7 +1135,7 @@ Encode clean-up pass step
                                     flags, flagsp[-1], flagsp[1], \
                                     ci); \
                 opj_t1_setcurctx(curctx, opj_t1_getctxno_sc(lu)); \
-                opj_mqc_decode_macro(v, mqc, curctx, a, c, ct); \
+                opj_mqc_decode_branchless_macro(v, mqc, curctx, a, c, ct); \
                 v = v ^ opj_t1_getspb(lu); \
                 data[ci*data_stride] = v ? -oneplushalf : oneplushalf; \
                 opj_t1_update_flags_macro(flags, flagsp, ci, v, flags_stride, vsc); \
