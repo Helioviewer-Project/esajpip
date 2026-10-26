@@ -9,13 +9,13 @@
 #include <string.h>
 
 typedef struct {
-    uint8_t data[8192];
-    size_t at, size;
+    uint8_t *data;
+    size_t at, size, capacity;
 } output;
 
 static OPJ_SIZE_T write_bytes(void *bytes, OPJ_SIZE_T size, void *user) {
     output *out = user;
-    if (size > sizeof out->data - out->at) return (OPJ_SIZE_T)-1;
+    if (size > out->capacity - out->at) return (OPJ_SIZE_T)-1;
     memcpy(out->data + out->at, bytes, size);
     out->at += size;
     if (out->at > out->size) out->size = out->at;
@@ -24,14 +24,14 @@ static OPJ_SIZE_T write_bytes(void *bytes, OPJ_SIZE_T size, void *user) {
 
 static OPJ_BOOL seek_bytes(OPJ_OFF_T at, void *user) {
     output *out = user;
-    if (at < 0 || (uint64_t)at > sizeof out->data) return OPJ_FALSE;
+    if (at < 0 || (uint64_t)at > out->capacity) return OPJ_FALSE;
     out->at = (size_t)at;
     return OPJ_TRUE;
 }
 
 static OPJ_OFF_T skip_bytes(OPJ_OFF_T count, void *user) {
     output *out = user;
-    if (count < 0 || (uint64_t)count > sizeof out->data - out->at) return -1;
+    if (count < 0 || (uint64_t)count > out->capacity - out->at) return -1;
     out->at += (size_t)count;
     return count;
 }
@@ -87,7 +87,7 @@ static void verify_reuse(const output *encoded, const uint8_t *full, const hv_re
     }
 }
 
-static void encode(opj_image_t *input, output *out) {
+static void encode(opj_image_t *input, output *out, int irreversible) {
     opj_codec_t *codec = opj_create_compress(OPJ_CODEC_J2K);
     opj_stream_t *stream = opj_stream_create(8192, OPJ_FALSE);
     check(codec != NULL && stream != NULL, "encoder allocation");
@@ -96,6 +96,7 @@ static void encode(opj_image_t *input, output *out) {
     parameters.numresolution = 3;
     parameters.tcp_numlayers = 1;
     parameters.cp_disto_alloc = 1;
+    parameters.irreversible = irreversible;
     opj_stream_set_user_data(stream, out, NULL);
     opj_stream_set_write_function(stream, write_bytes);
     opj_stream_set_seek_function(stream, seek_bytes);
@@ -107,7 +108,8 @@ static void encode(opj_image_t *input, output *out) {
 }
 
 static void verify(unsigned bits, int signed_samples) {
-    output out = {{0}, 0, 0};
+    uint8_t bytes[8192];
+    output out = {bytes, 0, 0, sizeof bytes};
     opj_image_cmptparm_t component = {0};
     component.dx = component.dy = 1;
     component.w = component.h = 16;
@@ -120,7 +122,7 @@ static void verify(unsigned bits, int signed_samples) {
     for (unsigned i = 0; i < 256; i++)
         input->comps[0].data[i] = (int)(i * max / 255) - (signed_samples ? (1 << (bits - 1)) : 0);
 
-    encode(input, &out);
+    encode(input, &out, 0);
     opj_image_destroy(input);
 
     hvc_image image;
@@ -151,7 +153,8 @@ static void verify(unsigned bits, int signed_samples) {
 }
 
 static void verify_channels(void) {
-    output out = {{0}, 0, 0};
+    uint8_t bytes[8192];
+    output out = {bytes, 0, 0, sizeof bytes};
     opj_image_cmptparm_t components[3] = {{0}};
     for (int c = 0; c < 3; c++) {
         components[c].dx = components[c].dy = 1;
@@ -164,7 +167,7 @@ static void verify_channels(void) {
     for (int c = 0; c < 3; c++)
         for (unsigned i = 0; i < 256; i++)
             input->comps[c].data[i] = (i + 37 * c) % 256;
-    encode(input, &out);
+    encode(input, &out, 0);
     opj_image_destroy(input);
 
     hvc_image image;
@@ -217,6 +220,63 @@ static void verify_codeblock_cache(void) {
     hvc_t1_cache_destroy(cache);
 }
 
+/* Rows of at least HVC_V8_CHUNKED_MIN_WIDTH samples take the chunked 9/7
+ * horizontal pass in dwt.c. Regions take the plain pass, so a region decode
+ * is the reference: its pixels must match the whole frame. Origins 0, 1 and 2
+ * give both parities of the band split at each level. */
+static void verify_wide_rows(void) {
+    enum { width = 33000, height = 20 };
+    output out = {malloc(1 << 20), 0, 0, 1 << 20};
+    check(out.data != NULL, "wide output allocation");
+    for (unsigned x0 = 0; x0 <= 2; x0++) {
+        opj_image_cmptparm_t component = {0};
+        component.dx = component.dy = 1;
+        component.x0 = x0;
+        component.w = width + x0;
+        component.h = height;
+        component.prec = 8;
+        opj_image_t *input = opj_image_create(1, &component, OPJ_CLRSPC_GRAY);
+        check(input != NULL, "wide image allocation");
+        input->x0 = x0;
+        input->x1 = x0 + component.w;
+        input->y1 = height;
+        uint32_t seed = 1;
+        for (unsigned i = 0; i < component.w * height; i++) {
+            seed = seed * 1103515245u + 12345u;
+            input->comps[0].data[i] = (int)((i % component.w) / 64 + (seed >> 26)) & 255;
+        }
+        out.at = out.size = 0;
+        encode(input, &out, 1);
+        opj_image_destroy(input);
+
+        /* Whole rows, so that both row ends are compared. */
+        const uint32_t region[4] = {0, 4, component.w, height - 4};
+        for (int threads = 0; threads <= 4; threads += 4) {
+            if (threads && !opj_has_thread_support()) continue;
+            /* Context outputs are borrowed, so each decode gets its own. */
+            hvc_decoder *whole = hvc_decoder_create(threads), *decoder = hvc_decoder_create(threads);
+            check(whole != NULL && decoder != NULL, "wide decoder allocation");
+            char error[256] = {0};
+            for (int reduce = 0; reduce <= 2; reduce++) {
+                hvc_image full, part;
+                check(hvc_openjpeg_decode_context(whole, out.data, out.size, reduce, NULL, &full,
+                    error, sizeof error) == 0, error);
+                check(hvc_openjpeg_decode_region(decoder, out.data, out.size, reduce, NULL,
+                    region, &part, error, sizeof error) == 0, error);
+                check(part.x + part.width <= full.width && part.y + part.height <= full.height,
+                    "wide region geometry");
+                for (unsigned y = 0; y < part.height; y++)
+                    check(memcmp(part.pixels + y * part.width,
+                        full.pixels + (part.y + y) * full.width + part.x, part.width) == 0,
+                        "wide rows differ from the region decode");
+            }
+            hvc_decoder_destroy(whole);
+            hvc_decoder_destroy(decoder);
+        }
+    }
+    free(out.data);
+}
+
 int main(void) {
     verify_codeblock_cache();
     verify(1, 0);
@@ -225,5 +285,6 @@ int main(void) {
     verify(10, 0);
     verify(8, 1);
     verify_channels();
+    verify_wide_rows();
     return 0;
 }
