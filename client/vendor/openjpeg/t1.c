@@ -1923,8 +1923,10 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
     OPJ_UINT32 resno, bandno, precno, cblkno;
     opj_t1_decode_batch_t *batch = NULL;
     const opj_tcd_resolution_t *last = &tilec->resolutions[tilec->minimum_num_resolutions - 1];
+    /* Batch once the decoded area holds about a thousand 64x64 blocks, which
+     * keeps every worker busy. Fewer blocks balance better one at a time. */
     const OPJ_BOOL batch_blocks = opj_thread_pool_get_thread_count(tp) > 1 &&
-        last->x1 - last->x0 >= 4096 && last->y1 - last->y0 >= 4096;
+        (OPJ_UINT64)(last->x1 - last->x0) * (OPJ_UINT64)(last->y1 - last->y0) >= 2048 * 2048;
 
 #ifdef DEBUG_VERBOSE
     OPJ_UINT32 codeblocks_decoded = 0;

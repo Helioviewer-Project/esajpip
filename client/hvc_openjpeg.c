@@ -70,6 +70,9 @@ struct hvc_decoder {
     hvc_t1_cache *codeblocks;
     uint8_t *input, *output;
     size_t input_capacity, output_capacity, growths;
+    uint8_t *target;        /* caller's buffer for the next decode */
+    size_t target_capacity;
+    int target_rgba;
     struct {void *data; size_t capacity; int busy;} coefficients[3];
     size_t coefficient_bytes, coefficient_allocations, coefficient_hits;
 };
@@ -149,6 +152,9 @@ size_t hvc_decoder_retained(const hvc_decoder *decoder) {
     return decoder ? decoder->input_capacity + decoder->output_capacity + decoder->coefficient_bytes + hvc_t1_cache_stat(decoder->codeblocks, 0) : 0;
 }
 size_t hvc_decoder_growths(const hvc_decoder *decoder) { return decoder ? decoder->growths : 0; }
+void hvc_decoder_output(hvc_decoder *decoder, uint8_t *pixels, size_t capacity, int rgba) {
+    decoder->target = pixels; decoder->target_capacity = capacity; decoder->target_rgba = rgba;
+}
 
 /* One sample as 8 bits: unsigned, and its most significant bits. */
 static uint8_t sample(const opj_image_comp_t *component, size_t i, int indexed) {
@@ -196,12 +202,14 @@ static void pack_gray(const opj_image_comp_t *component, size_t count, uint8_t *
     }
 }
 
-/* Samples [start, end) of the selected components, interleaved. */
+/* Samples [start, end) of the selected components, interleaved in pixels of
+ * stride bytes; a byte past the components is opaque alpha. */
 typedef struct {
     const opj_image_comp_t *components[3];
     int count, indexed;
     size_t start, end;
     uint8_t *pixels;
+    size_t stride;
 } pack_band;
 
 static void pack(const pack_band *b) {
@@ -213,7 +221,10 @@ static void pack(const pack_band *b) {
     }
     for (int c = 0; c < b->count; c++)
         for (size_t i = b->start; i < b->end; i++)
-            b->pixels[i * (size_t)b->count + (size_t)c] = sample(b->components[c], i, b->indexed);
+            b->pixels[i * b->stride + (size_t)c] = sample(b->components[c], i, b->indexed);
+    if (b->stride > (size_t)b->count)
+        for (size_t i = b->start; i < b->end; i++)
+            b->pixels[i * b->stride + (size_t)b->count] = 255;
 }
 
 static void pack_job(void *user, opj_tls_t *tls) {
@@ -238,8 +249,13 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     int status = -1, c, indexed = render && render->channel[0].palette_column >= 0;
     OPJ_UINT32 components[3] = {0, 1, 2};
 
+    uint8_t *target = context ? context->target : NULL;
+    size_t target_capacity = context ? context->target_capacity : 0;
+    int rgba = context && context->target_rgba;
+
     active_decoder = context;
     memset(out, 0, sizeof *out);
+    if (context) context->target = NULL;
     if (stream == NULL || codec == NULL)
         goto done;
     if (context) {
@@ -335,11 +351,17 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     }
     count = (size_t)out->width * out->height;
     why = "out of memory";
-    if (count > SIZE_MAX / 3) goto done;
-    size_t bytes = count * (size_t)out->components;
-    out->pixels = context ? reserve(&context->output, &context->output_capacity, bytes, &context->growths) : malloc(bytes);
+    if (count > SIZE_MAX / 4) goto done;
+    size_t stride = target && rgba && out->components == 3 ? 4 : (size_t)out->components;
+    size_t bytes = count * stride;
+    if (target) {
+        why = "output buffer too small";
+        out->pixels = bytes <= target_capacity ? target : NULL;
+    } else {
+        out->pixels = context ? reserve(&context->output, &context->output_capacity, bytes, &context->growths) : malloc(bytes);
+    }
     if (!out->pixels) goto done;
-    pack_band whole = {{NULL, NULL, NULL}, out->components, indexed, 0, count, out->pixels};
+    pack_band whole = {{NULL, NULL, NULL}, out->components, indexed, 0, count, out->pixels, stride};
     for (c = 0; c < out->components; c++)
         whole.components[c] = &image->comps[components[c]];
     /* Bands of at least 64K samples, a few per worker. */
