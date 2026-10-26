@@ -415,8 +415,14 @@ OPJ_BOOL opj_t2_decode_packets(opj_tcd_t* tcd,
 #endif
     opj_packet_info_t *l_pack_info = 00;
     opj_image_comp_t* l_img_comp = 00;
+    OPJ_UINT32 l_needed_res = 0, compno;
 
     OPJ_ARG_NOT_USED(p_cstr_index);
+
+    for (compno = 0; compno < p_tile->numcomps; ++compno) {
+        l_needed_res = opj_uint_max(l_needed_res,
+                                    p_tile->comps[compno].minimum_num_resolutions);
+    }
 
 #ifdef TODO_MSD
     if (p_cstr_index) {
@@ -457,6 +463,22 @@ OPJ_BOOL opj_t2_decode_packets(opj_tcd_t* tcd,
 
         while (opj_pi_next(l_current_pi)) {
             OPJ_BOOL skip_packet = OPJ_FALSE;
+
+            /* In a resolution-major order without progression changes, the
+             * packets from here on are all beyond the needed resolutions and
+             * would only be skipped. Stop once every component has had a
+             * packet decoded, which leaves nothing for the skips to update. */
+            if (l_nb_pocs == 1 && l_current_pi->resno >= l_needed_res &&
+                    (l_current_pi->poc.prg == OPJ_RLCP || l_current_pi->poc.prg == OPJ_RPCL)) {
+                for (compno = 0; compno < l_image->numcomps; ++compno) {
+                    if (first_pass_failed[compno]) {
+                        break;
+                    }
+                }
+                if (compno == l_image->numcomps) {
+                    break;
+                }
+            }
             JAS_FPRINTF(stderr,
                         "packet offset=00000166 prg=%d cmptno=%02d rlvlno=%02d prcno=%03d lyrno=%02d\n\n",
                         l_current_pi->poc.prg1, l_current_pi->compno, l_current_pi->resno,
@@ -1067,7 +1089,8 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
     OPJ_UINT32 * l_modified_length_ptr = 00;
     OPJ_BYTE *l_current_data = p_src_data;
     opj_cp_t *l_cp = p_t2->cp;
-    opj_bio_t *l_bio = 00;  /* BIO component */
+    opj_bio_t l_bio_reader;  /* BIO component, on the stack */
+    opj_bio_t *l_bio = &l_bio_reader;
     opj_tcd_band_t *l_band = 00;
     opj_tcd_cblk_dec_t* l_cblk = 00;
     opj_tcd_resolution_t* l_res =
@@ -1131,11 +1154,6 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
     step 2: Return to codestream for decoding
     */
 
-    l_bio = opj_bio_create();
-    if (! l_bio) {
-        return OPJ_FALSE;
-    }
-
     if (l_cp->ppm == 1) { /* PPM */
         l_header_data_start = &l_cp->ppm_data;
         l_header_data = *l_header_data_start;
@@ -1160,7 +1178,6 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
         /* TODO MSD: no test to control the output of this function*/
         opj_bio_inalign(l_bio);
         l_header_data += opj_bio_numbytes(l_bio);
-        opj_bio_destroy(l_bio);
 
         /* EPH markers */
         if (p_tcp->csty & J2K_CP_CSTY_EPH) {
@@ -1257,7 +1274,6 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
 
             if (!l_cblk->numsegs) {
                 if (! opj_t2_init_seg(l_cblk, l_segno, p_tcp->tccps[p_pi->compno].cblksty, 1)) {
-                    opj_bio_destroy(l_bio);
                     return OPJ_FALSE;
                 }
             } else {
@@ -1265,7 +1281,6 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
                 if (l_cblk->segs[l_segno].numpasses == l_cblk->segs[l_segno].maxpasses) {
                     ++l_segno;
                     if (! opj_t2_init_seg(l_cblk, l_segno, p_tcp->tccps[p_pi->compno].cblksty, 0)) {
-                        opj_bio_destroy(l_bio);
                         return OPJ_FALSE;
                     }
                 }
@@ -1282,7 +1297,6 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
                         opj_event_msg(p_manager, EVT_ERROR,
                                       "Invalid bit number %d in opj_t2_read_packet_header()\n",
                                       bit_number);
-                        opj_bio_destroy(l_bio);
                         return OPJ_FALSE;
                     }
                     l_cblk->segs[l_segno].newlen = opj_bio_read(l_bio, bit_number);
@@ -1295,7 +1309,6 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
                         ++l_segno;
 
                         if (! opj_t2_init_seg(l_cblk, l_segno, p_tcp->tccps[p_pi->compno].cblksty, 0)) {
-                            opj_bio_destroy(l_bio);
                             return OPJ_FALSE;
                         }
                     }
@@ -1311,7 +1324,6 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
                         opj_event_msg(p_manager, EVT_ERROR,
                                       "Invalid bit number %d in opj_t2_read_packet_header()\n",
                                       bit_number);
-                        opj_bio_destroy(l_bio);
                         return OPJ_FALSE;
                     }
                     l_cblk->segs[l_segno].newlen = opj_bio_read(l_bio, bit_number);
@@ -1324,7 +1336,6 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
                         ++l_segno;
 
                         if (! opj_t2_init_seg(l_cblk, l_segno, p_tcp->tccps[p_pi->compno].cblksty, 0)) {
-                            opj_bio_destroy(l_bio);
                             return OPJ_FALSE;
                         }
                     }
@@ -1335,12 +1346,10 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
     }
 
     if (!opj_bio_inalign(l_bio)) {
-        opj_bio_destroy(l_bio);
         return OPJ_FALSE;
     }
 
     l_header_data += opj_bio_numbytes(l_bio);
-    opj_bio_destroy(l_bio);
 
     /* EPH markers */
     if (p_tcp->csty & J2K_CP_CSTY_EPH) {

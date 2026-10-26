@@ -3597,6 +3597,10 @@ static void opj_v8dwt_decode_v_strips(const opj_v8dwt_t* v,
     }
 }
 
+/* Levels below this area decode faster on the calling thread than split into
+ * pool jobs. */
+#define HVC_DWT97_MIN_JOB_AREA (512 * 512)
+
 typedef struct {
     opj_v8dwt_t h;
     OPJ_UINT32 rw;
@@ -3628,7 +3632,6 @@ static void opj_dwt97_decode_h_func(void* user_data, opj_tls_t* tls)
         aj += w * NB_ELTS_V8;
     }
 
-    opj_aligned_free(job->h.wavelet);
     opj_free(job);
 }
 
@@ -3652,7 +3655,6 @@ static void opj_dwt97_decode_v_func(void* user_data, opj_tls_t* tls)
 
     opj_v8dwt_decode_v_strips(&job->v, job->aj, job->w, job->rh, job->nb_columns);
 
-    opj_aligned_free(job->v.wavelet);
     opj_free(job);
 }
 
@@ -3681,6 +3683,10 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
 
     OPJ_SIZE_T l_data_size;
     const int num_threads = opj_thread_pool_get_thread_count(tp);
+    /* Each job works in its own slice of one scratch buffer, allocated once
+     * for all levels. */
+    const OPJ_SIZE_T num_slices = num_threads > 1 ? (OPJ_SIZE_T)num_threads : 1;
+    OPJ_SIZE_T slice;
 
     if (numres == 1) {
         return OPJ_TRUE;
@@ -3688,11 +3694,12 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
 
     l_data_size = opj_dwt_max_resolution(res, numres);
     /* overflow check */
-    if (l_data_size > (SIZE_MAX / sizeof(opj_v8_t) / HVC_V8_STRIPS)) {
+    if (l_data_size > (SIZE_MAX / sizeof(opj_v8_t) / HVC_V8_STRIPS / num_slices)) {
         /* FIXME event manager error callback */
         return OPJ_FALSE;
     }
-    h.wavelet = (opj_v8_t*) opj_aligned_malloc(HVC_V8_STRIPS * l_data_size *
+    slice = HVC_V8_STRIPS * l_data_size;
+    h.wavelet = (opj_v8_t*) opj_aligned_malloc(num_slices * slice *
                                                sizeof(opj_v8_t));
     if (!h.wavelet) {
         /* FIXME event manager error callback */
@@ -3722,7 +3729,8 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
         h.win_h_x0 = 0;
         h.win_h_x1 = (OPJ_UINT32)h.dn;
 
-        if (num_threads <= 1 || rh < 2 * NB_ELTS_V8) {
+        if (num_threads <= 1 || rh < 2 * NB_ELTS_V8 ||
+                (OPJ_SIZE_T)rw * rh < HVC_DWT97_MIN_JOB_AREA) {
             for (j = 0; j + (NB_ELTS_V8 - 1) < rh; j += NB_ELTS_V8) {
                 opj_v8dwt_interleave_h(&h, aj, w, NB_ELTS_V8);
                 opj_v8dwt_decode(&h);
@@ -3748,13 +3756,7 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
                     opj_aligned_free(h.wavelet);
                     return OPJ_FALSE;
                 }
-                job->h.wavelet = (opj_v8_t*)opj_aligned_malloc(l_data_size * sizeof(opj_v8_t));
-                if (!job->h.wavelet) {
-                    opj_thread_pool_wait_completion(tp, 0);
-                    opj_free(job);
-                    opj_aligned_free(h.wavelet);
-                    return OPJ_FALSE;
-                }
+                job->h.wavelet = h.wavelet + j * slice;
                 job->h.dn = h.dn;
                 job->h.sn = h.sn;
                 job->h.cas = h.cas;
@@ -3794,7 +3796,8 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
         v.win_h_x1 = (OPJ_UINT32)v.dn;
 
         aj = (OPJ_FLOAT32*) tilec->data;
-        if (num_threads <= 1 || rw < 2 * NB_ELTS_V8) {
+        if (num_threads <= 1 || rw < 2 * NB_ELTS_V8 ||
+                (OPJ_SIZE_T)rw * rh < HVC_DWT97_MIN_JOB_AREA) {
             j = rw & (OPJ_UINT32)~(NB_ELTS_V8 - 1);
             opj_v8dwt_decode_v_strips(&v, aj, w, rh, j);
             aj += j;
@@ -3818,14 +3821,7 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
                     opj_aligned_free(h.wavelet);
                     return OPJ_FALSE;
                 }
-                job->v.wavelet = (opj_v8_t*)opj_aligned_malloc(HVC_V8_STRIPS * l_data_size *
-                                 sizeof(opj_v8_t));
-                if (!job->v.wavelet) {
-                    opj_thread_pool_wait_completion(tp, 0);
-                    opj_free(job);
-                    opj_aligned_free(h.wavelet);
-                    return OPJ_FALSE;
-                }
+                job->v.wavelet = h.wavelet + j * slice;
                 job->v.dn = v.dn;
                 job->v.sn = v.sn;
                 job->v.cas = v.cas;
