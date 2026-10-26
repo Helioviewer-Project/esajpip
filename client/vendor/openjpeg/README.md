@@ -35,6 +35,8 @@ WebAssembly SIMD, SSE2 or NEON, with the same results as `lrintf`.
 time with SSE or NEON as it does with WebAssembly SIMD.
 The irreversible vertical pass loads and stores four 8-column strips row by
 row, so that rows a power-of-two stride apart do not refetch each cache line.
+For rows at least 16,384 samples wide, the horizontal 9/7 pass runs lifting
+steps in chunks while loading the row buffer.
 They preserve scalar tails and floating-point operation order;
 compile without fast-math or fused multiply-add (`-ffp-contract=off`).
 The workspace binds its pool to a raw J2K decoder and drains and restores the
