@@ -1,18 +1,19 @@
 /* hvc_openjpeg.c: see hvc_openjpeg.h. */
 #include "hvc_openjpeg.h"
 
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "jpeg2000/hv_error.h"
-/* Pinned OpenJPEG private API: borrow a pool only for our J2K decoder and
- * restore its original pool before destruction. Never retain image/packet state. */
-#define OPJ_SKIP_POISON
-#include "opj_includes.h"
-#include "hvc_t1_cache.h"
+#include "decoder_workspace.h"
 #ifdef __wasm_simd128__
 #include <wasm_simd128.h>
 #endif
+
+static uint32_t ceil_div_pow2(uint32_t value, uint32_t power) {
+    return (uint32_t)((value + ((uint64_t)1 << power) - 1) >> power);
+}
 
 typedef struct {
     const uint8_t *data;
@@ -66,60 +67,13 @@ static void keep_error(const char *text, void *user) {
 }
 
 struct hvc_decoder {
-    opj_thread_pool_t *pool;
-    hvc_t1_cache *codeblocks;
+    opj_decoder_workspace *workspace;
     uint8_t *input, *output;
     size_t input_capacity, output_capacity, growths;
     uint8_t *target;        /* caller's buffer for the next decode */
     size_t target_capacity;
     int target_rgba;
-    struct {void *data; size_t capacity; int busy;} coefficients[3];
-    size_t coefficient_bytes, coefficient_allocations, coefficient_hits;
 };
-/* Only the sequential coordinator lends this cache to OpenJPEG. Tier-1/DWT
- * worker scratch uses OpenJPEG's separate aligned allocator, not these hooks. */
-static _Thread_local hvc_decoder *active_decoder;
-hvc_t1_cache *hvc_active_t1_cache(void) { return active_decoder ? active_decoder->codeblocks : NULL; }
-size_t hvc_decoder_codeblock_stat(const hvc_decoder *d, unsigned which) { return hvc_t1_cache_stat(d ? d->codeblocks : NULL, which); }
-#define COEFFICIENT_BUDGET ((size_t)64 * 1024 * 1024)
-void *hvc_image_data_alloc(size_t size) {
-    if (!size) return NULL;
-    hvc_decoder *d = active_decoder;
-    if (!d || size > COEFFICIENT_BUDGET) return opj_aligned_malloc(size);
-    int best = -1;
-    for (int i = 0; i < 3; ++i) {
-        if (!d->coefficients[i].busy && d->coefficients[i].capacity >= size &&
-            (best < 0 || d->coefficients[i].capacity < d->coefficients[best].capacity)) best = i;
-    }
-    if (best >= 0) {
-        d->coefficients[best].busy = 1; ++d->coefficient_hits;
-        return d->coefficients[best].data;
-    }
-    /* Evict idle smaller blocks before growing; never move a live tile buffer. */
-    for (int i = 0; i < 3; ++i) if (!d->coefficients[i].busy) {
-        d->coefficient_bytes -= d->coefficients[i].capacity;
-        opj_aligned_free(d->coefficients[i].data);
-        memset(&d->coefficients[i], 0, sizeof d->coefficients[i]);
-        best = i;
-    }
-    if (best < 0 || size > COEFFICIENT_BUDGET - d->coefficient_bytes) return opj_aligned_malloc(size);
-    void *data = opj_aligned_malloc(size);
-    if (!data) return NULL;
-    d->coefficients[best].data = data; d->coefficients[best].capacity = size;
-    d->coefficients[best].busy = 1; d->coefficient_bytes += size; ++d->coefficient_allocations;
-    return data;
-}
-void hvc_image_data_free(void *data) {
-    if (!data) return;
-    hvc_decoder *d = active_decoder;
-    if (d) for (int i = 0; i < 3; ++i) if (d->coefficients[i].data == data) {
-        d->coefficients[i].busy = 0; return;
-    }
-    opj_aligned_free(data);
-}
-size_t hvc_decoder_coefficient_allocations(const hvc_decoder *d) { return d ? d->coefficient_allocations : 0; }
-size_t hvc_decoder_coefficient_hits(const hvc_decoder *d) { return d ? d->coefficient_hits : 0; }
-
 static void *reserve(uint8_t **buffer, size_t *capacity, size_t size, size_t *growths) {
     if (size > *capacity) {
         /* Exact high-water capacity: no speculative multiplication of 4K buffers. */
@@ -130,27 +84,26 @@ static void *reserve(uint8_t **buffer, size_t *capacity, size_t size, size_t *gr
     return *buffer;
 }
 hvc_decoder *hvc_decoder_create(int threads) {
-    if (threads < 0 || threads > 8 || (threads && !opj_has_thread_support())) return NULL;
     hvc_decoder *decoder = calloc(1, sizeof *decoder);
     if (!decoder) return NULL;
-    decoder->pool = opj_thread_pool_create(threads);
-    if (!decoder->pool) { free(decoder); return NULL; }
-    decoder->codeblocks = hvc_t1_cache_create();
+    decoder->workspace = opj_decoder_workspace_create(threads);
+    if (!decoder->workspace) { free(decoder); return NULL; }
     return decoder;
 }
 void hvc_decoder_destroy(hvc_decoder *decoder) {
     if (!decoder) return;
-    opj_thread_pool_destroy(decoder->pool);
-    hvc_t1_cache_destroy(decoder->codeblocks);
-    for (int i = 0; i < 3; ++i) opj_aligned_free(decoder->coefficients[i].data);
+    opj_decoder_workspace_destroy(decoder->workspace);
     free(decoder->input); free(decoder->output); free(decoder);
 }
 void *hvc_decoder_input(hvc_decoder *decoder, size_t size) {
     return reserve(&decoder->input, &decoder->input_capacity, size, &decoder->growths);
 }
 size_t hvc_decoder_retained(const hvc_decoder *decoder) {
-    return decoder ? decoder->input_capacity + decoder->output_capacity + decoder->coefficient_bytes + hvc_t1_cache_stat(decoder->codeblocks, 0) : 0;
+    return decoder ? decoder->input_capacity + decoder->output_capacity + opj_decoder_workspace_retained(decoder->workspace) : 0;
 }
+size_t hvc_decoder_coefficient_allocations(const hvc_decoder *d) { return opj_decoder_workspace_coefficient_allocations(d ? d->workspace : NULL); }
+size_t hvc_decoder_coefficient_hits(const hvc_decoder *d) { return opj_decoder_workspace_coefficient_hits(d ? d->workspace : NULL); }
+size_t hvc_decoder_codeblock_stat(const hvc_decoder *d, unsigned which) { return opj_decoder_workspace_codeblock_stat(d ? d->workspace : NULL, which); }
 size_t hvc_decoder_growths(const hvc_decoder *decoder) { return decoder ? decoder->growths : 0; }
 void hvc_decoder_output(hvc_decoder *decoder, uint8_t *pixels, size_t capacity, int rgba) {
     decoder->target = pixels; decoder->target_capacity = capacity; decoder->target_rgba = rgba;
@@ -230,7 +183,7 @@ static void pack(const pack_band *b) {
 static void pack_job(void *user, opj_tls_t *tls) {
     (void)tls;
     pack(user);
-    opj_free(user);
+    free(user);
 }
 
 /* The pixels of a decode: the caller's target if they fit, else NULL. */
@@ -249,8 +202,7 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     opj_codec_t *codec = opj_create_decompress(OPJ_CODEC_J2K);
     opj_codestream_info_v2_t *info = NULL;
     opj_image_t *image = NULL;
-    opj_j2k_t *j2k = NULL;
-    opj_thread_pool_t *original_pool = NULL;
+    int bound = 0;
     size_t count, packed = 0;
     int status = -1, c, indexed = render && render->channel[0].palette_column >= 0;
     OPJ_UINT32 components[3] = {0, 1, 2};
@@ -259,15 +211,14 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     size_t target_capacity = context ? context->target_capacity : 0;
     int rgba = context && context->target_rgba;
 
-    active_decoder = context;
+    opj_decoder_workspace_activate(context ? context->workspace : NULL);
     memset(out, 0, sizeof *out);
     if (context) context->target = NULL;
     if (stream == NULL || codec == NULL)
         goto done;
     if (context) {
-        j2k = (opj_j2k_t *)((opj_codec_private_t *)codec)->m_codec;
-        original_pool = j2k->m_tp;
-        j2k->m_tp = context->pool;
+        opj_decoder_workspace_bind(context->workspace, codec);
+        bound = 1;
     }
     opj_stream_set_read_function(stream, read_memory);
     opj_stream_set_skip_function(stream, skip_memory);
@@ -331,27 +282,22 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
             image->x1 > INT_MAX || image->y1 > INT_MAX) goto done;
         for (c = 0; c < (int)image->numcomps; ++c)
             if (image->comps[c].dx != 1 || image->comps[c].dy != 1) goto done;
-        const uint32_t gx = opj_uint_ceildivpow2(image->x0, reduce);
-        const uint32_t gy = opj_uint_ceildivpow2(image->y0, reduce);
-        out->grid_width = opj_uint_ceildivpow2(image->x1, reduce) - gx;
-        out->grid_height = opj_uint_ceildivpow2(image->y1, reduce) - gy;
-        out->x = opj_uint_ceildivpow2(image->x0 + region[0], reduce) - gx;
-        out->y = opj_uint_ceildivpow2(image->y0 + region[1], reduce) - gy;
+        const uint32_t gx = ceil_div_pow2(image->x0, reduce);
+        const uint32_t gy = ceil_div_pow2(image->y0, reduce);
+        out->grid_width = ceil_div_pow2(image->x1, reduce) - gx;
+        out->grid_height = ceil_div_pow2(image->y1, reduce) - gy;
+        out->x = ceil_div_pow2(image->x0 + region[0], reduce) - gx;
+        out->y = ceil_div_pow2(image->y0 + region[1], reduce) - gy;
         if (!opj_set_decode_area(codec, image, image->x0 + region[0], image->y0 + region[1],
                                 image->x0 + region[2], image->y0 + region[3])) goto done;
     }
     /* One whole gray tile: the DC shift packs each row while it is in cache. */
-    const opj_cp_t *cp = j2k ? &j2k->m_cp : NULL;
-    const opj_image_comp_t *gray = &image->comps[components[0]];
-    if (cp && j2k->m_tcd && !region && out->components == 1 && !indexed && gray->prec <= 16 &&
-        gray->dx == 1 && gray->dy == 1 && cp->tw == 1 && cp->th == 1 && cp->tx0 == 0 && cp->ty0 == 0 &&
-        image->x0 == 0 && image->y0 == 0 && image->x1 == cp->tdx && image->y1 == cp->tdy) {
-        packed = (size_t)opj_uint_ceildivpow2(image->x1, (OPJ_UINT32)reduce) *
-                 opj_uint_ceildivpow2(image->y1, (OPJ_UINT32)reduce);
+    if (context && !region && out->components == 1 && !indexed)
+        packed = opj_decoder_gray8_size(codec, image, components[0], (OPJ_UINT32)reduce);
+    if (packed) {
         why = target ? "output buffer too small" : "out of memory";
         if ((out->pixels = output_pixels(context, target, target_capacity, packed)) == NULL) goto done;
-        j2k->m_tcd->gray8 = out->pixels;
-        j2k->m_tcd->gray8_compno = components[0];
+        opj_decoder_gray8_output(codec, components[0], out->pixels);
     }
     why = "cannot decode the codestream";
     if (!opj_decode(codec, stream, image) || !opj_end_decompress(codec, stream))
@@ -386,32 +332,31 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     for (c = 0; c < out->components; c++)
         whole.components[c] = &image->comps[components[c]];
     /* Bands of at least 64K samples, a few per worker. */
-    size_t bands = context ? (size_t)opj_thread_pool_get_thread_count(context->pool) * 4 : 1;
+    size_t bands = context ? (size_t)opj_decoder_workspace_threads(context->workspace) * 4 : 1;
     if (bands > count / 65536) bands = count / 65536;
     if (bands < 2) {
         pack(&whole);
     } else {
         size_t step = (count + bands - 1) / bands;
         for (size_t start = 0; start < count; start += step) {
-            pack_band band = whole, *job = opj_malloc(sizeof band);
+            pack_band band = whole, *job = malloc(sizeof band);
             band.start = start;
             band.end = count - start < step ? count : start + step;
             if (job) {
                 *job = band;
-                if (opj_thread_pool_submit_job(context->pool, pack_job, job)) continue;
-                opj_free(job);
+                if (opj_decoder_workspace_submit(context->workspace, pack_job, job)) continue;
+                free(job);
             }
             pack(&band);
         }
-        opj_thread_pool_wait_completion(context->pool, 0);
+        opj_decoder_workspace_wait(context->workspace);
     }
     status = 0;
 
 done:
-    if (j2k) {
-        /* Also drain on malformed input before freeing any referenced tile state. */
-        opj_thread_pool_wait_completion(context->pool, 0);
-        j2k->m_tp = original_pool;
+    if (bound) {
+        /* Drain before freeing tile state, including on malformed input. */
+        opj_decoder_workspace_unbind(context->workspace, codec);
     }
     if (status != 0 && !failure.reported)
         hv_fail(error, error_size, "%s", why);
@@ -420,7 +365,7 @@ done:
     opj_image_destroy(image);
     opj_destroy_codec(codec);
     opj_stream_destroy(stream);
-    active_decoder = NULL;
+    opj_decoder_workspace_activate(NULL);
     return status;
 }
 

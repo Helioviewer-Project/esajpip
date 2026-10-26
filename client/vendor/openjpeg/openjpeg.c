@@ -36,6 +36,7 @@
 #endif /* _WIN32 */
 
 #include "opj_includes.h"
+#include "decoder_workspace.h"
 
 
 /* ---------------------------------------------------------------------- */
@@ -1171,12 +1172,9 @@ opj_stream_t* OPJ_CALLCONV opj_stream_create_file_stream(
 }
 
 
-/* Local esajpip extension: a bounded, coordinator-local coefficient workspace. */
-void *hvc_image_data_alloc(size_t size);
-void hvc_image_data_free(void *ptr);
 void* OPJ_CALLCONV opj_image_data_alloc(OPJ_SIZE_T size)
 {
-    void* ret = hvc_image_data_alloc(size);
+    void* ret = opj_workspace_image_data_alloc(size);
     /* printf("opj_image_data_alloc %p\n", ret); */
     return ret;
 }
@@ -1184,5 +1182,5 @@ void* OPJ_CALLCONV opj_image_data_alloc(OPJ_SIZE_T size)
 void OPJ_CALLCONV opj_image_data_free(void* ptr)
 {
     /* printf("opj_image_data_free %p\n", ptr); */
-    hvc_image_data_free(ptr);
+    opj_workspace_image_data_free(ptr);
 }

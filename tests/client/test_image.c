@@ -2,7 +2,7 @@
 #include "hvc_openjpeg.h"
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
-#include "hvc_t1_cache.h"
+#include "t1_cache.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -198,7 +198,7 @@ static void verify_channels(void) {
 }
 
 static void verify_codeblock_cache(void) {
-    hvc_t1_cache *cache = hvc_t1_cache_create();
+    opj_t1_cache *cache = opj_t1_cache_create();
     check(cache != NULL, "codeblock cache allocation");
     OPJ_BYTE bytes[] = {0x55, 0x66};
     opj_tcd_seg_data_chunk_t chunk = {bytes, sizeof bytes};
@@ -209,21 +209,19 @@ static void verify_codeblock_cache(void) {
     block.numchunks = 1;
     block.chunks = &chunk;
     OPJ_INT32 pixels[] = {11, 22, 33, 44};
-    check(hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_TRUE), "cache insert");
+    check(opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_TRUE), "cache insert");
     block.Mb = 31;
     memset(pixels, 0, sizeof pixels);
-    check(!hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) && pixels[0] == 0,
+    check(!opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) && pixels[0] == 0,
           "cache hit bypassed HT bit-plane validation");
     block.Mb = 1;
-    check(hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) &&
+    check(opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) &&
           pixels[0] == 11 && pixels[3] == 44, "unchanged codeblock was not reused");
-    hvc_t1_cache_destroy(cache);
+    opj_t1_cache_destroy(cache);
 }
 
-/* Rows of at least HVC_V8_CHUNKED_MIN_WIDTH samples take the chunked 9/7
- * horizontal pass in dwt.c. Regions take the plain pass, so a region decode
- * is the reference: its pixels must match the whole frame. Origins 0, 1 and 2
- * give both parities of the band split at each level. */
+/* Wide images and odd origins must have the same geometry and pixels in
+ * whole-frame and region decodes, across reductions and worker counts. */
 static void verify_wide_rows(void) {
     enum { width = 33000, height = 20 };
     output out = {malloc(1 << 20), 0, 0, 1 << 20};

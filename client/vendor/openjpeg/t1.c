@@ -40,7 +40,7 @@
 
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
-#include "hvc_t1_cache.h"
+#include "t1_cache.h"
 
 #ifdef __SSE__
 #include <xmmintrin.h>
@@ -1593,7 +1593,7 @@ void opj_t1_destroy(opj_t1_t *p_t1)
 }
 
 typedef struct {
-    hvc_t1_cache *cache;
+    opj_t1_cache *cache;
     OPJ_BOOL whole_tile_decoding;
     OPJ_UINT32 resno;
     opj_tcd_cblk_dec_t* cblk;
@@ -1692,7 +1692,7 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
     OPJ_BOOL reused = OPJ_FALSE;
     if (job->cache && opj_t1_allocate_buffers(t1,
             (OPJ_UINT32)(cblk->x1-cblk->x0), (OPJ_UINT32)(cblk->y1-cblk->y0)))
-        reused = hvc_t1_cache_transfer(job->cache, cblk, band->bandno,
+        reused = opj_t1_cache_transfer(job->cache, cblk, band->bandno,
             (OPJ_UINT32)tccp->roishift, tccp->cblksty,
             cblk->decoded_data ? cblk->decoded_data : t1->data, OPJ_FALSE);
     if (reused) {
@@ -1726,7 +1726,7 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
     }
 
     if (job->cache && !reused)
-        hvc_t1_cache_transfer(job->cache, cblk, band->bandno,
+        opj_t1_cache_transfer(job->cache, cblk, band->bandno,
             (OPJ_UINT32)tccp->roishift, tccp->cblksty,
             cblk->decoded_data ? cblk->decoded_data : t1->data, OPJ_TRUE);
 
@@ -1931,15 +1931,15 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
     /* Cache the lowest resolutions, as long as all their coefficients fit the
      * cache, so that they are kept across resolution upgrades and larger newly
      * decoded bands never evict them. */
-    hvc_t1_cache *cache = check_pterm || (tccp->cblksty & J2K_CCP_CBLKSTY_HT) ?
-                          NULL : hvc_active_t1_cache();
+    opj_t1_cache *cache = check_pterm || (tccp->cblksty & J2K_CCP_CBLKSTY_HT) ?
+                          NULL : opj_active_t1_cache();
     OPJ_UINT32 cached_resolutions = 0;
     OPJ_UINT64 cached_bytes = 0;
     for (; cache && cached_resolutions < tilec->minimum_num_resolutions; ++cached_resolutions) {
         const opj_tcd_resolution_t *r = &tilec->resolutions[cached_resolutions];
         cached_bytes += (OPJ_UINT64)(r->x1 - r->x0) * (OPJ_UINT64)(r->y1 - r->y0) *
                         sizeof(OPJ_INT32);
-        if (cached_bytes > HVC_T1_CACHE_BUDGET) {
+        if (cached_bytes > OPJ_T1_CACHE_BUDGET) {
             break;
         }
     }
