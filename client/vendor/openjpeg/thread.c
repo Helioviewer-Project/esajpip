@@ -631,13 +631,15 @@ opj_thread_pool_t* opj_thread_pool_create(int num_threads)
         return NULL;
     }
     tp->state = OPJWTS_OK;
+    /* Thread-local storage of the caller, which runs jobs inline without
+     * workers and helps with queued jobs while waiting. */
+    tp->tls = opj_tls_new();
+    if (!tp->tls) {
+        opj_free(tp);
+        return NULL;
+    }
 
     if (num_threads <= 0) {
-        tp->tls = opj_tls_new();
-        if (!tp->tls) {
-            opj_free(tp);
-            tp = NULL;
-        }
         return tp;
     }
 
@@ -904,6 +906,21 @@ void opj_thread_pool_wait_completion(opj_thread_pool_t* tp,
     opj_mutex_lock(tp->mutex);
     tp->signaling_threshold = max_remaining_jobs;
     while (tp->pending_jobs_count > max_remaining_jobs) {
+        opj_job_list_t* item = tp->job_queue;
+        if (item) {
+            /* Run a queued job instead of idling until the workers finish. */
+            opj_worker_thread_job_t* job = item->job;
+            tp->job_queue = item->next;
+            opj_mutex_unlock(tp->mutex);
+            opj_free(item);
+            if (job->job_fn) {
+                job->job_fn(job->user_data, tp->tls);
+            }
+            opj_free(job);
+            opj_mutex_lock(tp->mutex);
+            tp->pending_jobs_count --;
+            continue;
+        }
         /*printf("tp=%p, jobs before wait = %d, max_remaining_jobs = %d\n", tp, tp->pending_jobs_count, max_remaining_jobs);*/
         opj_cond_wait(tp->cond, tp->mutex);
         /*printf("tp=%p, jobs after wait = %d\n", tp, tp->pending_jobs_count);*/

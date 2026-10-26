@@ -156,6 +156,61 @@ static INLINE OPJ_UINT32 opj_mqc_raw_decode(opj_mqc_t *mqc)
     } \
 }
 
+/* The left shift that brings a (1 to 0xffff) to at least 0x8000. */
+static INLINE OPJ_UINT32 opj_mqc_renorm_shift(OPJ_UINT32 a)
+{
+#if defined(__GNUC__)
+    return (OPJ_UINT32)__builtin_clz(a) - 16U;
+#elif defined(_MSC_VER)
+    unsigned long msb;
+    _BitScanReverse(&msb, a);
+    return 15U - (OPJ_UINT32)msb;
+#else
+    OPJ_UINT32 n = 0;
+    for (; a < 0x8000; a <<= 1) {
+        ++n;
+    }
+    return n;
+#endif
+}
+
+/* The same decision as opj_mqc_decode_macro(), for contexts whose symbols are
+ * close to random: selects replace the LPS/MPS branches and one shift the
+ * renormalization loop, so a mispredicted symbol costs no branch. Only a
+ * renormalization that needs a new byte loops. */
+#define opj_mqc_decode_branchless_macro(d, mqc, curctx, a, c, ct) \
+{ \
+    const opj_mqc_state_t *state_ = *(curctx); \
+    OPJ_UINT32 qeval_ = state_->qeval, lps_, exchange_, shift_; \
+    OPJ_SIZE_T next_, mask_; \
+    a -= qeval_; \
+    lps_ = (c >> 16) < qeval_; \
+    exchange_ = lps_ ^ (a < qeval_); \
+    d = state_->mps ^ exchange_; \
+    c -= lps_ ? 0 : qeval_ << 16; \
+    a = lps_ ? qeval_ : a; \
+    shift_ = opj_mqc_renorm_shift(a); \
+    /* The state changes only with a renormalization. */ \
+    next_ = (OPJ_SIZE_T)(exchange_ ? state_->nlps : state_->nmps); \
+    mask_ = (OPJ_SIZE_T)0 - (OPJ_SIZE_T)(shift_ != 0); \
+    *(curctx) = (const opj_mqc_state_t *)((OPJ_SIZE_T)state_ ^ \
+                (((OPJ_SIZE_T)state_ ^ next_) & mask_)); \
+    if (shift_ <= ct) { \
+        a <<= shift_; \
+        c <<= shift_; \
+        ct -= shift_; \
+    } else { \
+        do { \
+            if (ct == 0) { \
+                opj_mqc_bytein_macro(mqc, c, ct); \
+            } \
+            a <<= 1; \
+            c <<= 1; \
+            ct--; \
+        } while (--shift_); \
+    } \
+}
+
 #define DOWNLOAD_MQC_VARIABLES(mqc, curctx, a, c, ct) \
         register const opj_mqc_state_t **curctx = mqc->curctx; \
         register OPJ_UINT32 c = mqc->c; \
