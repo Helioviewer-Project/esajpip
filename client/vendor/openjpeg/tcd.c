@@ -2345,6 +2345,74 @@ static void opj_dc_shift_run(const opj_dc_shift_band_t *b,
     }
 }
 
+/* opj_dc_shift_run() and opj_dc_shift_pack_row() in one pass, for
+ * irreversible samples of 8 to 16 bits with an exact float shift. Returns how
+ * many of the n samples it did, a multiple of 16. */
+static OPJ_UINT32 opj_dc_shift_gray8_run(const opj_dc_shift_band_t *b,
+                                         const OPJ_INT32 *src, OPJ_BYTE *out,
+                                         OPJ_UINT32 n)
+{
+    OPJ_UINT32 i = 0, k;
+    if (b->reversible || !b->vector || b->prec < 8) {
+        return 0;
+    }
+    {
+#if defined(__wasm_simd128__)
+        v128_t lo = wasm_f32x4_splat((float)(b->min - b->shift));
+        v128_t hi = wasm_f32x4_splat((float)(b->max - b->shift));
+        v128_t add = wasm_i32x4_splat(b->shift - b->min);
+        for (; i + 16 <= n; i += 16) {
+            v128_t v[4];
+            for (k = 0; k < 4; ++k) {
+                v128_t value = wasm_f32x4_nearest(wasm_v128_load(src + i + 4 * k));
+                value = wasm_f32x4_min(wasm_f32x4_max(value, lo), hi);
+                v[k] = wasm_i32x4_shr(wasm_i32x4_add(wasm_i32x4_trunc_sat_f32x4(value), add),
+                                      b->prec - 8);
+            }
+            wasm_v128_store(out + i, wasm_u8x16_narrow_i16x8(wasm_i16x8_narrow_i32x4(v[0], v[1]),
+                            wasm_i16x8_narrow_i32x4(v[2], v[3])));
+        }
+#elif defined(__SSE2__)
+        __m128 lo = _mm_set1_ps((float)(b->min - b->shift));
+        __m128 hi = _mm_set1_ps((float)(b->max - b->shift));
+        __m128i add = _mm_set1_epi32(b->shift - b->min);
+        __m128i shift = _mm_cvtsi32_si128((int)(b->prec - 8));
+        for (; i + 16 <= n; i += 16) {
+            __m128i v[4];
+            for (k = 0; k < 4; ++k) {
+                __m128 value = _mm_loadu_ps((const float *)(src + i + 4 * k));
+                value = _mm_min_ps(_mm_max_ps(value, lo), hi);
+                v[k] = _mm_sra_epi32(_mm_add_epi32(_mm_cvtps_epi32(value), add), shift);
+            }
+            _mm_storeu_si128((__m128i *)(out + i),
+                             _mm_packus_epi16(_mm_packs_epi32(v[0], v[1]),
+                                              _mm_packs_epi32(v[2], v[3])));
+        }
+#elif defined(__aarch64__)
+        float32x4_t lo = vdupq_n_f32((float)(b->min - b->shift));
+        float32x4_t hi = vdupq_n_f32((float)(b->max - b->shift));
+        int32x4_t add = vdupq_n_s32(b->shift - b->min);
+        int32x4_t shift = vdupq_n_s32(8 - (OPJ_INT32)b->prec);
+        for (; i + 16 <= n; i += 16) {
+            int32x4_t v[4];
+            for (k = 0; k < 4; ++k) {
+                float32x4_t value = vld1q_f32((const float *)(src + i + 4 * k));
+                value = vminq_f32(vmaxq_f32(value, lo), hi);
+                v[k] = vshlq_s32(vaddq_s32(vcvtnq_s32_f32(value), add), shift);
+            }
+            vst1q_u8(out + i, vcombine_u8(
+                         vqmovun_s16(vcombine_s16(vmovn_s32(v[0]), vmovn_s32(v[1]))),
+                         vqmovun_s16(vcombine_s16(vmovn_s32(v[2]), vmovn_s32(v[3])))));
+        }
+#else
+        (void)src;
+        (void)out;
+        (void)k;
+#endif
+    }
+    return i;
+}
+
 static void opj_dc_shift_band(const opj_dc_shift_band_t *b)
 {
     /* Gray8 rows go through this buffer instead of back to the tile: nothing
@@ -2358,7 +2426,9 @@ static void opj_dc_shift_band(const opj_dc_shift_band_t *b)
             opj_dc_shift_run(b, row, row, b->width);
             continue;
         }
-        for (i = 0; i < b->width; i += n) {
+        i = opj_dc_shift_gray8_run(b, row, b->gray8 + (OPJ_SIZE_T)j * b->width,
+                                   b->width);
+        for (; i < b->width; i += n) {
             n = opj_uint_min(b->width - i, 256);
             opj_dc_shift_run(b, row + i, buffer, n);
             opj_dc_shift_pack_row(buffer, n, b->min, b->prec,

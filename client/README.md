@@ -947,7 +947,8 @@ JP2 Header box or, in a JPX, from the frame's own codestream header box
 ### Reusable OpenJPEG decoder
 
 `hvc_decoder_create(threads)` owns one sequential decoder workspace and a persistent
-pool of 0–8 workers. Use one context per coordinator, not one per movie frame.
+pool of 0–16 workers. Each worker adds a wavelet scratch slice of up to 1 MiB for
+4096-wide images. Use one context per coordinator, not one per movie frame.
 Serialize all calls on that context, including statistics reads, with decoding.
 `hvc_openjpeg_decode_context` and `hvc_openjpeg_decode_region` return borrowed pixels
 until the next decode or context destruction. The existing `hvc_openjpeg_decode`
@@ -967,6 +968,10 @@ ceiling-rounded dimensions and the codestream's original grid origin respected.
 Subsampled regions are refused. Rebuild decoder consumers for the extended
 `hvc_image` layout.
 
+The WASM build has no thread support, so `hvc_wasm_threads` accepts only 0 and
+every WASM decode runs on the calling thread. Workers there would need a
+`-pthread` build, `SharedArrayBuffer`, and COOP/COEP headers from the host.
+
 WASM exposes the same workspace through `hvc_wasm_threads`, `hvc_wasm_decode_input`,
 `hvc_wasm_decode_codestream`, `hvc_wasm_decode_region` and `hvc_wasm_decode_release`.
 `hvc_wasm_decode` also reuses it, preserving the existing JS client's frame API.
@@ -981,7 +986,9 @@ in its own memory, or NULL for default components.
 See [vendored OpenJPEG notes](vendor/openjpeg/README.md) for the private-API
 upgrade boundary.
 
-The context also caches up to 8 MiB of low-resolution Tier-1 coefficients.
+The context also caches up to 8 MiB of Tier-1 coefficients: those of the lowest
+resolutions whose coefficients together fit that budget, up to 1024x1024 for a
+4096x4096 frame.
 Reuse requires matching compressed bytes and coding parameters, not a hash alone;
 changed blocks decode normally. This helps immediate refinement of a frame, but
 has no hits when a long movie is decoded in separate resolution passes.

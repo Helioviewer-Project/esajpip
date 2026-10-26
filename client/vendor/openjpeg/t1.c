@@ -1928,6 +1928,21 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
      * keeps every worker busy. Fewer blocks balance better one at a time. */
     const OPJ_BOOL batch_blocks = opj_thread_pool_get_thread_count(tp) > 1 &&
         (OPJ_UINT64)(last->x1 - last->x0) * (OPJ_UINT64)(last->y1 - last->y0) >= 2048 * 2048;
+    /* Cache the lowest resolutions, as long as all their coefficients fit the
+     * cache, so that they are kept across resolution upgrades and larger newly
+     * decoded bands never evict them. */
+    hvc_t1_cache *cache = check_pterm || (tccp->cblksty & J2K_CCP_CBLKSTY_HT) ?
+                          NULL : hvc_active_t1_cache();
+    OPJ_UINT32 cached_resolutions = 0;
+    OPJ_UINT64 cached_bytes = 0;
+    for (; cache && cached_resolutions < tilec->minimum_num_resolutions; ++cached_resolutions) {
+        const opj_tcd_resolution_t *r = &tilec->resolutions[cached_resolutions];
+        cached_bytes += (OPJ_UINT64)(r->x1 - r->x0) * (OPJ_UINT64)(r->y1 - r->y0) *
+                        sizeof(OPJ_INT32);
+        if (cached_bytes > HVC_T1_CACHE_BUDGET) {
+            break;
+        }
+    }
 
 #ifdef DEBUG_VERBOSE
     OPJ_UINT32 codeblocks_decoded = 0;
@@ -2018,10 +2033,7 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
                         return;
                     }
                     job->whole_tile_decoding = tcd->whole_tile_decoding;
-                    /* Preserve small subbands across resolution upgrades; large
-                     * newly decoded bands must not evict this working set. */
-                    job->cache = !check_pterm && !(tccp->cblksty & J2K_CCP_CBLKSTY_HT) &&
-                        res->x1-res->x0 <= 512 && res->y1-res->y0 <= 512 ? hvc_active_t1_cache() : NULL;
+                    job->cache = resno < cached_resolutions ? cache : NULL;
                     job->resno = resno;
                     job->cblk = cblk;
                     job->band = band;

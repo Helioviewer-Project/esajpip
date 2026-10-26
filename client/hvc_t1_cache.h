@@ -2,6 +2,8 @@
 #ifndef HVC_T1_CACHE_H
 #define HVC_T1_CACHE_H
 typedef struct hvc_t1_cache hvc_t1_cache;
+/* Bytes of entries, coefficients and keys, that a cache holds at most. */
+#define HVC_T1_CACHE_BUDGET (8u * 1024u * 1024u)
 hvc_t1_cache *hvc_t1_cache_create(void);
 void hvc_t1_cache_destroy(hvc_t1_cache *cache);
 /* Coordinator-only lookup; jobs capture the pointer before queue submission. */

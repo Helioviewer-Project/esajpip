@@ -277,6 +277,53 @@ static void verify_wide_rows(void) {
     free(out.data);
 }
 
+/* A real 4096x4096 9/7 frame, where the Tier-1 cache budget, the strip count
+ * of the vertical pass and the worker count matter: every worker count and
+ * every repeat, with cache hits, must give the pixels of a fresh decode. */
+static void verify_large_frame(void) {
+    FILE *file = fopen(AIA, "rb");
+    check(file != NULL, "open " AIA);
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    uint8_t *bytes = malloc((size_t)size);
+    check(bytes != NULL && fread(bytes, 1, (size_t)size, file) == (size_t)size, "read " AIA);
+    fclose(file);
+    /* The codestream box of the JP2 file. */
+    long at = 0;
+    while (at + 8 <= size && memcmp(bytes + at + 4, "jp2c", 4) != 0)
+        at += (long)((uint32_t)bytes[at] << 24 | bytes[at + 1] << 16 | bytes[at + 2] << 8 | bytes[at + 3]);
+    check(at + 8 <= size, "codestream box");
+    const uint8_t *codestream = bytes + at + 8;
+    size_t length = (size_t)(size - at - 8);
+
+    char error[256] = {0};
+    hvc_image reference[2];
+    for (int reduce = 0; reduce <= 1; reduce++)
+        check(hvc_openjpeg_decode(codestream, length, reduce, NULL, &reference[reduce],
+            error, sizeof error) == 0, error);
+    for (int threads = 0; threads <= 8; threads += 4) {
+        if (threads && !opj_has_thread_support()) continue;
+        hvc_decoder *decoder = hvc_decoder_create(threads);
+        check(decoder != NULL, "large decoder allocation");
+        static const int reduces[] = {1, 0, 0, 1};
+        for (int i = 0; i < 4; i++) {
+            const hvc_image *expected = &reference[reduces[i]];
+            hvc_image image;
+            check(hvc_openjpeg_decode_context(decoder, codestream, length, reduces[i], NULL, &image,
+                error, sizeof error) == 0, error);
+            check(image.width == expected->width && image.height == expected->height &&
+                memcmp(image.pixels, expected->pixels, (size_t)image.width * image.height) == 0,
+                "large frame differs between worker counts or with cached blocks");
+        }
+        check(hvc_decoder_codeblock_stat(decoder, 1) > 0, "large frame reused no blocks");
+        hvc_decoder_destroy(decoder);
+    }
+    free(reference[0].pixels);
+    free(reference[1].pixels);
+    free(bytes);
+}
+
 int main(void) {
     verify_codeblock_cache();
     verify(1, 0);
@@ -286,5 +333,6 @@ int main(void) {
     verify(8, 1);
     verify_channels();
     verify_wide_rows();
+    verify_large_frame();
     return 0;
 }

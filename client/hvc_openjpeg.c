@@ -130,7 +130,7 @@ static void *reserve(uint8_t **buffer, size_t *capacity, size_t size, size_t *gr
     return *buffer;
 }
 hvc_decoder *hvc_decoder_create(int threads) {
-    if (threads < 0 || threads > 8 || (threads && !opj_has_thread_support())) return NULL;
+    if (threads < 0 || threads > 16 || (threads && !opj_has_thread_support())) return NULL;
     hvc_decoder *decoder = calloc(1, sizeof *decoder);
     if (!decoder) return NULL;
     decoder->pool = opj_thread_pool_create(threads);

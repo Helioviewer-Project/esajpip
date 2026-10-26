@@ -3,13 +3,16 @@
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
 #include "hvc_t1_cache.h"
-#define SLOTS 256
-#define BUDGET (8u * 1024u * 1024u)
+/* Direct-mapped, so keep the load low: a 4096x4096 frame caches about 190
+ * blocks, those up to its 1024x1024 resolution. */
+#define SLOTS 1024
 typedef struct {
     OPJ_UINT32 hash, key_size, pixels_size;
     size_t capacity;
     unsigned char data[]; /* raw int32 coefficients, then exact serialized key */
 } entry;
+#define KEY_MAX 12288
+#define PIXELS_MAX 16384
 struct hvc_t1_cache {
     opj_mutex_t *mutex;
     entry *slots[SLOTS];
@@ -39,11 +42,11 @@ OPJ_BOOL hvc_t1_cache_transfer(hvc_t1_cache *c, const opj_tcd_cblk_dec_t *b,
     OPJ_UINT32 orient, OPJ_UINT32 roishift, OPJ_UINT32 style, OPJ_INT32 *pixels, OPJ_BOOL store) {
     /* Small low-resolution blocks only. Stack key is bounded independently of
      * untrusted chunk counts/lengths, and never survives this call. */
-    unsigned char key[12288], *p = key;
+    unsigned char key[KEY_MAX], *p = key;
     OPJ_UINT32 header[] = {(OPJ_UINT32)(b->x1-b->x0), (OPJ_UINT32)(b->y1-b->y0),
         orient, roishift, style, b->numbps, b->Mb, b->real_num_segs, b->numchunks};
     size_t size = sizeof(header), pixel_size = (size_t)header[0]*header[1]*sizeof(*pixels);
-    if (!c || b->corrupted || !b->numchunks || header[0]>1024 || header[1]>1024 || !pixel_size || pixel_size>16384 ||
+    if (!c || b->corrupted || !b->numchunks || header[0]>1024 || header[1]>1024 || !pixel_size || pixel_size>PIXELS_MAX ||
         b->real_num_segs > (sizeof(key)-size)/8) return OPJ_FALSE;
     size += (size_t)b->real_num_segs*8;
     if (b->numchunks > (sizeof(key)-size)/4) return OPJ_FALSE;
@@ -59,8 +62,14 @@ OPJ_BOOL hvc_t1_cache_transfer(hvc_t1_cache *c, const opj_tcd_cblk_dec_t *b,
     for (OPJ_UINT32 i=0; i<b->numchunks; ++i) {
         append(&p, &b->chunks[i].len, 4); append(&p, b->chunks[i].data, b->chunks[i].len);
     }
-    OPJ_UINT32 hash=2166136261u;
-    for (size_t i=0; i<size; ++i) hash=(hash^key[i])*16777619u;
+    /* Eight bytes per multiply: hashing all compressed bytes of every cached
+     * block one byte at a time cost 3-4% of a decode without hits. Matches
+     * are compared in full, so only the spread across slots matters. */
+    OPJ_UINT64 h=size, w;
+    size_t i=0;
+    for (; i+8<=size; i+=8) { memcpy(&w,key+i,8); h=(h^w)*0x9e3779b97f4a7c15u; h^=h>>29; }
+    for (; i<size; ++i) h=(h^key[i])*0x100000001b3u;
+    OPJ_UINT32 hash=(OPJ_UINT32)(h^(h>>32));
     const unsigned slot=hash%SLOTS;
     opj_mutex_lock(c->mutex);
     entry *e=c->slots[slot];
@@ -72,8 +81,9 @@ OPJ_BOOL hvc_t1_cache_transfer(hvc_t1_cache *c, const opj_tcd_cblk_dec_t *b,
         opj_mutex_unlock(c->mutex); return hit;
     }
     size_t need=sizeof(*e)+pixel_size+size;
-    if (need>(BUDGET-sizeof(*c))/SLOTS) { opj_mutex_unlock(c->mutex); return OPJ_FALSE; }
     if (!e || e->capacity<need) {
+        /* A full cache keeps its entries rather than replace them. */
+        if (c->bytes-(e ? e->capacity : 0)+need > HVC_T1_CACHE_BUDGET) { opj_mutex_unlock(c->mutex); return OPJ_FALSE; }
         if (e) { c->bytes-=e->capacity; opj_free(e); }
         c->slots[slot]=e=opj_malloc(need);
         if (!e) { opj_mutex_unlock(c->mutex); return OPJ_FALSE; }
