@@ -288,6 +288,11 @@ typedef struct opj_tcd {
     OPJ_BOOL   whole_tile_decoding;
     /* Array of size image->numcomps indicating if a component must be decoded. NULL if all components must be decoded */
     OPJ_BOOL* used_component;
+    /* Not NULL: the DC shift also writes component gray8_compno of a whole
+     * tile here as 8-bit samples (unsigned, most significant bits), each row
+     * while it is still in cache. */
+    OPJ_BYTE *gray8;
+    OPJ_UINT32 gray8_compno;
 } opj_tcd_t;
 
 /**

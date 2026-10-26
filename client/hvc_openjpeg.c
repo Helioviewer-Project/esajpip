@@ -233,6 +233,12 @@ static void pack_job(void *user, opj_tls_t *tls) {
     opj_free(user);
 }
 
+/* The pixels of a decode: the caller's target if they fit, else NULL. */
+static uint8_t *output_pixels(hvc_decoder *context, uint8_t *target, size_t capacity, size_t bytes) {
+    if (target) return bytes <= capacity ? target : NULL;
+    return context ? reserve(&context->output, &context->output_capacity, bytes, &context->growths) : malloc(bytes);
+}
+
 static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, int reduce, const hv_render *render, const uint32_t *region, hvc_image *out,
                         char *error, size_t error_size) {
     memory input = {codestream, size, 0};
@@ -245,7 +251,7 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     opj_image_t *image = NULL;
     opj_j2k_t *j2k = NULL;
     opj_thread_pool_t *original_pool = NULL;
-    size_t count;
+    size_t count, packed = 0;
     int status = -1, c, indexed = render && render->channel[0].palette_column >= 0;
     OPJ_UINT32 components[3] = {0, 1, 2};
 
@@ -334,6 +340,19 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
         if (!opj_set_decode_area(codec, image, image->x0 + region[0], image->y0 + region[1],
                                 image->x0 + region[2], image->y0 + region[3])) goto done;
     }
+    /* One whole gray tile: the DC shift packs each row while it is in cache. */
+    const opj_cp_t *cp = j2k ? &j2k->m_cp : NULL;
+    const opj_image_comp_t *gray = &image->comps[components[0]];
+    if (cp && j2k->m_tcd && !region && out->components == 1 && !indexed && gray->prec <= 16 &&
+        gray->dx == 1 && gray->dy == 1 && cp->tw == 1 && cp->th == 1 && cp->tx0 == 0 && cp->ty0 == 0 &&
+        image->x0 == 0 && image->y0 == 0 && image->x1 == cp->tdx && image->y1 == cp->tdy) {
+        packed = (size_t)opj_uint_ceildivpow2(image->x1, (OPJ_UINT32)reduce) *
+                 opj_uint_ceildivpow2(image->y1, (OPJ_UINT32)reduce);
+        why = target ? "output buffer too small" : "out of memory";
+        if ((out->pixels = output_pixels(context, target, target_capacity, packed)) == NULL) goto done;
+        j2k->m_tcd->gray8 = out->pixels;
+        j2k->m_tcd->gray8_compno = components[0];
+    }
     why = "cannot decode the codestream";
     if (!opj_decode(codec, stream, image) || !opj_end_decompress(codec, stream))
         goto done;
@@ -350,16 +369,18 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
         }
     }
     count = (size_t)out->width * out->height;
+    if (packed) {
+        why = "unsupported components";
+        if (count != packed) goto done;
+        status = 0;
+        goto done;
+    }
     why = "out of memory";
     if (count > SIZE_MAX / 4) goto done;
     size_t stride = target && rgba && out->components == 3 ? 4 : (size_t)out->components;
     size_t bytes = count * stride;
-    if (target) {
-        why = "output buffer too small";
-        out->pixels = bytes <= target_capacity ? target : NULL;
-    } else {
-        out->pixels = context ? reserve(&context->output, &context->output_capacity, bytes, &context->growths) : malloc(bytes);
-    }
+    why = target ? "output buffer too small" : "out of memory";
+    out->pixels = output_pixels(context, target, target_capacity, bytes);
     if (!out->pixels) goto done;
     pack_band whole = {{NULL, NULL, NULL}, out->components, indexed, 0, count, out->pixels, stride};
     for (c = 0; c < out->components; c++)

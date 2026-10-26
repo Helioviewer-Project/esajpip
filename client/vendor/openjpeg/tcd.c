@@ -2264,7 +2264,25 @@ typedef struct {
     OPJ_UINT32 width, height, stride; /* stride: samples skipped after each row */
     OPJ_INT32 min, max, shift;
     OPJ_BOOL reversible, vector;      /* vector: <=16-bit with an exact float shift */
+    OPJ_BYTE *gray8;                  /* opj_tcd_t.gray8 at the first row, or NULL */
+    OPJ_UINT32 prec;
 } opj_dc_shift_band_t;
+
+/* A shifted row as 8-bit samples, like hvc_openjpeg's pack. */
+static void opj_dc_shift_pack_row(const OPJ_INT32 *row, OPJ_UINT32 width,
+                                  OPJ_INT32 min, OPJ_UINT32 prec, OPJ_BYTE *out)
+{
+    OPJ_UINT32 i;
+    if (prec > 8) {
+        for (i = 0; i < width; ++i) {
+            out[i] = (OPJ_BYTE)((OPJ_UINT32)(row[i] - min) >> (prec - 8));
+        }
+    } else {
+        for (i = 0; i < width; ++i) {
+            out[i] = (OPJ_BYTE)((OPJ_UINT32)(row[i] - min) << (8 - prec));
+        }
+    }
+}
 
 static void opj_dc_shift_band(const opj_dc_shift_band_t *b)
 {
@@ -2276,6 +2294,10 @@ static void opj_dc_shift_band(const opj_dc_shift_band_t *b)
                 /* TODO: do addition on int64 ? */
                 *l_current_ptr = opj_int_clamp(*l_current_ptr + b->shift, b->min, b->max);
                 ++l_current_ptr;
+            }
+            if (b->gray8) {
+                opj_dc_shift_pack_row(l_current_ptr - b->width, b->width, b->min, b->prec,
+                                      b->gray8 + (OPJ_SIZE_T)j * b->width);
             }
             l_current_ptr += b->stride;
         }
@@ -2329,6 +2351,10 @@ static void opj_dc_shift_band(const opj_dc_shift_band_t *b)
                 *l_current_ptr = (OPJ_INT32)opj_int64_clamp(l_value_int + b->shift, b->min, b->max);
             }
             ++l_current_ptr;
+        }
+        if (b->gray8) {
+            opj_dc_shift_pack_row(l_current_ptr - b->width, b->width, b->min, b->prec,
+                                  b->gray8 + (OPJ_SIZE_T)j * b->width);
         }
         l_current_ptr += b->stride;
     }
@@ -2395,6 +2421,9 @@ static OPJ_BOOL opj_tcd_dc_level_shift_decode(opj_tcd_t *p_tcd)
         b.shift = l_tccp->m_dc_level_shift;
         b.reversible = l_tccp->qmfbid == 1;
         b.vector = l_img_comp->prec <= 16 && b.shift >= 0 && b.shift <= 65536;
+        b.gray8 = p_tcd->whole_tile_decoding && compno == p_tcd->gray8_compno ?
+                  p_tcd->gray8 : NULL;
+        b.prec = l_img_comp->prec;
 
         if (b.width == 0 || b.height == 0) {
             continue;
@@ -2418,6 +2447,9 @@ static OPJ_BOOL opj_tcd_dc_level_shift_decode(opj_tcd_t *p_tcd)
             opj_dc_shift_band_t band = b, *job;
             band.data = b.data + (OPJ_SIZE_T)j * (b.width + b.stride);
             band.height = opj_uint_min(l_rows, b.height - j);
+            if (band.gray8) {
+                band.gray8 += (OPJ_SIZE_T)j * b.width;
+            }
             job = l_bands > 1 ? (opj_dc_shift_band_t *)opj_malloc(sizeof(band)) : NULL;
             if (job) {
                 *job = band;

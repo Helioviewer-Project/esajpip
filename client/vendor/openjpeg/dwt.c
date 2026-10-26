@@ -3436,38 +3436,48 @@ static void opj_v8dwt_decode_step2(opj_v8_t* l, opj_v8_t* w,
 
 #endif
 
+/* BUG_WEIRD_TWO_INVK (look for this identifier in tcd.c) */
+/* Historic value for 2 / opj_invK */
+/* Normally, we should use invK, but if we do so, we have failures in the */
+/* conformance test, due to MSE and peak errors significantly higher than */
+/* accepted value */
+/* Due to using two_invK instead of invK, we have to compensate in tcd.c */
+/* the computation of the stepsize for the non LL subbands */
+static const OPJ_FLOAT32 opj_two_invK = 1.625732422f;
+
+/* Whether the 1-D transform changes any sample. */
+static OPJ_BOOL opj_v8dwt_has_lifting(const opj_v8dwt_t* dwt)
+{
+    return dwt->cas == 0 ? (dwt->dn > 0 || dwt->sn > 1) :
+           (dwt->sn > 0 || dwt->dn > 1);
+}
+
 /* <summary>                             */
 /* Inverse 9-7 wavelet transform in 1-D. */
 /* </summary>                            */
-static void opj_v8dwt_decode(opj_v8dwt_t* OPJ_RESTRICT dwt)
+/* With scaled set, the caller has already multiplied the low band by opj_K
+ * and the high band by opj_two_invK. */
+static void opj_v8dwt_decode_scaled(opj_v8dwt_t* OPJ_RESTRICT dwt,
+                                    OPJ_BOOL scaled)
 {
     OPJ_INT32 a, b;
-    /* BUG_WEIRD_TWO_INVK (look for this identifier in tcd.c) */
-    /* Historic value for 2 / opj_invK */
-    /* Normally, we should use invK, but if we do so, we have failures in the */
-    /* conformance test, due to MSE and peak errors significantly higher than */
-    /* accepted value */
-    /* Due to using two_invK instead of invK, we have to compensate in tcd.c */
-    /* the computation of the stepsize for the non LL subbands */
-    const float two_invK = 1.625732422f;
+    if (!opj_v8dwt_has_lifting(dwt)) {
+        return;
+    }
     if (dwt->cas == 0) {
-        if (!((dwt->dn > 0) || (dwt->sn > 1))) {
-            return;
-        }
         a = 0;
         b = 1;
     } else {
-        if (!((dwt->sn > 0) || (dwt->dn > 1))) {
-            return;
-        }
         a = 1;
         b = 0;
     }
 #ifdef OPJ_DWT_SIMD_F32
-    opj_v8dwt_decode_step1_sse(dwt->wavelet + a, dwt->win_l_x0, dwt->win_l_x1,
-                               _mm_set1_ps(opj_K));
-    opj_v8dwt_decode_step1_sse(dwt->wavelet + b, dwt->win_h_x0, dwt->win_h_x1,
-                               _mm_set1_ps(two_invK));
+    if (!scaled) {
+        opj_v8dwt_decode_step1_sse(dwt->wavelet + a, dwt->win_l_x0, dwt->win_l_x1,
+                                   _mm_set1_ps(opj_K));
+        opj_v8dwt_decode_step1_sse(dwt->wavelet + b, dwt->win_h_x0, dwt->win_h_x1,
+                                   _mm_set1_ps(opj_two_invK));
+    }
     opj_v8dwt_decode_step2_sse(dwt->wavelet + b, dwt->wavelet + a + 1,
                                dwt->win_l_x0, dwt->win_l_x1,
                                (OPJ_UINT32)opj_int_min(dwt->sn, dwt->dn - a),
@@ -3485,10 +3495,12 @@ static void opj_v8dwt_decode(opj_v8dwt_t* OPJ_RESTRICT dwt)
                                (OPJ_UINT32)opj_int_min(dwt->dn, dwt->sn - b),
                                _mm_set1_ps(-opj_dwt_alpha));
 #else
-    opj_v8dwt_decode_step1(dwt->wavelet + a, dwt->win_l_x0, dwt->win_l_x1,
-                           opj_K);
-    opj_v8dwt_decode_step1(dwt->wavelet + b, dwt->win_h_x0, dwt->win_h_x1,
-                           two_invK);
+    if (!scaled) {
+        opj_v8dwt_decode_step1(dwt->wavelet + a, dwt->win_l_x0, dwt->win_l_x1,
+                               opj_K);
+        opj_v8dwt_decode_step1(dwt->wavelet + b, dwt->win_h_x0, dwt->win_h_x1,
+                               opj_two_invK);
+    }
     opj_v8dwt_decode_step2(dwt->wavelet + b, dwt->wavelet + a + 1,
                            dwt->win_l_x0, dwt->win_l_x1,
                            (OPJ_UINT32)opj_int_min(dwt->sn, dwt->dn - a),
@@ -3508,6 +3520,11 @@ static void opj_v8dwt_decode(opj_v8dwt_t* OPJ_RESTRICT dwt)
 #endif
 }
 
+static void opj_v8dwt_decode(opj_v8dwt_t* OPJ_RESTRICT dwt)
+{
+    opj_v8dwt_decode_scaled(dwt, OPJ_FALSE);
+}
+
 /* Full-resolution rows are often a power-of-two stride apart, which maps a
  * column strip onto few cache sets. The vertical pass therefore loads and
  * stores HVC_V8_STRIPS adjacent strips row by row, so that each fetched line
@@ -3523,7 +3540,12 @@ static void opj_v8dwt_decode_v_strips(const opj_v8dwt_t* v,
                                       OPJ_UINT32 nb_columns)
 {
     opj_v8dwt_t dwt[HVC_V8_STRIPS];
-    OPJ_UINT32 i, j, s, count;
+    OPJ_UINT32 i, j, k, s, count;
+    /* Scale while copying in, saving a pass over the buffer. Each sample gets
+     * the same single multiply as in step1. */
+    const OPJ_BOOL scaled = opj_v8dwt_has_lifting(v);
+    const OPJ_FLOAT32 kl = scaled ? opj_K : 1.0f;
+    const OPJ_FLOAT32 kh = scaled ? opj_two_invK : 1.0f;
 
     for (s = 0; s < HVC_V8_STRIPS; ++s) {
         dwt[s] = *v;
@@ -3536,20 +3558,24 @@ static void opj_v8dwt_decode_v_strips(const opj_v8dwt_t* v,
         count = opj_uint_min(HVC_V8_STRIPS, (nb_columns - j) / NB_ELTS_V8);
         for (i = v->win_l_x0; i < v->win_l_x1; ++i) {
             for (s = 0; s < count; ++s) {
-                memcpy(&dwt[s].wavelet[v->cas + i * 2],
-                       &l[i * (OPJ_SIZE_T)width + s * NB_ELTS_V8],
-                       NB_ELTS_V8 * sizeof(OPJ_FLOAT32));
+                OPJ_FLOAT32* OPJ_RESTRICT dst = dwt[s].wavelet[v->cas + i * 2].f;
+                const OPJ_FLOAT32* src = &l[i * (OPJ_SIZE_T)width + s * NB_ELTS_V8];
+                for (k = 0; k < NB_ELTS_V8; ++k) {
+                    dst[k] = src[k] * kl;
+                }
             }
         }
         for (i = v->win_h_x0; i < v->win_h_x1; ++i) {
             for (s = 0; s < count; ++s) {
-                memcpy(&dwt[s].wavelet[1 - v->cas + i * 2],
-                       &h[i * (OPJ_SIZE_T)width + s * NB_ELTS_V8],
-                       NB_ELTS_V8 * sizeof(OPJ_FLOAT32));
+                OPJ_FLOAT32* OPJ_RESTRICT dst = dwt[s].wavelet[1 - v->cas + i * 2].f;
+                const OPJ_FLOAT32* src = &h[i * (OPJ_SIZE_T)width + s * NB_ELTS_V8];
+                for (k = 0; k < NB_ELTS_V8; ++k) {
+                    dst[k] = src[k] * kh;
+                }
             }
         }
         for (s = 0; s < count; ++s) {
-            opj_v8dwt_decode(&dwt[s]);
+            opj_v8dwt_decode_scaled(&dwt[s], scaled);
         }
         for (i = 0; i < rh; ++i) {
             for (s = 0; s < count; ++s) {
@@ -3645,7 +3671,10 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
                                 tilec->resolutions[tilec->minimum_num_resolutions - 1].x0);
 
     OPJ_SIZE_T l_data_size;
-    const int num_threads = opj_thread_pool_get_thread_count(tp);
+    const int num_workers = opj_thread_pool_get_thread_count(tp);
+    /* The waiting caller runs a job too when a core is free for it. */
+    const int num_threads = num_workers > 1 && opj_get_num_cpus() > num_workers ?
+                            num_workers + 1 : num_workers;
     /* Each job works in its own slice of one scratch buffer, allocated once
      * for all levels. */
     const OPJ_SIZE_T num_slices = num_threads > 1 ? (OPJ_SIZE_T)num_threads : 1;
