@@ -12,6 +12,9 @@ OpenJPEG version a system packages.
   changes `openjpeg.c`; decoder performance changes are listed below.
 - `opj_config.h` and `opj_config_private.h` are not upstream files: upstream
   generates them with CMake. They are written by hand here.
+  The private configuration selects the Windows CRT aligned allocator on
+  Windows and `posix_memalign` elsewhere. `opj_malloc.c` includes `<malloc.h>`
+  for the Windows allocator declarations.
 - `LICENSE` is from the upstream root. OpenJPEG is distributed under the
   2-clause BSD license.
 
@@ -23,11 +26,31 @@ build for WebAssembly.
 ## Decoder optimizations
 
 Local changes touch `dwt.c`, `t1.c`, `tcd.c` and `openjpeg.c` and add
-`wasm-dwt-simd.h`. `client/hvc_t1_cache.c` owns the bounded Tier-1 cache.
+`wasm-dwt-simd.h` and `neon-dwt-simd.h`. `t1_cache.c` owns the bounded Tier-1 cache.
+`decoder_workspace.c` owns its lifetime, the persistent thread pool, and up to
+64 MiB of reusable aligned coefficient buffers. Its opaque local interface in
+`decoder_workspace.h` keeps private codec and tile access inside OpenJPEG.
+`tcd.c` splits the DC shift, rounding and clamping of decoded samples into row
+bands on the decoder's thread pool and rounds irreversible samples with
+WebAssembly SIMD, SSE2 or NEON, with the same results as `lrintf`.
+`neon-dwt-simd.h` maps the DWT's SSE kernels to AArch64 NEON, as
+`wasm-dwt-simd.h` does for WebAssembly, and `dwt.c` transposes four rows at a
+time with SSE or NEON as it does with WebAssembly SIMD.
+The irreversible vertical pass loads and stores four 8-column strips row by
+row, so that rows a power-of-two stride apart do not refetch each cache line.
+For rows at least 16,384 samples wide, the horizontal 9/7 pass runs lifting
+steps in chunks while loading the row buffer.
 They preserve scalar tails and floating-point operation order;
 compile without fast-math or fused multiply-add (`-ffp-contract=off`).
-The workspace borrows the pinned private J2K thread-pool field and restores it
-before codec destruction. Review that boundary when upgrading OpenJPEG.
+`tgt.c` allocates each tag tree and its initial nodes together. Larger replacement
+node arrays use separate allocations, with ordinary resize and destruction.
+The decoder creates absent trees only when a packet header is nonempty. Existing
+trees are still reset and resized for each tile; the encoder creates them eagerly.
+The workspace binds its pool to a raw J2K decoder and drains and restores the
+original pool before codec destruction. It stays active on the coordinator
+through image and codec destruction so cached coefficient buffers are returned
+to the workspace. Calls on one workspace must be serialized. Without an active
+workspace, image allocation uses the ordinary aligned allocator.
 
 ## Updating
 
@@ -49,7 +72,7 @@ a copy against an upstream checkout:
 
 ```sh
 for f in client/vendor/openjpeg/*.[ch]; do
-    case $f in */opj_config*.h|*/wasm-dwt-simd.h) continue;; esac
+    case $f in */opj_config*.h|*/wasm-dwt-simd.h|*/neon-dwt-simd.h|*/decoder_workspace.[ch]|*/t1_cache.[ch]) continue;; esac
     cmp $f /path/to/openjpeg/src/lib/openjp2/$(basename $f)
 done
 ```

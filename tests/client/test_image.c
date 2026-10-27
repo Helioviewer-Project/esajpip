@@ -2,20 +2,21 @@
 #include "hvc_openjpeg.h"
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
-#include "hvc_t1_cache.h"
+#include "t1_cache.h"
+#include "decoder_header.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 typedef struct {
-    uint8_t data[8192];
-    size_t at, size;
+    uint8_t *data;
+    size_t at, size, capacity;
 } output;
 
 static OPJ_SIZE_T write_bytes(void *bytes, OPJ_SIZE_T size, void *user) {
     output *out = user;
-    if (size > sizeof out->data - out->at) return (OPJ_SIZE_T)-1;
+    if (size > out->capacity - out->at) return (OPJ_SIZE_T)-1;
     memcpy(out->data + out->at, bytes, size);
     out->at += size;
     if (out->at > out->size) out->size = out->at;
@@ -24,14 +25,14 @@ static OPJ_SIZE_T write_bytes(void *bytes, OPJ_SIZE_T size, void *user) {
 
 static OPJ_BOOL seek_bytes(OPJ_OFF_T at, void *user) {
     output *out = user;
-    if (at < 0 || (uint64_t)at > sizeof out->data) return OPJ_FALSE;
+    if (at < 0 || (uint64_t)at > out->capacity) return OPJ_FALSE;
     out->at = (size_t)at;
     return OPJ_TRUE;
 }
 
 static OPJ_OFF_T skip_bytes(OPJ_OFF_T count, void *user) {
     output *out = user;
-    if (count < 0 || (uint64_t)count > sizeof out->data - out->at) return -1;
+    if (count < 0 || (uint64_t)count > out->capacity - out->at) return -1;
     out->at += (size_t)count;
     return count;
 }
@@ -87,7 +88,45 @@ static void verify_reuse(const output *encoded, const uint8_t *full, const hv_re
     }
 }
 
-static void encode(opj_image_t *input, output *out) {
+static OPJ_SIZE_T read_bytes(void *bytes, OPJ_SIZE_T size, void *user) {
+    output *in = user;
+    if (in->at == in->size) return (OPJ_SIZE_T)-1;
+    if (size > in->size - in->at) size = in->size - in->at;
+    memcpy(bytes, in->data + in->at, size);
+    in->at += size;
+    return size;
+}
+
+static void verify_header(const output *encoded, OPJ_UINT32 components, const OPJ_UINT32 *expected_resolutions) {
+    output in = *encoded;
+    in.at = 0;
+    opj_codec_t *codec = opj_create_decompress(OPJ_CODEC_J2K);
+    opj_stream_t *stream = opj_stream_create(8192, OPJ_TRUE);
+    opj_image_t *image = NULL;
+    opj_dparameters_t parameters;
+    check(codec != NULL && stream != NULL, "header decoder allocation");
+    opj_set_default_decoder_parameters(&parameters);
+    opj_stream_set_user_data(stream, &in, NULL);
+    opj_stream_set_user_data_length(stream, in.size);
+    opj_stream_set_read_function(stream, read_bytes);
+    opj_stream_set_seek_function(stream, seek_bytes);
+    opj_stream_set_skip_function(stream, skip_bytes);
+    check(opj_setup_decoder(codec, &parameters) && opj_read_header(stream, codec, &image), "read encoded header");
+    for (OPJ_UINT32 c = 0; c < components; c++) {
+        OPJ_UINT32 resolutions = 0, layers = 0;
+        check(opj_decoder_get_coding_parameters(codec, c, &resolutions, &layers) &&
+              resolutions == (expected_resolutions ? expected_resolutions[c] : 3) && layers == 1,
+              "main-header coding parameters differ from COD/COC settings");
+    }
+    OPJ_UINT32 resolutions = 123, layers = 456;
+    check(!opj_decoder_get_coding_parameters(codec, components, &resolutions, &layers) &&
+          resolutions == 123 && layers == 456, "missing header component changed outputs");
+    opj_image_destroy(image);
+    opj_stream_destroy(stream);
+    opj_destroy_codec(codec);
+}
+
+static void encode(opj_image_t *input, output *out, int irreversible) {
     opj_codec_t *codec = opj_create_compress(OPJ_CODEC_J2K);
     opj_stream_t *stream = opj_stream_create(8192, OPJ_FALSE);
     check(codec != NULL && stream != NULL, "encoder allocation");
@@ -96,18 +135,90 @@ static void encode(opj_image_t *input, output *out) {
     parameters.numresolution = 3;
     parameters.tcp_numlayers = 1;
     parameters.cp_disto_alloc = 1;
+    parameters.irreversible = irreversible;
     opj_stream_set_user_data(stream, out, NULL);
     opj_stream_set_write_function(stream, write_bytes);
     opj_stream_set_seek_function(stream, seek_bytes);
     opj_stream_set_skip_function(stream, skip_bytes);
-    check(opj_setup_encoder(codec, &parameters, input) && opj_start_compress(codec, input, stream) &&
+    const char *options[] = {"PLT=YES", NULL};
+    check(opj_setup_encoder(codec, &parameters, input) &&
+          opj_encoder_set_extra_options(codec, options) && opj_start_compress(codec, input, stream) &&
           opj_encode(codec, stream) && opj_end_compress(codec, stream), "encode known samples");
     opj_stream_destroy(stream);
     opj_destroy_codec(codec);
+    verify_header(out, input->numcomps, NULL);
+}
+
+static void verify_empty_prefix_layers(const output *encoded) {
+    uint8_t bytes[8192];
+    memcpy(bytes, encoded->data, encoded->size);
+    size_t sot = 2;
+    while (sot + 4 <= encoded->size && !(bytes[sot] == 0xff && bytes[sot + 1] == 0x90)) {
+        size_t length = (size_t)bytes[sot + 2] * 256 + bytes[sot + 3];
+        check(length >= 2 && length <= encoded->size - sot - 2, "prefix-layer marker length");
+        if (bytes[sot + 1] == 0x52) {
+            bytes[sot + 5] = OPJ_RPCL;
+            bytes[sot + 6] = 0;
+            bytes[sot + 7] = 4;
+        }
+        sot += length + 2;
+    }
+    check(sot + 14 <= encoded->size, "prefix-layer tile header");
+    size_t at = sot + 12, lengths[3] = {0}, packets = 0;
+    while (at + 4 <= encoded->size && !(bytes[at] == 0xff && bytes[at + 1] == 0x93)) {
+        size_t length = (size_t)bytes[at + 2] * 256 + bytes[at + 3];
+        check(bytes[at + 1] == 0x58 && length >= 3 && length <= encoded->size - at - 2,
+              "prefix-layer packet lengths");
+        size_t value = 0;
+        for (size_t i = at + 5; i < at + 2 + length; ++i) {
+            value = value * 128 + (bytes[i] & 127);
+            if (!(bytes[i] & 128)) {
+                check(packets < 3, "prefix-layer packet count");
+                lengths[packets++] = value;
+                value = 0;
+            }
+        }
+        at += length + 2;
+    }
+    check(packets == 3 && at + 2 <= encoded->size, "prefix-layer resolution packets");
+    at += 2;
+    size_t size = sot + 12;
+    bytes[size++] = 0xff;
+    bytes[size++] = 0x93;
+    for (unsigned packet = 0; packet < 3; ++packet) {
+        check(lengths[packet] <= encoded->size - at && size + 3 + lengths[packet] + 2 <= sizeof bytes,
+              "prefix-layer packet size");
+        memset(bytes + size, 0, 3);
+        size += 3;
+        memcpy(bytes + size, encoded->data + at, lengths[packet]);
+        size += lengths[packet];
+        at += lengths[packet];
+    }
+    check(at + 2 == encoded->size, "prefix-layer packet coverage");
+    size_t tile_length = size - sot;
+    for (unsigned i = 0; i < 4; ++i) bytes[sot + 6 + i] = (uint8_t)(tile_length >> (24 - 8 * i));
+    bytes[size++] = 0xff;
+    bytes[size++] = 0xd9;
+    hvc_decoder *decoder = hvc_decoder_create(0);
+    check(decoder != NULL, "prefix-layer decoder allocation");
+    for (int reduce = 2; reduce >= 0; --reduce) {
+        hvc_image reference, image;
+        char error[256] = {0};
+        check(hvc_openjpeg_decode(encoded->data, encoded->size, reduce, NULL, &reference,
+                                 error, sizeof error) == 0, error);
+        check(hvc_openjpeg_decode_context(decoder, bytes, size, reduce, NULL, &image,
+                                         error, sizeof error) == 0, error);
+        check(image.width == reference.width && image.height == reference.height &&
+              memcmp(image.pixels, reference.pixels, (size_t)image.width * image.height) == 0,
+              "empty initial layers changed resolution pixels");
+        free(reference.pixels);
+    }
+    hvc_decoder_destroy(decoder);
 }
 
 static void verify(unsigned bits, int signed_samples) {
-    output out = {{0}, 0, 0};
+    uint8_t bytes[8192];
+    output out = {bytes, 0, 0, sizeof bytes};
     opj_image_cmptparm_t component = {0};
     component.dx = component.dy = 1;
     component.w = component.h = 16;
@@ -120,8 +231,9 @@ static void verify(unsigned bits, int signed_samples) {
     for (unsigned i = 0; i < 256; i++)
         input->comps[0].data[i] = (int)(i * max / 255) - (signed_samples ? (1 << (bits - 1)) : 0);
 
-    encode(input, &out);
+    encode(input, &out, 0);
     opj_image_destroy(input);
+    if (bits == 8 && !signed_samples) verify_empty_prefix_layers(&out);
 
     hvc_image image;
     char error[256];
@@ -151,7 +263,8 @@ static void verify(unsigned bits, int signed_samples) {
 }
 
 static void verify_channels(void) {
-    output out = {{0}, 0, 0};
+    uint8_t bytes[8192];
+    output out = {bytes, 0, 0, sizeof bytes};
     opj_image_cmptparm_t components[3] = {{0}};
     for (int c = 0; c < 3; c++) {
         components[c].dx = components[c].dy = 1;
@@ -164,8 +277,22 @@ static void verify_channels(void) {
     for (int c = 0; c < 3; c++)
         for (unsigned i = 0; i < 256; i++)
             input->comps[c].data[i] = (i + 37 * c) % 256;
-    encode(input, &out);
+    encode(input, &out, 0);
     opj_image_destroy(input);
+
+    /* A main-header COC overrides COD for component 1 only. No pixel decode
+     * of this header-only variant: its original packets still encode 3 levels. */
+    uint8_t coc_bytes[sizeof bytes + 11];
+    const uint8_t coc[] = {0xff, 0x53, 0, 9, 1, 0, 1, 4, 4, 0, 1};
+    size_t sot = 0;
+    while (sot + 1 < out.size && !(bytes[sot] == 0xff && bytes[sot + 1] == 0x90)) sot++;
+    check(sot + 1 < out.size, "encoded SOT marker");
+    memcpy(coc_bytes, bytes, sot);
+    memcpy(coc_bytes + sot, coc, sizeof coc);
+    memcpy(coc_bytes + sot + sizeof coc, bytes + sot, out.size - sot);
+    output with_coc = {coc_bytes, 0, out.size + sizeof coc, sizeof coc_bytes};
+    const OPJ_UINT32 resolutions[] = {3, 2, 3};
+    verify_header(&with_coc, 3, resolutions);
 
     hvc_image image;
     char error[256];
@@ -195,7 +322,7 @@ static void verify_channels(void) {
 }
 
 static void verify_codeblock_cache(void) {
-    hvc_t1_cache *cache = hvc_t1_cache_create();
+    opj_t1_cache *cache = opj_t1_cache_create();
     check(cache != NULL, "codeblock cache allocation");
     OPJ_BYTE bytes[] = {0x55, 0x66};
     opj_tcd_seg_data_chunk_t chunk = {bytes, sizeof bytes};
@@ -206,18 +333,154 @@ static void verify_codeblock_cache(void) {
     block.numchunks = 1;
     block.chunks = &chunk;
     OPJ_INT32 pixels[] = {11, 22, 33, 44};
-    check(hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_TRUE), "cache insert");
+    check(opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_TRUE), "cache insert");
     block.Mb = 31;
     memset(pixels, 0, sizeof pixels);
-    check(!hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) && pixels[0] == 0,
+    check(!opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) && pixels[0] == 0,
           "cache hit bypassed HT bit-plane validation");
     block.Mb = 1;
-    check(hvc_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) &&
+    check(opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) &&
           pixels[0] == 11 && pixels[3] == 44, "unchanged codeblock was not reused");
-    hvc_t1_cache_destroy(cache);
+    opj_t1_cache_destroy(cache);
+}
+
+/* Wide images and odd origins must have the same geometry and pixels in
+ * whole-frame and region decodes, across reductions and worker counts. */
+static void verify_wide_rows(void) {
+    enum { width = 33000, height = 20 };
+    output out = {malloc(1 << 20), 0, 0, 1 << 20};
+    check(out.data != NULL, "wide output allocation");
+    for (unsigned x0 = 0; x0 <= 2; x0++) {
+        opj_image_cmptparm_t component = {0};
+        component.dx = component.dy = 1;
+        component.x0 = x0;
+        component.w = width + x0;
+        component.h = height;
+        component.prec = 8;
+        opj_image_t *input = opj_image_create(1, &component, OPJ_CLRSPC_GRAY);
+        check(input != NULL, "wide image allocation");
+        input->x0 = x0;
+        input->x1 = x0 + component.w;
+        input->y1 = height;
+        uint32_t seed = 1;
+        for (unsigned i = 0; i < component.w * height; i++) {
+            seed = seed * 1103515245u + 12345u;
+            input->comps[0].data[i] = (int)((i % component.w) / 64 + (seed >> 26)) & 255;
+        }
+        out.at = out.size = 0;
+        encode(input, &out, 1);
+        opj_image_destroy(input);
+
+        /* Whole rows, so that both row ends are compared. */
+        const uint32_t region[4] = {0, 4, component.w, height - 4};
+        for (int threads = 0; threads <= 4; threads += 4) {
+            if (threads && !opj_has_thread_support()) continue;
+            /* Context outputs are borrowed, so each decode gets its own. */
+            hvc_decoder *whole = hvc_decoder_create(threads), *decoder = hvc_decoder_create(threads);
+            check(whole != NULL && decoder != NULL, "wide decoder allocation");
+            char error[256] = {0};
+            for (int reduce = 0; reduce <= 2; reduce++) {
+                hvc_image full, part;
+                check(hvc_openjpeg_decode_context(whole, out.data, out.size, reduce, NULL, &full,
+                    error, sizeof error) == 0, error);
+                check(hvc_openjpeg_decode_region(decoder, out.data, out.size, reduce, NULL,
+                    region, &part, error, sizeof error) == 0, error);
+                check(part.x + part.width <= full.width && part.y + part.height <= full.height,
+                    "wide region geometry");
+                for (unsigned y = 0; y < part.height; y++)
+                    check(memcmp(part.pixels + y * part.width,
+                        full.pixels + (part.y + y) * full.width + part.x, part.width) == 0,
+                        "wide rows differ from the region decode");
+            }
+            hvc_decoder_destroy(whole);
+            hvc_decoder_destroy(decoder);
+        }
+    }
+    free(out.data);
+}
+
+/* A real 4096x4096 9/7 frame, where the Tier-1 cache budget, the strip count
+ * of the vertical pass and the worker count matter: every worker count and
+ * every repeat, with cache hits, must give the pixels of a fresh decode. */
+static void verify_large_frame(void) {
+    FILE *file = fopen(AIA, "rb");
+    check(file != NULL, "open " AIA);
+    fseek(file, 0, SEEK_END);
+    long size = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    uint8_t *bytes = malloc((size_t)size);
+    check(bytes != NULL && fread(bytes, 1, (size_t)size, file) == (size_t)size, "read " AIA);
+    fclose(file);
+    /* The codestream box of the JP2 file. */
+    long at = 0;
+    while (at + 8 <= size && memcmp(bytes + at + 4, "jp2c", 4) != 0)
+        at += (long)((uint32_t)bytes[at] << 24 | bytes[at + 1] << 16 | bytes[at + 2] << 8 | bytes[at + 3]);
+    check(at + 8 <= size, "codestream box");
+    const uint8_t *codestream = bytes + at + 8;
+    size_t length = (size_t)(size - at - 8);
+
+    char error[256] = {0};
+    hvc_image reference[2];
+    for (int reduce = 0; reduce <= 1; reduce++)
+        check(hvc_openjpeg_decode(codestream, length, reduce, NULL, &reference[reduce],
+            error, sizeof error) == 0, error);
+    for (int threads = 0; threads <= 8; threads += 4) {
+        if (threads && !opj_has_thread_support()) continue;
+        hvc_decoder *decoder = hvc_decoder_create(threads);
+        check(decoder != NULL, "large decoder allocation");
+        static const int reduces[] = {1, 0, 0, 1};
+        for (int i = 0; i < 4; i++) {
+            const hvc_image *expected = &reference[reduces[i]];
+            hvc_image image;
+            check(hvc_openjpeg_decode_context(decoder, codestream, length, reduces[i], NULL, &image,
+                error, sizeof error) == 0, error);
+            check(image.width == expected->width && image.height == expected->height &&
+                memcmp(image.pixels, expected->pixels, (size_t)image.width * image.height) == 0,
+                "large frame differs between worker counts or with cached blocks");
+        }
+        check(hvc_decoder_codeblock_stat(decoder, 1) > 0, "large frame reused no blocks");
+        hvc_decoder_destroy(decoder);
+    }
+    free(reference[0].pixels);
+    free(reference[1].pixels);
+    free(bytes);
+}
+
+static void verify_tag_tree_growth(void) {
+    opj_event_mgr_t manager = {0};
+    opj_tgt_tree_t *encoder = opj_tgt_create(1, 1, &manager);
+    opj_tgt_tree_t *decoder = opj_tgt_create(1, 1, &manager);
+    static const unsigned shapes[][2] = {{1, 1}, {17, 19}, {2, 2}, {33, 35}, {3, 1}, {33, 35}};
+    check(encoder && decoder, "tag-tree allocation");
+    for (size_t shape = 0; shape < sizeof shapes / sizeof shapes[0]; ++shape) {
+        unsigned count = shapes[shape][0] * shapes[shape][1];
+        encoder = opj_tgt_init(encoder, shapes[shape][0], shapes[shape][1], &manager);
+        decoder = opj_tgt_init(decoder, shapes[shape][0], shapes[shape][1], &manager);
+        check(encoder && decoder, "tag-tree resize");
+        unsigned char buffer[65536];
+        opj_bio_t *writer = opj_bio_create(), *reader = opj_bio_create();
+        check(writer && reader, "tag-tree bitstream allocation");
+        for (unsigned leaf = 0; leaf < count; ++leaf)
+            opj_tgt_setvalue(encoder, leaf, (OPJ_INT32)(leaf % 7));
+        opj_bio_init_enc(writer, buffer, sizeof buffer);
+        for (int threshold = 1; threshold <= 8; ++threshold)
+            for (unsigned leaf = 0; leaf < count; ++leaf)
+                opj_tgt_encode(writer, encoder, leaf, threshold);
+        check(opj_bio_flush(writer), "tag-tree bitstream flush");
+        opj_bio_init_dec(reader, buffer, opj_bio_numbytes(writer));
+        for (int threshold = 1; threshold <= 8; ++threshold)
+            for (unsigned leaf = 0; leaf < count; ++leaf)
+                check(opj_tgt_decode(reader, decoder, leaf, threshold) == (leaf % 7 < (unsigned)threshold),
+                      "tag-tree values changed after growth or shrink");
+        opj_bio_destroy(reader);
+        opj_bio_destroy(writer);
+    }
+    opj_tgt_destroy(encoder);
+    opj_tgt_destroy(decoder);
 }
 
 int main(void) {
+    verify_tag_tree_growth();
     verify_codeblock_cache();
     verify(1, 0);
     verify(4, 0);
@@ -225,5 +488,7 @@ int main(void) {
     verify(10, 0);
     verify(8, 1);
     verify_channels();
+    verify_wide_rows();
+    verify_large_frame();
     return 0;
 }

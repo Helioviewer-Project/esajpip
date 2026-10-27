@@ -22,7 +22,8 @@ typedef struct {
     int resolutions;                    /* in the codestream */
     int components;                     /* 1 (gray) or 3 (RGB) */
     uint8_t *pixels;                    /* width * height * components, rows
-                                         * from the top, components interleaved */
+                                         * from the top, components interleaved;
+                                         * see hvc_decoder_output for RGBA */
 } hvc_image;
 
 /* Decodes the codestream without its `reduce` highest resolutions (0 for
@@ -37,7 +38,7 @@ typedef struct {
 int hvc_openjpeg_decode(const uint8_t *codestream, size_t size, int reduce, const hv_render *render, hvc_image *image,
                         char *error, size_t error_size);
 
-/* Reusable workspace with 0–4 workers. All calls on a context, including
+/* Reusable workspace with 0–8 workers. All calls on a context, including
  * statistics, must be serialized by one coordinator; none may overlap a decode.
  * Context/region pixels are borrowed until the next decode or destroy. */
 typedef struct hvc_decoder hvc_decoder;
@@ -47,6 +48,10 @@ void *hvc_decoder_input(hvc_decoder *decoder, size_t size);
 size_t hvc_decoder_retained(const hvc_decoder *decoder);
 size_t hvc_decoder_coefficient_allocations(const hvc_decoder *decoder);
 size_t hvc_decoder_coefficient_hits(const hvc_decoder *decoder);
+/* Makes the next decode on this context write its pixels to the caller's
+ * buffer, so that image->pixels is that buffer. With rgba, RGB pixels take 4
+ * bytes, the last one 255. The decode fails if they need more than capacity. */
+void hvc_decoder_output(hvc_decoder *decoder, uint8_t *pixels, size_t capacity, int rgba);
 /* After a completed decode: bytes (0), hits (1), misses (2). */
 size_t hvc_decoder_codeblock_stat(const hvc_decoder *decoder, unsigned which);
 /* Successful input/output buffer growths; coefficient allocations are separate. */

@@ -32,7 +32,7 @@
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
 
-#if defined(OPJ_HAVE_MALLOC_H) && defined(OPJ_HAVE_MEMALIGN)
+#if (defined(OPJ_HAVE_MALLOC_H) && defined(OPJ_HAVE_MEMALIGN)) || defined(OPJ_HAVE__ALIGNED_MALLOC)
 # include <malloc.h>
 #endif
 

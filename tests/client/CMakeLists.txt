@@ -28,6 +28,8 @@ endfunction()
 client_add_test(test_client_cache client_cache SOURCES test_cache.c)
 client_add_test(test_client_metadata client_metadata SOURCES test_metadata.cc)
 client_add_test(test_client_image client_image SOURCES test_image.c)
+target_compile_definitions(test_client_image PRIVATE
+    AIA="${PROJECT_SOURCE_DIR}/tests/transcode/fixtures/input/2015_12_21__00_10_34_34__SDO_AIA_AIA_171.jp2")
 client_add_test(test_client_jpp_roundtrip client_jpp SOURCES test_jpp_roundtrip.cc LIBRARIES jpip)
 client_add_test(test_client_jpp_malformed client_jpp_malformed SOURCES test_jpp_malformed.cc LIBRARIES jpip)
 client_add_test(test_client_reconstruct client_reconstruct SOURCES test_reconstruct.cc LIBRARIES jpip TIMEOUT 60)

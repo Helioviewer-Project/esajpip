@@ -36,6 +36,8 @@
 #endif /* _WIN32 */
 
 #include "opj_includes.h"
+#include "decoder_workspace.h"
+#include "decoder_header.h"
 
 
 /* ---------------------------------------------------------------------- */
@@ -1073,6 +1075,27 @@ void OPJ_CALLCONV opj_dump_codec(opj_codec_t *p_codec,
     return;
 }
 
+OPJ_BOOL opj_decoder_get_coding_parameters(opj_codec_t *codec, OPJ_UINT32 component,
+        OPJ_UINT32 *resolutions, OPJ_UINT32 *layers)
+{
+    const opj_codec_private_t *internal = (const opj_codec_private_t *)codec;
+    const opj_j2k_t *j2k;
+    const opj_tcp_t *tile;
+    if (!internal || !internal->is_decompressor ||
+            internal->opj_get_codec_info != j2k_info_callback || !resolutions || !layers) {
+        return OPJ_FALSE;
+    }
+    j2k = (const opj_j2k_t *)internal->m_codec;
+    tile = j2k->m_specific_param.m_decoder.m_default_tcp;
+    if (!j2k->m_private_image || component >= j2k->m_private_image->numcomps ||
+            !tile || !tile->tccps) {
+        return OPJ_FALSE;
+    }
+    *resolutions = tile->tccps[component].numresolutions;
+    *layers = tile->numlayers;
+    return OPJ_TRUE;
+}
+
 opj_codestream_info_v2_t* OPJ_CALLCONV opj_get_cstr_info(opj_codec_t *p_codec)
 {
     if (p_codec) {
@@ -1171,12 +1194,9 @@ opj_stream_t* OPJ_CALLCONV opj_stream_create_file_stream(
 }
 
 
-/* Local esajpip extension: a bounded, coordinator-local coefficient workspace. */
-void *hvc_image_data_alloc(size_t size);
-void hvc_image_data_free(void *ptr);
 void* OPJ_CALLCONV opj_image_data_alloc(OPJ_SIZE_T size)
 {
-    void* ret = hvc_image_data_alloc(size);
+    void* ret = opj_workspace_image_data_alloc(size);
     /* printf("opj_image_data_alloc %p\n", ret); */
     return ret;
 }
@@ -1184,5 +1204,5 @@ void* OPJ_CALLCONV opj_image_data_alloc(OPJ_SIZE_T size)
 void OPJ_CALLCONV opj_image_data_free(void* ptr)
 {
     /* printf("opj_image_data_free %p\n", ptr); */
-    hvc_image_data_free(ptr);
+    opj_workspace_image_data_free(ptr);
 }

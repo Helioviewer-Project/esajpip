@@ -73,7 +73,7 @@ MQ coder
 */
 typedef struct opj_mqc {
     /** temporary buffer where bits are coded or decoded */
-    OPJ_UINT32 c;
+    OPJ_UINT64 c;
     /** only used by MQ decoder */
     OPJ_UINT32 a;
     /** number of bits already read or free to write */
@@ -86,10 +86,21 @@ typedef struct opj_mqc {
     OPJ_BYTE *start;
     /** pointer to the end of the buffer */
     OPJ_BYTE *end;
-    /** Array of contexts */
-    const opj_mqc_state_t *ctxs[MQC_NUMCTXS];
-    /** Active context */
-    const opj_mqc_state_t **curctx;
+    /* An opj_mqc_t either encodes or decodes, so the contexts share memory. */
+    union {
+        struct {
+            /** Array of contexts */
+            const opj_mqc_state_t *ctxs[MQC_NUMCTXS];
+            /** Active context */
+            const opj_mqc_state_t **curctx;
+        };
+        struct {
+            /** Contexts for the decoder, packed as in opj_mqc_dstates */
+            OPJ_UINT32 dctxs[MQC_NUMCTXS];
+            /** Active decoder context */
+            OPJ_UINT32 *dcurctx;
+        };
+    };
     /* lut_ctxno_zc shifted by (1 << 9) * bandno */
     const OPJ_BYTE* lut_ctxno_zc_orient;
     /** Original value of the 2 bytes at end[0] and end[1] */
@@ -137,6 +148,9 @@ Set the current context used for coding/decoding
 @param ctxno Number that identifies the context
 */
 #define opj_mqc_setcurctx(mqc, ctxno)   (mqc)->curctx = &(mqc)->ctxs[(OPJ_UINT32)(ctxno)]
+#define opj_mqc_setdcurctx(mqc, ctxno)   (mqc)->dcurctx = &(mqc)->dctxs[(OPJ_UINT32)(ctxno)]
+
+extern const OPJ_UINT32 opj_mqc_dstates_next[47 * 2 * 2];
 
 /**
 Flush the encoder, so that all remaining data is written
@@ -175,6 +189,13 @@ RESET mode switch
 @param mqc MQC handle
 */
 void opj_mqc_reset_enc(opj_mqc_t *mqc);
+
+/**
+Reset the decoder contexts to their initial states, as opj_mqc_reset_enc()
+does for the encoder
+@param mqc MQC handle
+*/
+void opj_mqc_reset_dec(opj_mqc_t *mqc);
 
 #ifdef notdef
 /**
@@ -253,6 +274,14 @@ opj_mqc_raw_init_dec()
 @param mqc MQC handle
 */
 void opq_mqc_finish_dec(opj_mqc_t *mqc);
+
+/**
+Give back the bytes and synthesized 0xFF markers that the MQ decoder read ahead
+of the bit-serial decoder in ISO 15444-1 C.3, so that bp and
+end_of_byte_stream_counter match it
+@param mqc MQC handle
+*/
+void opj_mqc_dec_unread(opj_mqc_t *mqc);
 
 /**
 Decode a symbol
