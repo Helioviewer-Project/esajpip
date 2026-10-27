@@ -39,6 +39,8 @@ For rows at least 16,384 samples wide, the horizontal 9/7 pass runs lifting
 steps in chunks while loading the row buffer.
 They preserve scalar tails and floating-point operation order;
 compile without fast-math or fused multiply-add (`-ffp-contract=off`).
+`tgt.c` allocates each tag tree and its initial nodes together. Larger replacement
+node arrays use separate allocations, with ordinary resize and destruction.
 The workspace binds its pool to a raw J2K decoder and drains and restores the
 original pool before codec destruction. It stays active on the coordinator
 through image and codec destruction so cached coefficient buffers are returned

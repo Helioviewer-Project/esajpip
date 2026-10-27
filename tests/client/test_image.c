@@ -376,7 +376,41 @@ static void verify_large_frame(void) {
     free(bytes);
 }
 
+static void verify_tag_tree_growth(void) {
+    opj_event_mgr_t manager = {0};
+    opj_tgt_tree_t *encoder = opj_tgt_create(1, 1, &manager);
+    opj_tgt_tree_t *decoder = opj_tgt_create(1, 1, &manager);
+    static const unsigned shapes[][2] = {{1, 1}, {17, 19}, {2, 2}, {33, 35}, {3, 1}, {33, 35}};
+    check(encoder && decoder, "tag-tree allocation");
+    for (size_t shape = 0; shape < sizeof shapes / sizeof shapes[0]; ++shape) {
+        unsigned count = shapes[shape][0] * shapes[shape][1];
+        encoder = opj_tgt_init(encoder, shapes[shape][0], shapes[shape][1], &manager);
+        decoder = opj_tgt_init(decoder, shapes[shape][0], shapes[shape][1], &manager);
+        check(encoder && decoder, "tag-tree resize");
+        unsigned char buffer[65536];
+        opj_bio_t *writer = opj_bio_create(), *reader = opj_bio_create();
+        check(writer && reader, "tag-tree bitstream allocation");
+        for (unsigned leaf = 0; leaf < count; ++leaf)
+            opj_tgt_setvalue(encoder, leaf, (OPJ_INT32)(leaf % 7));
+        opj_bio_init_enc(writer, buffer, sizeof buffer);
+        for (int threshold = 1; threshold <= 8; ++threshold)
+            for (unsigned leaf = 0; leaf < count; ++leaf)
+                opj_tgt_encode(writer, encoder, leaf, threshold);
+        check(opj_bio_flush(writer), "tag-tree bitstream flush");
+        opj_bio_init_dec(reader, buffer, opj_bio_numbytes(writer));
+        for (int threshold = 1; threshold <= 8; ++threshold)
+            for (unsigned leaf = 0; leaf < count; ++leaf)
+                check(opj_tgt_decode(reader, decoder, leaf, threshold) == (leaf % 7 < (unsigned)threshold),
+                      "tag-tree values changed after growth or shrink");
+        opj_bio_destroy(reader);
+        opj_bio_destroy(writer);
+    }
+    opj_tgt_destroy(encoder);
+    opj_tgt_destroy(decoder);
+}
+
 int main(void) {
+    verify_tag_tree_growth();
     verify_codeblock_cache();
     verify(1, 0);
     verify(4, 0);
