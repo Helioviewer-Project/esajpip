@@ -526,7 +526,10 @@ static int import_pass(hvc *client, uint64_t codestream, const uint8_t *block, s
         uint64_t order;
         switch (message.bin_class) {
         case HVC_BIN_MAIN_HEADER: order = 0; break;
-        case HVC_BIN_TILE_HEADER: order = 1; break;
+        case HVC_BIN_TILE_HEADER:
+            if (message.length) return fail(client, "tile header data-bin is not empty");
+            order = 1;
+            break;
         case HVC_BIN_PRECINCT: order = message.bin_id + 2; break;
         default: return fail(client, "not an exported frame");
         }

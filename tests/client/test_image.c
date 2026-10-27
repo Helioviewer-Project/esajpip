@@ -262,6 +262,71 @@ static void verify(unsigned bits, int signed_samples) {
     }
 }
 
+/* Only the displayed plane needs unit sampling; an unused plane may differ. */
+static void verify_unused_subsampling(void) {
+    uint8_t bytes[8192];
+    output out = {bytes, 0, 0, sizeof bytes};
+    opj_image_cmptparm_t components[2] = {{0}};
+    for (int c = 0; c < 2; c++) {
+        components[c].dx = c ? 2 : 1;
+        components[c].dy = 1;
+        components[c].w = c ? 8 : 16;
+        components[c].h = 16;
+        components[c].prec = 8;
+    }
+    opj_image_t *input = opj_image_create(2, components, OPJ_CLRSPC_GRAY);
+    check(input != NULL, "subsampled image allocation");
+    input->x1 = input->y1 = 16;
+    for (int c = 0; c < 2; c++)
+        for (unsigned i = 0; i < components[c].w * components[c].h; i++)
+            input->comps[c].data[i] = (i * 3 + c) % 256;
+    encode(input, &out, 0);
+    opj_image_destroy(input);
+    hv_render render = {.channel_count = 1, .channel = {{0, -1}}};
+    hvc_decoder *decoder = hvc_decoder_create(0);
+    check(decoder != NULL, "subsampled decoder allocation");
+    char error[256] = {0};
+    for (int use_render = 0; use_render < 2; use_render++) {
+        const hv_render *selected = use_render ? &render : NULL;
+        for (int reduce = 0; reduce < 3; reduce++) {
+            hvc_image full, part;
+            check(hvc_openjpeg_decode(out.data, out.size, reduce, selected, &full, error, sizeof error) == 0, error);
+            unsigned scale = 1u << reduce;
+            const uint32_t regions[][4] = {{0, 0, 8, 8}, {4, 4, 12, 12}, {8, 8, 16, 16}};
+            for (unsigned r = 0; r < sizeof regions / sizeof *regions; r++) {
+                check(hvc_openjpeg_decode_region(decoder, out.data, out.size, reduce,
+                    selected, regions[r], &part, error, sizeof error) == 0, error);
+                check(part.width == 8 / scale && part.height == 8 / scale &&
+                      part.x == regions[r][0] / scale && part.y == regions[r][1] / scale,
+                      "unused subsampling crop geometry");
+                for (unsigned y = 0; y < part.height; y++)
+                    check(memcmp(part.pixels + y * part.width,
+                        full.pixels + (part.y + y) * full.width + part.x, part.width) == 0,
+                        "unused subsampling crop pixels");
+            }
+            free(full.pixels);
+        }
+    }
+    render.channel[0].component = 1;
+    hvc_image rejected;
+    const uint32_t region[4] = {0, 0, 8, 8};
+    check(hvc_openjpeg_decode_region(decoder, out.data, out.size, 0,
+        &render, region, &rejected, error, sizeof error) == -1,
+        "subsampled selected plane accepted");
+    /* No render selection: the default output must obey the crop guard too. */
+    input = opj_image_create(1, &components[1], OPJ_CLRSPC_GRAY);
+    check(input != NULL, "default subsampled image allocation");
+    input->x1 = input->y1 = 16;
+    memset(input->comps[0].data, 0, 8 * 16 * sizeof *input->comps[0].data);
+    out.at = out.size = 0;
+    encode(input, &out, 0);
+    opj_image_destroy(input);
+    check(hvc_openjpeg_decode_region(decoder, out.data, out.size, 0,
+        NULL, region, &rejected, error, sizeof error) == -1,
+        "subsampled default plane accepted");
+    hvc_decoder_destroy(decoder);
+}
+
 static void verify_channels(void) {
     uint8_t bytes[8192];
     output out = {bytes, 0, 0, sizeof bytes};
@@ -488,6 +553,7 @@ int main(void) {
     verify(10, 0);
     verify(8, 1);
     verify_channels();
+    verify_unused_subsampling();
     verify_wide_rows();
     verify_large_frame();
     return 0;

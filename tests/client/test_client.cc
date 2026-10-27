@@ -730,6 +730,17 @@ static void persisted(const char *path, bool jpx) {
             hvc_jpp_begin(&reader, damaged.data(), damaged.size());
             check(hvc_jpp_next(&reader, &header) == HVC_JPP_MESSAGE &&
                   header.bin_class == HVC_BIN_MAIN_HEADER && header.length >= 2, "exported header");
+            hvc_jpp_message tile;
+            check(hvc_jpp_next(&reader, &tile) == HVC_JPP_MESSAGE &&
+                  tile.bin_class == HVC_BIN_TILE_HEADER, "exported tile header");
+            const uint8_t invalid_tile = 0;
+            tile.data = &invalid_tile;
+            tile.length = 1;
+            Bytes invalid = block_of({header, tile});
+            std::string original = model(loaded);
+            check(hvc_import(loaded, frame, invalid.data(), invalid.size()) == -1 && hvc_error(loaded)[0],
+                  "nonempty disk-cache tile header accepted for unseen frame");
+            check(model(loaded) == original, "refused tile header changed the source");
             damaged[static_cast<size_t>(header.data - damaged.data())] ^= 1;
             std::string before = model(loaded);
             check(hvc_import(loaded, frame, damaged.data(), damaged.size()) == -1 && hvc_error(loaded)[0],
