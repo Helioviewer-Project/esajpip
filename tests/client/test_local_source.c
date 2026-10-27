@@ -181,7 +181,7 @@ int main(void) {
     hvc_view view; hvc_options options = {0};
     check(hvc_status(client, 0, NULL, &view) == 0 && view.ready && view.request == HVC_READY &&
           view.width == 129 && view.height == 131 && view.requested_layers == 7 &&
-          view.source.complete == 3 && state.calls == 1, "full local view");
+          view.source.components == info->components && view.source.complete == 3 && state.calls == 1, "full local view");
     options.fit_width=64; options.fit_height=65;
     check(hvc_status(client, 0, &options, &view) == 0 && view.reduce == 1 &&
           view.width == 64 && view.height == 65 && state.calls == 1, "exact decoder table and cached information");

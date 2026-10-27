@@ -44,9 +44,12 @@ static void check(int ok, const char *why) {
     }
 }
 
+static const int worker_counts[] = {0, 1, 4, 8};
+
 /* Context outputs are borrowed; keep fresh-decoder references separately. */
 static void verify_reuse(const output *encoded, const uint8_t *full, const hv_render *render, size_t components) {
-    for (int threads = 0; threads <= 4; threads += 4) {
+    for (size_t worker_case = 0; worker_case < sizeof worker_counts / sizeof *worker_counts; worker_case++) {
+        int threads = worker_counts[worker_case];
         if (threads && !opj_has_thread_support()) continue;
         hvc_decoder *decoder = hvc_decoder_create(threads);
         check(decoder != NULL, "context allocation");
@@ -438,7 +441,8 @@ static void verify_wide_rows(void) {
 
         /* Whole rows, so that both row ends are compared. */
         const uint32_t region[4] = {0, 4, component.w, height - 4};
-        for (int threads = 0; threads <= 4; threads += 4) {
+        for (size_t worker_case = 0; worker_case < sizeof worker_counts / sizeof *worker_counts; worker_case++) {
+            int threads = worker_counts[worker_case];
             if (threads && !opj_has_thread_support()) continue;
             /* Context outputs are borrowed, so each decode gets its own. */
             hvc_decoder *whole = hvc_decoder_create(threads), *decoder = hvc_decoder_create(threads);
@@ -453,9 +457,12 @@ static void verify_wide_rows(void) {
                 check(part.x + part.width <= full.width && part.y + part.height <= full.height,
                     "wide region geometry");
                 for (unsigned y = 0; y < part.height; y++)
-                    check(memcmp(part.pixels + y * part.width,
-                        full.pixels + (part.y + y) * full.width + part.x, part.width) == 0,
-                        "wide rows differ from the region decode");
+                    if (memcmp(part.pixels + y * part.width,
+                        full.pixels + (part.y + y) * full.width + part.x, part.width) != 0) {
+                        fprintf(stderr, "wide rows differ: workers=%d reduce=%d width=%u row=%u\n",
+                                threads, reduce, full.width, y);
+                        exit(1);
+                    }
             }
             hvc_decoder_destroy(whole);
             hvc_decoder_destroy(decoder);
@@ -489,7 +496,8 @@ static void verify_large_frame(void) {
     for (int reduce = 0; reduce <= 1; reduce++)
         check(hvc_openjpeg_decode(codestream, length, reduce, NULL, &reference[reduce],
             error, sizeof error) == 0, error);
-    for (int threads = 0; threads <= 8; threads += 4) {
+    for (size_t worker_case = 0; worker_case < sizeof worker_counts / sizeof *worker_counts; worker_case++) {
+        int threads = worker_counts[worker_case];
         if (threads && !opj_has_thread_support()) continue;
         hvc_decoder *decoder = hvc_decoder_create(threads);
         check(decoder != NULL, "large decoder allocation");

@@ -21,6 +21,11 @@ OPJ_BOOL opj_decoder_workspace_submit(opj_decoder_workspace *workspace, opj_job_
 void opj_decoder_workspace_wait(opj_decoder_workspace *workspace);
 /* Zero if fused gray output is unavailable; otherwise its required size. */
 size_t opj_decoder_gray8_size(opj_codec_t *codec, const opj_image_t *image, OPJ_UINT32 component, OPJ_UINT32 reduce);
+/* Select after a nonzero gray8_size result, before decode. pixels must hold
+ * that many bytes and remain writable through decode completion. The selected
+ * plane bypasses the normal integer DC-shift output: after decode, consume
+ * pixels, not that component's ordinary opj_image sample array. Other planes
+ * retain normal output. The caller owns pixels independently of codec lifetime. */
 void opj_decoder_gray8_output(opj_codec_t *codec, OPJ_UINT32 component, OPJ_BYTE *pixels);
 /* Internal image allocator hooks, used while a workspace is active. */
 void *opj_workspace_image_data_alloc(size_t size);

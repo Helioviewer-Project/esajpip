@@ -456,7 +456,8 @@ static void equivalent(const char *path, bool jpx) {
         check(hvc_status(local, frame, nullptr, &before) == 0, hvc_error(local));
         check(hvc_status(remote, frame, nullptr, &view) == 0, hvc_error(remote));
         check(before.width == view.width && before.height == view.height &&
-              before.source.resolutions == view.source.resolutions, "common decoder geometry");
+              before.source.resolutions == view.source.resolutions &&
+              before.source.components == view.source.components, "common decoder geometry");
         const hvc_info *info = hvc_info_read(remote, frame);
         check(info && info->width[0] == view.width && info->height[0] == view.height &&
               hvc_info_read(remote, frame) == info, "immutable decoder information");
@@ -497,6 +498,7 @@ static int mismatched_inspect(hvc *client, size_t frame, void *context, hvc_info
                                char *error, size_t error_size) {
     int result = inspect(client, frame, context, info, error, error_size);
     if (*static_cast<int *>(context) == 1) info->width[0]++;
+    if (*static_cast<int *>(context) == 2) info->components++;
     return result;
 }
 
@@ -590,8 +592,10 @@ static void inspection_retry() {
     hvc_view view;
     check(hvc_status(client,0,nullptr,&view) == -1 && calls == 1 &&
           std::strstr(hvc_error(client), "decoder geometry"), "mismatched JPIP geometry rejected");
-    check(hvc_status(client,0,nullptr,&view) == 0 && calls == 2, "rejected geometry was not cached");
-    check(hvc_status(client,0,nullptr,&view) == 0 && calls == 2, "valid retry cached");
+    check(hvc_status(client,0,nullptr,&view) == -1 && calls == 2 &&
+          std::strstr(hvc_error(client), "decoder information"), "mismatched coded count rejected");
+    check(hvc_status(client,0,nullptr,&view) == 0 && calls == 3, "rejected information was not cached");
+    check(hvc_status(client,0,nullptr,&view) == 0 && calls == 3, "valid retry cached");
     hvc_destroy(client);
 }
 

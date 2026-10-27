@@ -25,7 +25,8 @@ build for WebAssembly.
 
 ## Decoder optimizations
 
-Local changes touch `dwt.c`, `t1.c`, `tcd.c` and `openjpeg.c` and add
+Local changes touch `dwt.c`, `t1.c`, `t2.c`, `tcd.c`, `tgt.c`, `thread.c`,
+`mqc.c`, `mqc.h`, `mqc_inl.h` and `openjpeg.c` and add
 `wasm-dwt-simd.h` and `neon-dwt-simd.h`. `t1_cache.c` owns the bounded Tier-1 cache.
 `decoder_workspace.c` owns its lifetime, the persistent thread pool, and up to
 64 MiB of reusable aligned coefficient buffers. Its opaque local interface in
@@ -46,6 +47,13 @@ compile without fast-math or fused multiply-add (`-ffp-contract=off`).
 node arrays use separate allocations, with ordinary resize and destruction.
 The decoder creates absent trees only when a packet header is nonempty. Existing
 trees are still reset and resized for each tile; the encoder creates them eagerly.
+`mqc.c`, `mqc.h` and `mqc_inl.h` use packed decoder states and a 64-bit
+reservoir; PTERM checks reconcile buffered input through `opj_mqc_dec_unread`.
+`thread.c` lets the coordinator run queued jobs while waiting or under queue
+backpressure. Tier-1 isolates compressed input whenever any worker exists,
+because the coordinator and that worker can decode adjacent blocks together.
+`t2.c` keeps its packet-header bit reader on the stack and defers tag trees
+until a nonempty packet needs them.
 The workspace binds its pool to a raw J2K decoder and drains and restores the
 original pool before codec destruction. It stays active on the coordinator
 through image and codec destruction so cached coefficient buffers are returned

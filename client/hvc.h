@@ -42,7 +42,7 @@ typedef struct {
  * resolution. All 0 until the main header is complete. */
 typedef struct {
     uint32_t width, height;
-    int components;
+    int components;      /* SIZ coded components, independent of display selection */
     int resolutions;
     int complete;
     int layers;          /* total source quality layers */
@@ -66,7 +66,8 @@ typedef struct {
  * It may use hvc_input_open and hvc_render_read, but must not call status or
  * prepare. Successful results are cached per frame; failures may be retried. */
 typedef struct {
-    int components, resolutions, layers;
+    int components;     /* SIZ coded count, before transforms/channel selection */
+    int resolutions, layers;
     uint32_t width[33], height[33];
 } hvc_info;
 typedef int (*hvc_inspect_fn)(hvc *client, size_t frame, void *context,

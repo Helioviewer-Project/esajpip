@@ -2043,7 +2043,8 @@ void opj_t1_decode_cblks(opj_tcd_t* tcd,
                     job->p_manager_mutex = p_manager_mutex;
                     job->p_manager = p_manager;
                     job->check_pterm = check_pterm;
-                    job->mustuse_cblkdatabuffer = opj_thread_pool_get_thread_count(tp) > 1;
+                    /* The coordinator also runs queued jobs: one worker is concurrent. */
+                    job->mustuse_cblkdatabuffer = opj_thread_pool_get_thread_count(tp) > 0;
                     if (!batch_blocks) {
                         if (!opj_thread_pool_submit_job(tp, opj_t1_decode_single, job)) {
                             opj_free(job);

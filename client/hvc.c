@@ -136,7 +136,8 @@ static const hvc_info *decoder_info(hvc *client, size_t frame, size_t codestream
         if (!profile) return NULL;
         /* Serving admits zero-origin, matching grids with uniform coding.
          * An inspector must not silently change request geometry. */
-        if (result.resolutions != profile->resolutions || result.layers != profile->layers) {
+        if (result.components != profile->components || result.resolutions != profile->resolutions ||
+            result.layers != profile->layers) {
             fail(client, "decoder information differs from the JPIP coding profile"); return NULL;
         }
         for (int r = 0; r < result.resolutions; r++)
