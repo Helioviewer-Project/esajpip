@@ -3180,6 +3180,15 @@ static void check_marker_framing(void) {
             error = hv_marker_read(buf, 0, b.n, &m);
             check(error == NULL && m.code == codes[i] && m.start == 0 &&
                   m.payload == 4 && m.end == b.n, "opaque marker extent", error);
+            {
+                bytes prefix = {buf, 4, 4};
+                uint8_t *header = exact(&prefix);
+                error = hv_marker_read(header, 0, b.n, &m);
+                check(error == NULL && m.code == codes[i] && m.start == 0 &&
+                      m.payload == 4 && m.end == b.n,
+                      "marker framing reads only its four-byte header", error);
+                free(header);
+            }
             for (n = 0; n < b.n; n++) {
                 bytes prefix = {buf, n, n};
                 uint8_t *short_buf = exact(&prefix);

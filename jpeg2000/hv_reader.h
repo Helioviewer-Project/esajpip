@@ -168,7 +168,9 @@ typedef struct {
     size_t start, payload, end;
 } hv_marker;
 
-/* Reads framing at start in buf[0, limit), leaving bodies opaque. Checks
+/* Reads framing at start, with limit bounding the complete segment. Only
+ * buf[start, start + min(4, limit - start)) must be accessible when start
+ * is within limit: the segment body need not be in memory. Checks
  * the marker code, segment length and bounds, not placement, body fields,
  * or codestream conformance. Unknown codes have a length, except the
  * reserved marker-only range 0xFF30..0xFF3F. Call only at a marker boundary,
