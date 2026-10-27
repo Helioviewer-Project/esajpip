@@ -543,6 +543,12 @@ static int import_pass(hvc *client, uint64_t codestream, const uint8_t *block, s
         if (bin && (bin->length > message.length || (bin->complete && bin->length != message.length) ||
                     (bin->length && memcmp(bin->data, message.data, bin->length))))
             return fail(client, "exported frame differs from the cached data-bins");
+        if (message.bin_class == HVC_BIN_MAIN_HEADER && (!bin || !bin->complete)) {
+            hvc_frame *coding = hvc_frame_read(message.data, (size_t)message.length,
+                                               client->error, sizeof client->error);
+            if (!coding) return -1;
+            hvc_frame_free(coding);
+        }
     } while (reader.position < size);
     return 0;
 }

@@ -12,9 +12,7 @@ void hvc_frame_free(hvc_frame *frame) {
     free(frame);
 }
 
-const hvc_frame *hvc_frame_get(const hvc_cache *cache, uint64_t codestream,
-                               char *error, size_t error_size) {
-    hvc_bin *bin = (hvc_bin *) hvc_cache_find(cache, HVC_BIN_MAIN_HEADER, codestream, 0);
+hvc_frame *hvc_frame_read(const uint8_t *data, size_t size, char *error, size_t error_size) {
     hv_codestream cs;
     hv_item item;
     hvc_frame *frame;
@@ -23,27 +21,21 @@ const hvc_frame *hvc_frame_get(const hvc_cache *cache, uint64_t codestream,
     uint64_t packets, end = 0;
     int r;
 
-    if (bin == NULL || !bin->complete) {
-        hv_fail(error, error_size, "main header data-bin is %s",
-                bin == NULL ? "missing" : "incomplete");
-        return NULL;
-    }
-    if (bin->frame != NULL) return bin->frame;
     frame = (hvc_frame *) calloc(1, sizeof *frame);
     if (frame == NULL) {
         hv_fail(error, error_size, "out of memory for frame information");
         return NULL;
     }
-    if (hv_codestream_open(&cs, bin->data, 0, bin->length, HV_READ_JPIP) != 0) {
+    if (hv_codestream_open(&cs, data, 0, size, HV_READ_JPIP) != 0) {
         hv_fail(error, error_size, "main header: %s", cs.error);
         goto fail;
     }
-    frame->header = (uint8_t *) malloc(bin->length);
+    frame->header = (uint8_t *) malloc(size);
     if (frame->header == NULL) {
         hv_fail(error, error_size, "out of memory for frame header");
         goto fail;
     }
-    memcpy(frame->header, bin->data, 2);
+    memcpy(frame->header, data, 2);
     frame->header_size = 2;
     do {
         size_t at = frame->header_size;
@@ -54,10 +46,10 @@ const hvc_frame *hvc_frame_get(const hvc_cache *cache, uint64_t codestream,
             goto fail;
         }
         if (item.code == 0xFF55 || item.code == 0xFF57) continue;
-        memcpy(frame->header + at, bin->data + item.start, item.end - item.start);
+        memcpy(frame->header + at, data + item.start, item.end - item.start);
         frame->header_size += item.end - item.start;
         if (item.code == 0xFF52) frame->header[at + 5] = 2; /* RPCL */
-    } while (item.end < bin->length);
+    } while (item.end < size);
     cod = hv_codestream_cod(&cs);
     if (cod == NULL) {
         hv_fail(error, error_size, "main header has no COD");
@@ -87,10 +79,21 @@ const hvc_frame *hvc_frame_get(const hvc_cache *cache, uint64_t codestream,
         frame->precinct_end[r] = end;
     }
     hv_codestream_close(&cs);
-    bin->frame = frame;
     return frame;
 fail:
     hv_codestream_close(&cs);
     hvc_frame_free(frame);
     return NULL;
+}
+
+const hvc_frame *hvc_frame_get(const hvc_cache *cache, uint64_t codestream,
+                               char *error, size_t error_size) {
+    hvc_bin *bin = (hvc_bin *) hvc_cache_find(cache, HVC_BIN_MAIN_HEADER, codestream, 0);
+    if (bin == NULL || !bin->complete) {
+        hv_fail(error, error_size, "main header data-bin is %s",
+                bin == NULL ? "missing" : "incomplete");
+        return NULL;
+    }
+    if (!bin->frame) bin->frame = hvc_frame_read(bin->data, bin->length, error, error_size);
+    return bin->frame;
 }

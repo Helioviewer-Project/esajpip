@@ -722,6 +722,25 @@ static void persisted(const char *path, bool jpx) {
         submit(saved, response(first, image, sources, request(view)));
         check(hvc_status(saved, frame, &options, &view) == 0 && view.ready, "exported frame not ready");
         Bytes block = exported(saved, frame);
+        check(hvc_status(loaded, frame, &options, &restored) == 0, hvc_error(loaded));
+        if (!restored.source.resolutions) {
+            Bytes damaged = block;
+            hvc_jpp_reader reader;
+            hvc_jpp_message header;
+            hvc_jpp_begin(&reader, damaged.data(), damaged.size());
+            check(hvc_jpp_next(&reader, &header) == HVC_JPP_MESSAGE &&
+                  header.bin_class == HVC_BIN_MAIN_HEADER && header.length >= 2, "exported header");
+            damaged[static_cast<size_t>(header.data - damaged.data())] ^= 1;
+            std::string before = model(loaded);
+            check(hvc_import(loaded, frame, damaged.data(), damaged.size()) == -1 && hvc_error(loaded)[0],
+                  "damaged disk-cache header accepted for unseen frame");
+            check(model(loaded) == before, "damaged cache import changed the source");
+            check(hvc_prepare(loaded, frame, &options, &restored) == 0 && restored.request == HVC_HEADER,
+                  "refused cache import abandoned the frame");
+            submit(loaded, response(second, image, sources, request(restored)));
+            check(hvc_status(loaded, frame, &options, &restored) == 0 && restored.source.resolutions,
+                  "valid server header could not recover from refused cache import");
+        }
         check(hvc_import(loaded, frame, block.data(), block.size()) == 0, hvc_error(loaded));
         check(hvc_status(loaded, frame, &options, &restored) == 0 && restored.ready &&
               restored.source.complete == view.source.complete &&

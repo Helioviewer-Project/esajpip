@@ -17,6 +17,8 @@ typedef struct hvc_frame {
     size_t header_size;
 } hvc_frame;
 
+/* Validate a main header without changing the cache. Caller owns the result. */
+hvc_frame *hvc_frame_read(const uint8_t *data, size_t size, char *error, size_t error_size);
 const hvc_frame *hvc_frame_get(const hvc_cache *cache, uint64_t codestream,
                                char *error, size_t error_size);
 void hvc_frame_free(hvc_frame *frame);
