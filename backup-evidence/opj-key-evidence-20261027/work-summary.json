@@ -1,0 +1,121 @@
+[
+  {
+    "index": 0,
+    "variants": {
+      "baseline": {
+        "keys": 96433,
+        "key_bytes": 138337213,
+        "hits": 559,
+        "misses": 47937
+      },
+      "candidate": {
+        "keys": 48496,
+        "key_bytes": 69200470,
+        "hits": 559,
+        "misses": 47937
+      }
+    }
+  },
+  {
+    "index": 1,
+    "variants": {
+      "baseline": {
+        "keys": 2140,
+        "key_bytes": 4244025,
+        "hits": 340,
+        "misses": 900
+      },
+      "candidate": {
+        "keys": 1240,
+        "key_bytes": 2454264,
+        "hits": 340,
+        "misses": 900
+      }
+    }
+  },
+  {
+    "index": 2,
+    "variants": {
+      "baseline": {
+        "keys": 1329,
+        "key_bytes": 93159,
+        "hits": 499,
+        "misses": 415
+      },
+      "candidate": {
+        "keys": 914,
+        "key_bytes": 67360,
+        "hits": 499,
+        "misses": 415
+      }
+    }
+  },
+  {
+    "index": 3,
+    "variants": {
+      "baseline": {
+        "keys": 70582,
+        "key_bytes": 49824419,
+        "hits": 66,
+        "misses": 35258
+      },
+      "candidate": {
+        "keys": 35324,
+        "key_bytes": 24943414,
+        "hits": 66,
+        "misses": 35258
+      }
+    }
+  },
+  {
+    "index": 4,
+    "variants": {
+      "baseline": {
+        "keys": 843,
+        "key_bytes": 677790,
+        "hits": 213,
+        "misses": 315
+      },
+      "candidate": {
+        "keys": 528,
+        "key_bytes": 426996,
+        "hits": 213,
+        "misses": 315
+      }
+    }
+  },
+  {
+    "index": 5,
+    "variants": {
+      "baseline": {
+        "keys": 1523,
+        "key_bytes": 1293729,
+        "hits": 333,
+        "misses": 595
+      },
+      "candidate": {
+        "keys": 928,
+        "key_bytes": 787564,
+        "hits": 333,
+        "misses": 595
+      }
+    }
+  },
+  {
+    "index": 6,
+    "variants": {
+      "baseline": {
+        "keys": 126049,
+        "key_bytes": 193080667,
+        "hits": 187,
+        "misses": 62931
+      },
+      "candidate": {
+        "keys": 63118,
+        "key_bytes": 96546536,
+        "hits": 187,
+        "misses": 62931
+      }
+    }
+  }
+]

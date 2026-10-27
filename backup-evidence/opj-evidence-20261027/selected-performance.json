@@ -1,0 +1,290 @@
+[
+  {
+    "case": "AIA 171",
+    "frames": 97,
+    "level": 0,
+    "width": 4096,
+    "height": 4096,
+    "base_ms_frame": 242.61866257731958,
+    "base_runs_ms_frame": [
+      289.555615556701,
+      195.68170959793815
+    ],
+    "original_ms_frame": 20.383696355670104,
+    "original_runs_ms_frame": [
+      20.32007568041237,
+      20.447317030927834
+    ],
+    "selected_ms_frame": 20.44168855670103,
+    "selected_runs_ms_frame": [
+      20.452423082474226,
+      20.430954030927836
+    ],
+    "speedup_vs_base": 11.86881709426036,
+    "change_vs_original_percent": 0.28450286944543546
+  },
+  {
+    "case": "AIA 171",
+    "frames": 97,
+    "level": 1,
+    "width": 2048,
+    "height": 2048,
+    "base_ms_frame": 99.60049526804124,
+    "base_runs_ms_frame": [
+      99.36427058762888,
+      99.83671994845362
+    ],
+    "original_ms_frame": 9.96509018556701,
+    "original_runs_ms_frame": [
+      9.974065247422681,
+      9.95611512371134
+    ],
+    "selected_ms_frame": 10.294686448453609,
+    "selected_runs_ms_frame": [
+      10.326508577319588,
+      10.26286431958763
+    ],
+    "speedup_vs_base": 9.67494209432697,
+    "change_vs_original_percent": 3.307509081693727
+  },
+  {
+    "case": "AIA 171",
+    "frames": 97,
+    "level": 2,
+    "width": 1024,
+    "height": 1024,
+    "base_ms_frame": 40.087711144329894,
+    "base_runs_ms_frame": [
+      39.620383216494844,
+      40.555039072164945
+    ],
+    "original_ms_frame": 4.184144737113402,
+    "original_runs_ms_frame": [
+      4.178846237113403,
+      4.189443237113402
+    ],
+    "selected_ms_frame": 4.7200044948453606,
+    "selected_runs_ms_frame": [
+      4.702545505154639,
+      4.737463484536082
+    ],
+    "speedup_vs_base": 8.493151052739256,
+    "change_vs_original_percent": 12.806912556797512
+  },
+  {
+    "case": "FSI 174",
+    "frames": 4,
+    "level": 0,
+    "width": 3040,
+    "height": 3072,
+    "base_ms_frame": 255.92261449999998,
+    "base_runs_ms_frame": [
+      256.071198,
+      255.77403099999998
+    ],
+    "original_ms_frame": 23.6220155,
+    "original_runs_ms_frame": [
+      23.62276025,
+      23.62127075
+    ],
+    "selected_ms_frame": 23.644531125,
+    "selected_runs_ms_frame": [
+      23.620875,
+      23.668187250000003
+    ],
+    "speedup_vs_base": 10.823755106287818,
+    "change_vs_original_percent": 0.09531627392251885
+  },
+  {
+    "case": "FSI 174",
+    "frames": 4,
+    "level": 1,
+    "width": 1520,
+    "height": 1536,
+    "base_ms_frame": 101.991687375,
+    "base_runs_ms_frame": [
+      102.14232275,
+      101.84105199999999
+    ],
+    "original_ms_frame": 8.508994999999999,
+    "original_runs_ms_frame": [
+      8.52587525,
+      8.492114749999999
+    ],
+    "selected_ms_frame": 9.025343750000001,
+    "selected_runs_ms_frame": [
+      9.036104250000001,
+      9.01458325
+    ],
+    "speedup_vs_base": 11.300587567648044,
+    "change_vs_original_percent": 6.068269519490865
+  },
+  {
+    "case": "HRI 174 Short",
+    "frames": 74,
+    "level": 0,
+    "width": 2048,
+    "height": 2048,
+    "base_ms_frame": 21.03045216891892,
+    "base_runs_ms_frame": [
+      20.89776416216216,
+      21.163140175675675
+    ],
+    "original_ms_frame": 2.0421140202702706,
+    "original_runs_ms_frame": [
+      2.095496648648649,
+      1.9887313918918919
+    ],
+    "selected_ms_frame": 2.0693894594594595,
+    "selected_runs_ms_frame": [
+      2.0191785945945946,
+      2.1196003243243244
+    ],
+    "speedup_vs_base": 10.162636169226568,
+    "change_vs_original_percent": 1.3356472223612137
+  },
+  {
+    "case": "HRI 174 Short",
+    "frames": 74,
+    "level": 1,
+    "width": 1024,
+    "height": 1024,
+    "base_ms_frame": 5.038717587837838,
+    "base_runs_ms_frame": [
+      5.025580472972973,
+      5.051854702702703
+    ],
+    "original_ms_frame": 0.8968826216216217,
+    "original_runs_ms_frame": [
+      0.8831238918918919,
+      0.9106413513513514
+    ],
+    "selected_ms_frame": 0.9189870067567567,
+    "selected_runs_ms_frame": [
+      0.8906350675675675,
+      0.9473389459459459
+    ],
+    "speedup_vs_base": 5.482904057175117,
+    "change_vs_original_percent": 2.464579489250096
+  },
+  {
+    "case": "SWAP 174",
+    "frames": 68,
+    "level": 0,
+    "width": 1024,
+    "height": 1024,
+    "base_ms_frame": 20.52790131617647,
+    "base_runs_ms_frame": [
+      20.451862102941178,
+      20.603940529411766
+    ],
+    "original_ms_frame": 2.1915714338235297,
+    "original_runs_ms_frame": [
+      2.1948896764705883,
+      2.1882531911764707
+    ],
+    "selected_ms_frame": 2.1927439044117643,
+    "selected_runs_ms_frame": [
+      2.1812273235294115,
+      2.2042604852941174
+    ],
+    "speedup_vs_base": 9.361741366547491,
+    "change_vs_original_percent": 0.05349908153298166
+  },
+  {
+    "case": "STEREO-A EUVI 171",
+    "frames": 1,
+    "level": 0,
+    "width": 2048,
+    "height": 2048,
+    "base_ms_frame": 50.7976665,
+    "base_runs_ms_frame": [
+      50.423458,
+      51.171875
+    ],
+    "original_ms_frame": 3.8776875,
+    "original_runs_ms_frame": [
+      3.858875,
+      3.8965
+    ],
+    "selected_ms_frame": 3.9283754999999996,
+    "selected_runs_ms_frame": [
+      3.800792,
+      4.055959
+    ],
+    "speedup_vs_base": 12.93096001133293,
+    "change_vs_original_percent": 1.3071708331318543
+  },
+  {
+    "case": "STEREO-A EUVI 171",
+    "frames": 1,
+    "level": 1,
+    "width": 1024,
+    "height": 1024,
+    "base_ms_frame": 26.3191045,
+    "base_runs_ms_frame": [
+      26.288542,
+      26.349667
+    ],
+    "original_ms_frame": 1.3341875,
+    "original_runs_ms_frame": [
+      1.30575,
+      1.362625
+    ],
+    "selected_ms_frame": 1.5363955,
+    "selected_runs_ms_frame": [
+      1.450625,
+      1.622166
+    ],
+    "speedup_vs_base": 17.130422798036054,
+    "change_vs_original_percent": 15.155890757483492
+  },
+  {
+    "case": "Callisto",
+    "frames": 1,
+    "level": 0,
+    "width": 86400,
+    "height": 380,
+    "base_ms_frame": 601.711542,
+    "base_runs_ms_frame": [
+      598.6245,
+      604.798584
+    ],
+    "original_ms_frame": 67.28966650000001,
+    "original_runs_ms_frame": [
+      66.960333,
+      67.619
+    ],
+    "selected_ms_frame": 67.3373335,
+    "selected_runs_ms_frame": [
+      67.686583,
+      66.988084
+    ],
+    "speedup_vs_base": 8.935779169218216,
+    "change_vs_original_percent": 0.0708385142613066
+  },
+  {
+    "case": "trace1216 5/3",
+    "frames": 127,
+    "level": 0,
+    "width": 1024,
+    "height": 1024,
+    "base_ms_frame": 44.06032741732283,
+    "base_runs_ms_frame": [
+      43.80154134645669,
+      44.319113488188975
+    ],
+    "original_ms_frame": 4.337243578740157,
+    "original_runs_ms_frame": [
+      4.319563283464567,
+      4.354923874015748
+    ],
+    "selected_ms_frame": 4.358770330708662,
+    "selected_runs_ms_frame": [
+      4.3480436220472445,
+      4.369497039370079
+    ],
+    "speedup_vs_base": 10.108430606427333,
+    "change_vs_original_percent": 0.49632333480238433
+  }
+]

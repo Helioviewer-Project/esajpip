@@ -1,0 +1,14 @@
+{
+  "inputs": 311,
+  "configurations": 1769,
+  "counts": {
+    "('raw', True, '0')": 1308,
+    "('hvc', True, '0')": 424,
+    "('hvc', True, '1')": 295,
+    "('raw', True, '1')": 431,
+    "('raw', True, '77')": 7,
+    "('hvc', True, 'None')": 141,
+    "('raw', True, 'None')": 23
+  },
+  "differences": []
+}

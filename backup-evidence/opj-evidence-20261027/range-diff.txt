@@ -1,0 +1,24 @@
+1:  cc0ff28 =  1:  9db0078 Reuse OpenJPEG decoder workspaces and add SIMD and region decoding
+ 2:  0cf99ed =  2:  dbe38a5 Cache unchanged low-resolution Tier-1 coefficients
+ 3:  c3232d7 =  3:  2551cc9 Parallelize OpenJPEG sample conversion and allow eight decoder workers
+ 4:  a20a140 =  4:  5a54b1d Use NEON for the OpenJPEG wavelet transform on arm64
+ 5:  ee02c67 =  5:  736483d Load four column strips per row in OpenJPEG's vertical 9/7 pass
+ 6:  4ae1170 <  -:  ------- Copy four column strips per row in OpenJPEG's vertical 5/3 pass
+ 7:  a715450 !  6:  1419ccf Reduce OpenJPEG decode allocations and scheduling overhead
+     a => b | 23 -----------------------
+     1 file changed, 23 deletions(-)
+ 8:  cf03209 =  7:  e7cfd55 Speed up OpenJPEG MQ decoding and let callers share queued work
+ 9:  e505729 =  8:  c2a3554 Reduce OpenJPEG packing and wavelet memory passes
+10:  2d94d64 =  9:  74f8da0 Buffer MQ decoder input in a 64-bit reservoir
+12:  2151860 = 10:  d747e50 Optimize OpenJPEG MQ refill and decoder contexts
+13:  679db39 = 11:  9706ebb Reduce OpenJPEG decoder stalls and memory traffic
+14:  2b98732 = 12:  4eee083 Enable WebAssembly SIMD by default
+15:  c3e51e0 ! 13:  48a63c3 More nonsense
+     a => b | 13 +------------
+     1 file changed, 1 insertion(+), 12 deletions(-)
+16:  00659ed ! 14:  d2e1309 Move decoder workspace and Tier-1 cache into vendored OpenJPEG
+     a => b | 18 +++++++++++++-----
+     1 file changed, 13 insertions(+), 5 deletions(-)
+11:  372dbd3 ! 15:  93966f7 Optimize OpenJPEG 9/7 decoding for wide images
+     a => b | 26 ++++++++++++--------------
+     1 file changed, 12 insertions(+), 14 deletions(-)

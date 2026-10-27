@@ -1,0 +1,2955 @@
+{
+  "inputs": 311,
+  "configurations": 1769,
+  "counts": {
+    "('raw', '0')": 1308,
+    "('hvc', '0')": 562,
+    "('hvc', '1')": 298,
+    "('raw', '1')": 454,
+    "('raw', '77')": 7
+  },
+  "behavior_differences": [],
+  "diagnostic_variations": [
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/a2_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=138\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=135\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/a2_colr.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=6 codeblock_hits=103\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=6 codeblock_hits=101\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/a2_colr.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "5fecceae516e465333b461661b709d1973555ed9292ed1483e8753892dfa3cf5",
+        "stderr": "coefficient_hits=6 codeblock_hits=70\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "5fecceae516e465333b461661b709d1973555ed9292ed1483e8753892dfa3cf5",
+        "stderr": "coefficient_hits=6 codeblock_hits=71\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/a3_mono.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "01856693983f4be7f9610dd11948faf22aab3a2437818c588f51d2486f940f7b",
+        "stderr": "coefficient_hits=12 codeblock_hits=137\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "01856693983f4be7f9610dd11948faf22aab3a2437818c588f51d2486f940f7b",
+        "stderr": "coefficient_hits=12 codeblock_hits=138\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/a4_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=712\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=704\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/a4_colr.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "14536a243187c55011834611a404055e4ec96adec0c1e8aeb46601a41e7b5203",
+        "stderr": "coefficient_hits=6 codeblock_hits=587\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "14536a243187c55011834611a404055e4ec96adec0c1e8aeb46601a41e7b5203",
+        "stderr": "coefficient_hits=6 codeblock_hits=582\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/b2_mono.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "32dcd547645a2401d1e8307299df88091a37acd414866be83cd020c706d7bfae",
+        "stderr": "coefficient_hits=6 codeblock_hits=348\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "32dcd547645a2401d1e8307299df88091a37acd414866be83cd020c706d7bfae",
+        "stderr": "coefficient_hits=6 codeblock_hits=349\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/b3_mono.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "d7f3b3c97b88a9577978bb709b4d461919849e739bccb9efbc18bca371ab70b4",
+        "stderr": "coefficient_hits=2 codeblock_hits=229\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "d7f3b3c97b88a9577978bb709b4d461919849e739bccb9efbc18bca371ab70b4",
+        "stderr": "coefficient_hits=2 codeblock_hits=228\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/b3_mono.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "01856693983f4be7f9610dd11948faf22aab3a2437818c588f51d2486f940f7b",
+        "stderr": "coefficient_hits=2 codeblock_hits=127\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "01856693983f4be7f9610dd11948faf22aab3a2437818c588f51d2486f940f7b",
+        "stderr": "coefficient_hits=2 codeblock_hits=128\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/b3_mono.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2db660bed66927b8836bebd31658c95e043a2fecbf71626267bba33ee149852f",
+        "stderr": "coefficient_hits=2 codeblock_hits=92\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2db660bed66927b8836bebd31658c95e043a2fecbf71626267bba33ee149852f",
+        "stderr": "coefficient_hits=2 codeblock_hits=93\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/d1_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=299\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=305\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/d1_colr.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=6 codeblock_hits=217\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=6 codeblock_hits=216\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/d1_colr.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "eeb534fc7d23a852585b2f19bd0077208461f09ed9e0c14f0eb0a96197b01df1",
+        "stderr": "coefficient_hits=6 codeblock_hits=127\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "eeb534fc7d23a852585b2f19bd0077208461f09ed9e0c14f0eb0a96197b01df1",
+        "stderr": "coefficient_hits=6 codeblock_hits=128\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/d1_colr.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "5fecceae516e465333b461661b709d1973555ed9292ed1483e8753892dfa3cf5",
+        "stderr": "coefficient_hits=6 codeblock_hits=90\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "5fecceae516e465333b461661b709d1973555ed9292ed1483e8753892dfa3cf5",
+        "stderr": "coefficient_hits=6 codeblock_hits=91\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/d2_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=780\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=767\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/d2_colr.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=48 codeblock_hits=718\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=48 codeblock_hits=723\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/d2_colr.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "bbe50062f44c5b5bdf100fd5bf324debe99053e0c35f042ed98eef61b42ee428",
+        "stderr": "coefficient_hits=12 codeblock_hits=680\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "bbe50062f44c5b5bdf100fd5bf324debe99053e0c35f042ed98eef61b42ee428",
+        "stderr": "coefficient_hits=12 codeblock_hits=682\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/d2_colr.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "8b85a0e1d9c09f75e405e167af82af862fd0b8a9422bcc5b2fd120addc6db157",
+        "stderr": "coefficient_hits=48 codeblock_hits=522\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "8b85a0e1d9c09f75e405e167af82af862fd0b8a9422bcc5b2fd120addc6db157",
+        "stderr": "coefficient_hits=48 codeblock_hits=529\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/e1_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=773\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=776\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/e1_colr.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=45 codeblock_hits=722\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=45 codeblock_hits=725\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/e1_colr.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "bbe50062f44c5b5bdf100fd5bf324debe99053e0c35f042ed98eef61b42ee428",
+        "stderr": "coefficient_hits=12 codeblock_hits=681\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "bbe50062f44c5b5bdf100fd5bf324debe99053e0c35f042ed98eef61b42ee428",
+        "stderr": "coefficient_hits=12 codeblock_hits=678\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/e1_colr.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "8b85a0e1d9c09f75e405e167af82af862fd0b8a9422bcc5b2fd120addc6db157",
+        "stderr": "coefficient_hits=45 codeblock_hits=521\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "8b85a0e1d9c09f75e405e167af82af862fd0b8a9422bcc5b2fd120addc6db157",
+        "stderr": "coefficient_hits=45 codeblock_hits=522\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/e2_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=426\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=425\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/f1_mono.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "d7f3b3c97b88a9577978bb709b4d461919849e739bccb9efbc18bca371ab70b4",
+        "stderr": "coefficient_hits=4 codeblock_hits=306\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "d7f3b3c97b88a9577978bb709b4d461919849e739bccb9efbc18bca371ab70b4",
+        "stderr": "coefficient_hits=4 codeblock_hits=307\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/f2_mono.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "9962386d29e30cf15fb598052361402589ecadf0a625b97ac1f4b141a474061e",
+        "stderr": "coefficient_hits=4 codeblock_hits=222\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "9962386d29e30cf15fb598052361402589ecadf0a625b97ac1f4b141a474061e",
+        "stderr": "coefficient_hits=4 codeblock_hits=221\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g1_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=640\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=632\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g1_colr.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=15 codeblock_hits=483\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=15 codeblock_hits=476\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g1_colr.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "a25b4da5ecaf4b383dc9475a96fb765671641bc3b724266aac4049a06a457b0b",
+        "stderr": "coefficient_hits=6 codeblock_hits=312\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "a25b4da5ecaf4b383dc9475a96fb765671641bc3b724266aac4049a06a457b0b",
+        "stderr": "coefficient_hits=6 codeblock_hits=314\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g1_colr.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "58d07209fa19c8586ad5d74f42824724230e6132c1e38b99e265a4837f01f7e2",
+        "stderr": "coefficient_hits=15 codeblock_hits=268\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "58d07209fa19c8586ad5d74f42824724230e6132c1e38b99e265a4837f01f7e2",
+        "stderr": "coefficient_hits=15 codeblock_hits=265\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g2_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=630\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=614\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g2_colr.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=15 codeblock_hits=471\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=15 codeblock_hits=483\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g2_colr.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "a25b4da5ecaf4b383dc9475a96fb765671641bc3b724266aac4049a06a457b0b",
+        "stderr": "coefficient_hits=6 codeblock_hits=313\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "a25b4da5ecaf4b383dc9475a96fb765671641bc3b724266aac4049a06a457b0b",
+        "stderr": "coefficient_hits=6 codeblock_hits=314\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g2_colr.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "58d07209fa19c8586ad5d74f42824724230e6132c1e38b99e265a4837f01f7e2",
+        "stderr": "coefficient_hits=15 codeblock_hits=264\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "58d07209fa19c8586ad5d74f42824724230e6132c1e38b99e265a4837f01f7e2",
+        "stderr": "coefficient_hits=15 codeblock_hits=266\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g3_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=623\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=610\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g3_colr.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=15 codeblock_hits=478\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b3192860d4bf2e367f390e95dafd4a133e79891ec391a3c4a7a4da2ae23a9e8f",
+        "stderr": "coefficient_hits=15 codeblock_hits=479\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g3_colr.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "a25b4da5ecaf4b383dc9475a96fb765671641bc3b724266aac4049a06a457b0b",
+        "stderr": "coefficient_hits=6 codeblock_hits=312\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "a25b4da5ecaf4b383dc9475a96fb765671641bc3b724266aac4049a06a457b0b",
+        "stderr": "coefficient_hits=6 codeblock_hits=311\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g3_colr.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "58d07209fa19c8586ad5d74f42824724230e6132c1e38b99e265a4837f01f7e2",
+        "stderr": "coefficient_hits=15 codeblock_hits=267\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "58d07209fa19c8586ad5d74f42824724230e6132c1e38b99e265a4837f01f7e2",
+        "stderr": "coefficient_hits=15 codeblock_hits=266\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g4_colr.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=616\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2b52f9df6fd1b851fbe4251cceb4be32eb114fe655b2f98390374d907b14f20a",
+        "stderr": "coefficient_hits=6 codeblock_hits=627\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g4_colr.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "a25b4da5ecaf4b383dc9475a96fb765671641bc3b724266aac4049a06a457b0b",
+        "stderr": "coefficient_hits=6 codeblock_hits=311\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "a25b4da5ecaf4b383dc9475a96fb765671641bc3b724266aac4049a06a457b0b",
+        "stderr": "coefficient_hits=6 codeblock_hits=313\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/g4_colr.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "58d07209fa19c8586ad5d74f42824724230e6132c1e38b99e265a4837f01f7e2",
+        "stderr": "coefficient_hits=15 codeblock_hits=266\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "58d07209fa19c8586ad5d74f42824724230e6132c1e38b99e265a4837f01f7e2",
+        "stderr": "coefficient_hits=15 codeblock_hits=265\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_04.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1e375649d1773218dce9ffbee3a13efc31d7895a2b2b437eb5a13bd3f457ac57",
+        "stderr": "coefficient_hits=6 codeblock_hits=455\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1e375649d1773218dce9ffbee3a13efc31d7895a2b2b437eb5a13bd3f457ac57",
+        "stderr": "coefficient_hits=6 codeblock_hits=454\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_04.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "bb0f34ff58e592252acac313482e065b7e3b347d28a5085c7e34826ddb57caac",
+        "stderr": "coefficient_hits=6 codeblock_hits=265\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "bb0f34ff58e592252acac313482e065b7e3b347d28a5085c7e34826ddb57caac",
+        "stderr": "coefficient_hits=6 codeblock_hits=263\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_04.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2220f0f8acab7ddcb2e50954a04a529641b7ff5763daea1c0c3bfa2bfc9e0e1d",
+        "stderr": "coefficient_hits=6 codeblock_hits=141\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2220f0f8acab7ddcb2e50954a04a529641b7ff5763daea1c0c3bfa2bfc9e0e1d",
+        "stderr": "coefficient_hits=6 codeblock_hits=143\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_07.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "eacbbc70a27e4c4a273bdf8368281db48d8928e53cbcf592108af06fec54ed4b",
+        "stderr": "coefficient_hits=6 codeblock_hits=600\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "eacbbc70a27e4c4a273bdf8368281db48d8928e53cbcf592108af06fec54ed4b",
+        "stderr": "coefficient_hits=6 codeblock_hits=601\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_07.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "c9f913865b6afdf3afa9f1b6e1d4b3d4e8cd965751daf065c959155b249bb3ff",
+        "stderr": "coefficient_hits=6 codeblock_hits=112\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "c9f913865b6afdf3afa9f1b6e1d4b3d4e8cd965751daf065c959155b249bb3ff",
+        "stderr": "coefficient_hits=6 codeblock_hits=116\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_07.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "c1b936bb7858a00f0498a9acb80621e88eda6e7c12c191b9561a883b39ac078f",
+        "stderr": "coefficient_hits=6 codeblock_hits=714\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "c1b936bb7858a00f0498a9acb80621e88eda6e7c12c191b9561a883b39ac078f",
+        "stderr": "coefficient_hits=6 codeblock_hits=712\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_08.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "063760420ff2b60a8be4832efd35366fb4ae48421f427c624b42dce288635465",
+        "stderr": "coefficient_hits=6 codeblock_hits=764\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "063760420ff2b60a8be4832efd35366fb4ae48421f427c624b42dce288635465",
+        "stderr": "coefficient_hits=6 codeblock_hits=763\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_08.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2c99ea94d39eb536d97589d38bf5187f0aefb25f7e9f8c047efc0837923b3f4e",
+        "stderr": "coefficient_hits=6 codeblock_hits=783\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2c99ea94d39eb536d97589d38bf5187f0aefb25f7e9f8c047efc0837923b3f4e",
+        "stderr": "coefficient_hits=6 codeblock_hits=772\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_08.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "a4b664cf26a9cf849b54ce5afffbb9610ff0ab79e013682338631ab527b51e13",
+        "stderr": "coefficient_hits=6 codeblock_hits=594\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "a4b664cf26a9cf849b54ce5afffbb9610ff0ab79e013682338631ab527b51e13",
+        "stderr": "coefficient_hits=6 codeblock_hits=597\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_08.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "7d18d49e363bf1e51ff3d2375c3cf09eae5218d1624e9736fe38413eda2420e3",
+        "stderr": "coefficient_hits=6 codeblock_hits=601\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "7d18d49e363bf1e51ff3d2375c3cf09eae5218d1624e9736fe38413eda2420e3",
+        "stderr": "coefficient_hits=6 codeblock_hits=612\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_10.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "cb7f2392fb66c302c1728007fde36856e983242ac24a01222c7032ba085f9f72",
+        "stderr": "coefficient_hits=6 codeblock_hits=157\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "cb7f2392fb66c302c1728007fde36856e983242ac24a01222c7032ba085f9f72",
+        "stderr": "coefficient_hits=6 codeblock_hits=156\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_14.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "11080ea16a97a48b89e290459c0bab6c9cb7f7ed5489189627fae3cd8a0cb212",
+        "stderr": "coefficient_hits=6 codeblock_hits=102\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "11080ea16a97a48b89e290459c0bab6c9cb7f7ed5489189627fae3cd8a0cb212",
+        "stderr": "coefficient_hits=6 codeblock_hits=101\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_14.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "07452470aa6e4f910d1a16e2f3263379a40eaf19420be350ad25dc39ec03cd49",
+        "stderr": "coefficient_hits=6 codeblock_hits=103\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "07452470aa6e4f910d1a16e2f3263379a40eaf19420be350ad25dc39ec03cd49",
+        "stderr": "coefficient_hits=6 codeblock_hits=104\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_14.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "19afcc85ef7b8393deb454a97b29fa4bca1f552e6d4c24a8c6100dc21e417785",
+        "stderr": "coefficient_hits=6 codeblock_hits=82\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "19afcc85ef7b8393deb454a97b29fa4bca1f552e6d4c24a8c6100dc21e417785",
+        "stderr": "coefficient_hits=6 codeblock_hits=85\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_14.j2k",
+      "mode": "coarsest-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "d137239c76784a4838c1f63f049f05ed2bab20c64d3829992e6fb25f7b248f46",
+        "stderr": "coefficient_hits=6 codeblock_hits=6\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "d137239c76784a4838c1f63f049f05ed2bab20c64d3829992e6fb25f7b248f46",
+        "stderr": "coefficient_hits=6 codeblock_hits=7\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p0_14.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "bd55a2a8dd0b7d783a3deb462090f3868f31d34f494cb395975cac1ca6e5c7d6",
+        "stderr": "coefficient_hits=6 codeblock_hits=85\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "bd55a2a8dd0b7d783a3deb462090f3868f31d34f494cb395975cac1ca6e5c7d6",
+        "stderr": "coefficient_hits=6 codeblock_hits=81\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p1_02.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1e375649d1773218dce9ffbee3a13efc31d7895a2b2b437eb5a13bd3f457ac57",
+        "stderr": "coefficient_hits=6 codeblock_hits=449\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1e375649d1773218dce9ffbee3a13efc31d7895a2b2b437eb5a13bd3f457ac57",
+        "stderr": "coefficient_hits=6 codeblock_hits=438\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p1_02.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "bb0f34ff58e592252acac313482e065b7e3b347d28a5085c7e34826ddb57caac",
+        "stderr": "coefficient_hits=6 codeblock_hits=257\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "bb0f34ff58e592252acac313482e065b7e3b347d28a5085c7e34826ddb57caac",
+        "stderr": "coefficient_hits=6 codeblock_hits=258\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p1_02.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "22f99e421319283130182e810473a009025eaaf93d595f9d92193f85e22fec90",
+        "stderr": "coefficient_hits=6 codeblock_hits=183\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "22f99e421319283130182e810473a009025eaaf93d595f9d92193f85e22fec90",
+        "stderr": "coefficient_hits=6 codeblock_hits=184\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p1_07.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "01fdcdecb60417d90de71990128c902f256af3ddf2cb698f2467426af00dac76",
+        "stderr": "coefficient_hits=4 codeblock_hits=66\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "01fdcdecb60417d90de71990128c902f256af3ddf2cb698f2467426af00dac76",
+        "stderr": "coefficient_hits=4 codeblock_hits=69\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/conformance/p1_07.j2k",
+      "mode": "coarsest-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "faea87cf18b6c8525965c00f2a802d20d8d3ffed1c3a38bb848a9e031bd5a4ad",
+        "stderr": "coefficient_hits=4 codeblock_hits=28\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "faea87cf18b6c8525965c00f2a802d20d8d3ffed1c3a38bb848a9e031bd5a4ad",
+        "stderr": "coefficient_hits=4 codeblock_hits=27\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/123.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "cea83dc28dcc81838bf20b224b1fc0e89c15945dce4b53c5561e54e12811b27f",
+        "stderr": "coefficient_hits=2 codeblock_hits=440\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "cea83dc28dcc81838bf20b224b1fc0e89c15945dce4b53c5561e54e12811b27f",
+        "stderr": "coefficient_hits=2 codeblock_hits=435\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/123.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "a2b15ca714519a4474645dc33c079fdb55a7738b85610643c1b6bd30ad46b1eb",
+        "stderr": "coefficient_hits=2 codeblock_hits=259\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "a2b15ca714519a4474645dc33c079fdb55a7738b85610643c1b6bd30ad46b1eb",
+        "stderr": "coefficient_hits=2 codeblock_hits=256\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/123.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "37b5b21934f7eefaf2e2d9478f8154427d09fec5765d2047a749cb0e2c9c82d0",
+        "stderr": "coefficient_hits=2 codeblock_hits=450\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "37b5b21934f7eefaf2e2d9478f8154427d09fec5765d2047a749cb0e2c9c82d0",
+        "stderr": "coefficient_hits=2 codeblock_hits=437\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/123.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "f9c6b61743a64ba5b1263bb816f712e85187db01612e81e9744f4f634ff3015a",
+        "stderr": "coefficient_hits=2 codeblock_hits=258\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "f9c6b61743a64ba5b1263bb816f712e85187db01612e81e9744f4f634ff3015a",
+        "stderr": "coefficient_hits=2 codeblock_hits=256\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/1802.pdf.SIGSEGV.36e.894.jp2",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "caaa3e3b9f886aaae6fe04ae08cc82afe42a7c257a4e07693383c957bb944e80",
+        "stderr": "coefficient_hits=29 codeblock_hits=631\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "caaa3e3b9f886aaae6fe04ae08cc82afe42a7c257a4e07693383c957bb944e80",
+        "stderr": "coefficient_hits=29 codeblock_hits=632\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/1802.pdf.SIGSEGV.36e.894.jp2",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "301d9daf25a467f73d7bf6ddd393b12d4b11ca45f7ae8d40f877ac545ebab50f",
+        "stderr": "coefficient_hits=29 codeblock_hits=567\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "301d9daf25a467f73d7bf6ddd393b12d4b11ca45f7ae8d40f877ac545ebab50f",
+        "stderr": "coefficient_hits=29 codeblock_hits=566\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/Bretagne2.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "5c46f738b0becd1a3cb57f7ad7ed3faa69c08d643331f3a7619a84eb844a012a",
+        "stderr": "coefficient_hits=36 codeblock_hits=69\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "5c46f738b0becd1a3cb57f7ad7ed3faa69c08d643331f3a7619a84eb844a012a",
+        "stderr": "coefficient_hits=36 codeblock_hits=66\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/Bretagne2.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "eb2cd893f2399163e467378d89c12f38133125f8666f7dcd0fdefc003eb8310c",
+        "stderr": "coefficient_hits=36 codeblock_hits=582\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "eb2cd893f2399163e467378d89c12f38133125f8666f7dcd0fdefc003eb8310c",
+        "stderr": "coefficient_hits=36 codeblock_hits=594\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/CT_Phillips_JPEG2K_Decompr_Problem.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b987a510603a244076bb5af07090dfa5c8d6a661996716cc65856eaa05f943d4",
+        "stderr": "coefficient_hits=2 codeblock_hits=173\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b987a510603a244076bb5af07090dfa5c8d6a661996716cc65856eaa05f943d4",
+        "stderr": "coefficient_hits=2 codeblock_hits=172\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/Bretagne2.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "f1f5025a809e6ee3da247eec7aefd273d962ec046a470c7a976bb630d822c209",
+        "stderr": "coefficient_hits=6 codeblock_hits=14\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "f1f5025a809e6ee3da247eec7aefd273d962ec046a470c7a976bb630d822c209",
+        "stderr": "coefficient_hits=6 codeblock_hits=16\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/Cannotreaddatawithnosizeknown.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1ba86daf4ee94a0f50c23bd268643061a2d48343886102f6ef6435d39bf8d32f",
+        "stderr": "coefficient_hits=2 codeblock_hits=298\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1ba86daf4ee94a0f50c23bd268643061a2d48343886102f6ef6435d39bf8d32f",
+        "stderr": "coefficient_hits=2 codeblock_hits=302\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/Cannotreaddatawithnosizeknown.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "4caa0d85a40d68f51b9e82495d8f81fde9d55e9f99403034f4f3210f25f82eb0",
+        "stderr": "coefficient_hits=2 codeblock_hits=205\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "4caa0d85a40d68f51b9e82495d8f81fde9d55e9f99403034f4f3210f25f82eb0",
+        "stderr": "coefficient_hits=2 codeblock_hits=208\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/Cannotreaddatawithnosizeknown.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "48735b9cacd5b96b35886961e99b36a331f47610aee44df792f2f7ebe69cd00c",
+        "stderr": "coefficient_hits=2 codeblock_hits=301\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "48735b9cacd5b96b35886961e99b36a331f47610aee44df792f2f7ebe69cd00c",
+        "stderr": "coefficient_hits=2 codeblock_hits=304\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/Cannotreaddatawithnosizeknown.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "fc11426c8bd2649edf28a8d19b634b07786b7bf2c1b5cd54901c3c7700f9fcfc",
+        "stderr": "coefficient_hits=2 codeblock_hits=208\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "fc11426c8bd2649edf28a8d19b634b07786b7bf2c1b5cd54901c3c7700f9fcfc",
+        "stderr": "coefficient_hits=2 codeblock_hits=207\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/MarkerIsNotCompliant.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1ba86daf4ee94a0f50c23bd268643061a2d48343886102f6ef6435d39bf8d32f",
+        "stderr": "coefficient_hits=2 codeblock_hits=303\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1ba86daf4ee94a0f50c23bd268643061a2d48343886102f6ef6435d39bf8d32f",
+        "stderr": "coefficient_hits=2 codeblock_hits=296\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/MarkerIsNotCompliant.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "4caa0d85a40d68f51b9e82495d8f81fde9d55e9f99403034f4f3210f25f82eb0",
+        "stderr": "coefficient_hits=2 codeblock_hits=207\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "4caa0d85a40d68f51b9e82495d8f81fde9d55e9f99403034f4f3210f25f82eb0",
+        "stderr": "coefficient_hits=2 codeblock_hits=206\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/MarkerIsNotCompliant.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "48735b9cacd5b96b35886961e99b36a331f47610aee44df792f2f7ebe69cd00c",
+        "stderr": "coefficient_hits=2 codeblock_hits=303\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "48735b9cacd5b96b35886961e99b36a331f47610aee44df792f2f7ebe69cd00c",
+        "stderr": "coefficient_hits=2 codeblock_hits=302\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/_00042.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b9f50c033033d6c0612ef8590edacc2a66a906d1f2953bbab3f432e4994b7b42",
+        "stderr": "coefficient_hits=6 codeblock_hits=616\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b9f50c033033d6c0612ef8590edacc2a66a906d1f2953bbab3f432e4994b7b42",
+        "stderr": "coefficient_hits=6 codeblock_hits=630\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/_00042.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "c8f6c819c79411b0678e114a01843f2c38c64f854cf82df0b33fe8809ab9ec57",
+        "stderr": "coefficient_hits=6 codeblock_hits=496\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "c8f6c819c79411b0678e114a01843f2c38c64f854cf82df0b33fe8809ab9ec57",
+        "stderr": "coefficient_hits=6 codeblock_hits=514\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/_00042.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "4c9fc34984fef134f4c40b7fb4402ecba532b90bc41dc139d3668cf122e78725",
+        "stderr": "coefficient_hits=6 codeblock_hits=500\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "4c9fc34984fef134f4c40b7fb4402ecba532b90bc41dc139d3668cf122e78725",
+        "stderr": "coefficient_hits=6 codeblock_hits=513\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/bug.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "cea83dc28dcc81838bf20b224b1fc0e89c15945dce4b53c5561e54e12811b27f",
+        "stderr": "coefficient_hits=2 codeblock_hits=435\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "cea83dc28dcc81838bf20b224b1fc0e89c15945dce4b53c5561e54e12811b27f",
+        "stderr": "coefficient_hits=2 codeblock_hits=453\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/bug.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "a2b15ca714519a4474645dc33c079fdb55a7738b85610643c1b6bd30ad46b1eb",
+        "stderr": "coefficient_hits=2 codeblock_hits=257\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "a2b15ca714519a4474645dc33c079fdb55a7738b85610643c1b6bd30ad46b1eb",
+        "stderr": "coefficient_hits=2 codeblock_hits=255\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/bug.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "37b5b21934f7eefaf2e2d9478f8154427d09fec5765d2047a749cb0e2c9c82d0",
+        "stderr": "coefficient_hits=2 codeblock_hits=439\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "37b5b21934f7eefaf2e2d9478f8154427d09fec5765d2047a749cb0e2c9c82d0",
+        "stderr": "coefficient_hits=2 codeblock_hits=444\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/buxI.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "cd779f6543d17f8f9ec72371572b6f3874778297deea12b06ea2f35cec5f82e8",
+        "stderr": "coefficient_hits=2 codeblock_hits=129\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "cd779f6543d17f8f9ec72371572b6f3874778297deea12b06ea2f35cec5f82e8",
+        "stderr": "coefficient_hits=2 codeblock_hits=134\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/bug.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "f9c6b61743a64ba5b1263bb816f712e85187db01612e81e9744f4f634ff3015a",
+        "stderr": "coefficient_hits=2 codeblock_hits=256\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "f9c6b61743a64ba5b1263bb816f712e85187db01612e81e9744f4f634ff3015a",
+        "stderr": "coefficient_hits=2 codeblock_hits=259\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/buxI.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "573dd37adde2fcc139adf6b19818dc4c4b1d2bb68482c40ce5737431767e71ab",
+        "stderr": "coefficient_hits=2 codeblock_hits=133\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "573dd37adde2fcc139adf6b19818dc4c4b1d2bb68482c40ce5737431767e71ab",
+        "stderr": "coefficient_hits=2 codeblock_hits=134\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/buxR.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "fc7ddb40549a686a6855d722d5c1184a691ca4a684656ea2e07406d6b62fe918",
+        "stderr": "coefficient_hits=2 codeblock_hits=130\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "fc7ddb40549a686a6855d722d5c1184a691ca4a684656ea2e07406d6b62fe918",
+        "stderr": "coefficient_hits=2 codeblock_hits=131\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/illegalcolortransform.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1ba86daf4ee94a0f50c23bd268643061a2d48343886102f6ef6435d39bf8d32f",
+        "stderr": "coefficient_hits=2 codeblock_hits=291\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1ba86daf4ee94a0f50c23bd268643061a2d48343886102f6ef6435d39bf8d32f",
+        "stderr": "coefficient_hits=2 codeblock_hits=289\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/illegalcolortransform.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "48735b9cacd5b96b35886961e99b36a331f47610aee44df792f2f7ebe69cd00c",
+        "stderr": "coefficient_hits=2 codeblock_hits=299\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "48735b9cacd5b96b35886961e99b36a331f47610aee44df792f2f7ebe69cd00c",
+        "stderr": "coefficient_hits=2 codeblock_hits=296\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/illegalcolortransform.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "4caa0d85a40d68f51b9e82495d8f81fde9d55e9f99403034f4f3210f25f82eb0",
+        "stderr": "coefficient_hits=2 codeblock_hits=204\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "4caa0d85a40d68f51b9e82495d8f81fde9d55e9f99403034f4f3210f25f82eb0",
+        "stderr": "coefficient_hits=2 codeblock_hits=207\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/illegalcolortransform.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "fc11426c8bd2649edf28a8d19b634b07786b7bf2c1b5cd54901c3c7700f9fcfc",
+        "stderr": "coefficient_hits=2 codeblock_hits=207\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "fc11426c8bd2649edf28a8d19b634b07786b7bf2c1b5cd54901c3c7700f9fcfc",
+        "stderr": "coefficient_hits=2 codeblock_hits=208\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue135.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "13c5099dc110ba0f398c3d0d1f224a1eb46b7d0965355361957d5dbc6afccab8",
+        "stderr": "coefficient_hits=6 codeblock_hits=1985\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "13c5099dc110ba0f398c3d0d1f224a1eb46b7d0965355361957d5dbc6afccab8",
+        "stderr": "coefficient_hits=6 codeblock_hits=1862\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue135.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "6a5d7286bbb52fe7d2fabf92942d346ca186f367bfb76eefd05a30a16ee998ed",
+        "stderr": "coefficient_hits=6 codeblock_hits=1786\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "6a5d7286bbb52fe7d2fabf92942d346ca186f367bfb76eefd05a30a16ee998ed",
+        "stderr": "coefficient_hits=6 codeblock_hits=1737\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue135.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "59aafab963519119537926efe63c75d58f0bedd340eaf5fc4e6feb8b04e367fd",
+        "stderr": "coefficient_hits=6 codeblock_hits=923\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "59aafab963519119537926efe63c75d58f0bedd340eaf5fc4e6feb8b04e367fd",
+        "stderr": "coefficient_hits=6 codeblock_hits=841\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue135.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "67203fa9a7fbbcdbf91d5af045999855cfbf8a4056a03fb69e9ec074851d39dd",
+        "stderr": "coefficient_hits=6 codeblock_hits=853\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "67203fa9a7fbbcdbf91d5af045999855cfbf8a4056a03fb69e9ec074851d39dd",
+        "stderr": "coefficient_hits=6 codeblock_hits=825\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue142.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "repeat=0 error=unsupported components\ncoefficient_hits=0 codeblock_hits=102\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "repeat=0 error=unsupported components\ncoefficient_hits=0 codeblock_hits=118\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue142.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "repeat=0 error=unsupported components\ncoefficient_hits=0 codeblock_hits=23\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "repeat=0 error=unsupported components\ncoefficient_hits=0 codeblock_hits=31\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue226.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "repeat=0 error=Failed to decode tile 1/1\ncoefficient_hits=0 codeblock_hits=10\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "repeat=0 error=Failed to decode tile 1/1\ncoefficient_hits=0 codeblock_hits=11\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue228.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "d9d11d5b46e2096c3fdeae5a7931c654ebc13bb82d6668198dab86f0c15832ba",
+        "stderr": "coefficient_hits=2 codeblock_hits=132\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "d9d11d5b46e2096c3fdeae5a7931c654ebc13bb82d6668198dab86f0c15832ba",
+        "stderr": "coefficient_hits=2 codeblock_hits=134\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue228.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "e9fd6985fa5b93a7ac36e27604ab6448331bb3104de0a6fee9c45a35f066e0ec",
+        "stderr": "coefficient_hits=2 codeblock_hits=132\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "e9fd6985fa5b93a7ac36e27604ab6448331bb3104de0a6fee9c45a35f066e0ec",
+        "stderr": "coefficient_hits=2 codeblock_hits=134\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue399.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "389d44e8ce0154052f556eb6bfd36090552dd20c2a59bad8026cc638d2f74c7c",
+        "stderr": "coefficient_hits=4 codeblock_hits=277\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "389d44e8ce0154052f556eb6bfd36090552dd20c2a59bad8026cc638d2f74c7c",
+        "stderr": "coefficient_hits=4 codeblock_hits=278\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/issue399.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "e8492864de7a0933b142ee87b5309fba52448506445d79d87b99bfb07894d3c2",
+        "stderr": "coefficient_hits=4 codeblock_hits=194\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "e8492864de7a0933b142ee87b5309fba52448506445d79d87b99bfb07894d3c2",
+        "stderr": "coefficient_hits=4 codeblock_hits=195\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/kakadu_v4-4_openjpegv2_broken.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "fce80fe1d05ea3dd083da9b4c9721c5ee07d7cb7964a092802f137e881065594",
+        "stderr": "coefficient_hits=2 codeblock_hits=490\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "fce80fe1d05ea3dd083da9b4c9721c5ee07d7cb7964a092802f137e881065594",
+        "stderr": "coefficient_hits=2 codeblock_hits=495\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/kakadu_v4-4_openjpegv2_broken.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "94526082b3655590efb3d87f8c6d7e548835e8d0f763d1b4a4295b28410b25e7",
+        "stderr": "coefficient_hits=2 codeblock_hits=286\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "94526082b3655590efb3d87f8c6d7e548835e8d0f763d1b4a4295b28410b25e7",
+        "stderr": "coefficient_hits=2 codeblock_hits=287\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/kakadu_v4-4_openjpegv2_broken.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "5177bd4bd10dbbe08e172fa68d3cfa69932b7108f56f53190b84cd748e87abb7",
+        "stderr": "coefficient_hits=2 codeblock_hits=489\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "5177bd4bd10dbbe08e172fa68d3cfa69932b7108f56f53190b84cd748e87abb7",
+        "stderr": "coefficient_hits=2 codeblock_hits=484\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/kakadu_v4-4_openjpegv2_broken.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "0857e1a86270bdd9b2c429c68d96538720edb7e20446c035af64c7883a892884",
+        "stderr": "coefficient_hits=2 codeblock_hits=284\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "0857e1a86270bdd9b2c429c68d96538720edb7e20446c035af64c7883a892884",
+        "stderr": "coefficient_hits=2 codeblock_hits=288\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/kodak_2layers_lrcp.j2c",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "13c5099dc110ba0f398c3d0d1f224a1eb46b7d0965355361957d5dbc6afccab8",
+        "stderr": "coefficient_hits=6 codeblock_hits=2008\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "13c5099dc110ba0f398c3d0d1f224a1eb46b7d0965355361957d5dbc6afccab8",
+        "stderr": "coefficient_hits=6 codeblock_hits=1840\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/kodak_2layers_lrcp.j2c",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "6a5d7286bbb52fe7d2fabf92942d346ca186f367bfb76eefd05a30a16ee998ed",
+        "stderr": "coefficient_hits=6 codeblock_hits=1808\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "6a5d7286bbb52fe7d2fabf92942d346ca186f367bfb76eefd05a30a16ee998ed",
+        "stderr": "coefficient_hits=6 codeblock_hits=2409\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/kodak_2layers_lrcp.j2c",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "59aafab963519119537926efe63c75d58f0bedd340eaf5fc4e6feb8b04e367fd",
+        "stderr": "coefficient_hits=6 codeblock_hits=880\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "59aafab963519119537926efe63c75d58f0bedd340eaf5fc4e6feb8b04e367fd",
+        "stderr": "coefficient_hits=6 codeblock_hits=935\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/kodak_2layers_lrcp.j2c",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "67203fa9a7fbbcdbf91d5af045999855cfbf8a4056a03fb69e9ec074851d39dd",
+        "stderr": "coefficient_hits=6 codeblock_hits=835\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "67203fa9a7fbbcdbf91d5af045999855cfbf8a4056a03fb69e9ec074851d39dd",
+        "stderr": "coefficient_hits=6 codeblock_hits=862\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00000.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "c9bb1db6fdf31367498eb94818104a01a797b795c028624dcae507ef2d40981a",
+        "stderr": "coefficient_hits=6 codeblock_hits=260\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "c9bb1db6fdf31367498eb94818104a01a797b795c028624dcae507ef2d40981a",
+        "stderr": "coefficient_hits=6 codeblock_hits=259\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00000.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2a8d2cdcff01bfb21f5571c6f13713f452e64f0b9e889e3c55b95a74b472062a",
+        "stderr": "coefficient_hits=6 codeblock_hits=255\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2a8d2cdcff01bfb21f5571c6f13713f452e64f0b9e889e3c55b95a74b472062a",
+        "stderr": "coefficient_hits=6 codeblock_hits=252\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00000.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "3c2caba192b64d96cac6b6f1c26020b8dc85e1a3fac5f3435041c1c29e50fe44",
+        "stderr": "coefficient_hits=6 codeblock_hits=258\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "3c2caba192b64d96cac6b6f1c26020b8dc85e1a3fac5f3435041c1c29e50fe44",
+        "stderr": "coefficient_hits=6 codeblock_hits=259\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00000.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1bb0a170b688509fd4c6384002f01163073a35ad607ca6027e0343df239fd5ae",
+        "stderr": "coefficient_hits=6 codeblock_hits=257\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1bb0a170b688509fd4c6384002f01163073a35ad607ca6027e0343df239fd5ae",
+        "stderr": "coefficient_hits=6 codeblock_hits=256\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00001.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "c9bb1db6fdf31367498eb94818104a01a797b795c028624dcae507ef2d40981a",
+        "stderr": "coefficient_hits=6 codeblock_hits=255\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "c9bb1db6fdf31367498eb94818104a01a797b795c028624dcae507ef2d40981a",
+        "stderr": "coefficient_hits=6 codeblock_hits=258\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00001.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "3c2caba192b64d96cac6b6f1c26020b8dc85e1a3fac5f3435041c1c29e50fe44",
+        "stderr": "coefficient_hits=6 codeblock_hits=262\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "3c2caba192b64d96cac6b6f1c26020b8dc85e1a3fac5f3435041c1c29e50fe44",
+        "stderr": "coefficient_hits=6 codeblock_hits=256\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00001.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1bb0a170b688509fd4c6384002f01163073a35ad607ca6027e0343df239fd5ae",
+        "stderr": "coefficient_hits=6 codeblock_hits=254\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1bb0a170b688509fd4c6384002f01163073a35ad607ca6027e0343df239fd5ae",
+        "stderr": "coefficient_hits=6 codeblock_hits=253\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00002.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "c9bb1db6fdf31367498eb94818104a01a797b795c028624dcae507ef2d40981a",
+        "stderr": "coefficient_hits=6 codeblock_hits=256\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "c9bb1db6fdf31367498eb94818104a01a797b795c028624dcae507ef2d40981a",
+        "stderr": "coefficient_hits=6 codeblock_hits=254\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00002.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "3c2caba192b64d96cac6b6f1c26020b8dc85e1a3fac5f3435041c1c29e50fe44",
+        "stderr": "coefficient_hits=6 codeblock_hits=257\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "3c2caba192b64d96cac6b6f1c26020b8dc85e1a3fac5f3435041c1c29e50fe44",
+        "stderr": "coefficient_hits=6 codeblock_hits=254\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/movie_00002.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2a8d2cdcff01bfb21f5571c6f13713f452e64f0b9e889e3c55b95a74b472062a",
+        "stderr": "coefficient_hits=6 codeblock_hits=260\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2a8d2cdcff01bfb21f5571c6f13713f452e64f0b9e889e3c55b95a74b472062a",
+        "stderr": "coefficient_hits=6 codeblock_hits=259\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/orb-blue10-lin-j2k.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "4faf996e10fb9b7e6d1fe8ed61f22fbd7cacacfb3e830e922cae3042b3508333",
+        "stderr": "coefficient_hits=6 codeblock_hits=92\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "4faf996e10fb9b7e6d1fe8ed61f22fbd7cacacfb3e830e922cae3042b3508333",
+        "stderr": "coefficient_hits=6 codeblock_hits=91\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/orb-blue10-lin-j2k.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "35319a7c27cea7b3db130c84ef25430047fe04ece9b5c90fc4f3fdb9c4910b32",
+        "stderr": "coefficient_hits=6 codeblock_hits=90\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "35319a7c27cea7b3db130c84ef25430047fe04ece9b5c90fc4f3fdb9c4910b32",
+        "stderr": "coefficient_hits=6 codeblock_hits=89\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/orb-blue10-lin-j2k.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "b612955f74dcb0c2d86a2607d9414379d40310b5e6018bbdefd2e4d02605a61e",
+        "stderr": "coefficient_hits=6 codeblock_hits=72\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "b612955f74dcb0c2d86a2607d9414379d40310b5e6018bbdefd2e4d02605a61e",
+        "stderr": "coefficient_hits=6 codeblock_hits=73\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/orb-blue10-lin-j2k.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "f42d2a8802197f995376e717ec0b7d80ed82b266e3b7d28729bab02d7cc6e39a",
+        "stderr": "coefficient_hits=6 codeblock_hits=73\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "f42d2a8802197f995376e717ec0b7d80ed82b266e3b7d28729bab02d7cc6e39a",
+        "stderr": "coefficient_hits=6 codeblock_hits=71\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/test_lossless.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "50b19e72dede206f46b0bbc512cc5f94946ed6c7711da99f6ee696fe6d9737f7",
+        "stderr": "coefficient_hits=2 codeblock_hits=422\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "50b19e72dede206f46b0bbc512cc5f94946ed6c7711da99f6ee696fe6d9737f7",
+        "stderr": "coefficient_hits=2 codeblock_hits=428\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/git/openjpeg-data/input/nonregression/test_lossless.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1208fb42f41830b35c85bfa404ef0964e93545be65942693e96a8c459bea7b32",
+        "stderr": "coefficient_hits=2 codeblock_hits=320\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1208fb42f41830b35c85bfa404ef0964e93545be65942693e96a8c459bea7b32",
+        "stderr": "coefficient_hits=2 codeblock_hits=324\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_extended/nlt1.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "4469d959f50d97383b601e5a8ac89439d618798e5ca2c255c7a2ac7465d62d96",
+        "stderr": "coefficient_hits=6 codeblock_hits=310\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "4469d959f50d97383b601e5a8ac89439d618798e5ca2c255c7a2ac7465d62d96",
+        "stderr": "coefficient_hits=6 codeblock_hits=298\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_extended/nlt1.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "4d2ae9697642f7bcc617b362437a7ea2d41f7251901ce1af28c85eee3cda57d1",
+        "stderr": "coefficient_hits=6 codeblock_hits=196\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "4d2ae9697642f7bcc617b362437a7ea2d41f7251901ce1af28c85eee3cda57d1",
+        "stderr": "coefficient_hits=6 codeblock_hits=198\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_hifi/hifi_p1_02.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "7994cd3701f4cd51198e36a911ef2498614f04edc6039be9da6b16132981087c",
+        "stderr": "coefficient_hits=6 codeblock_hits=106\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "7994cd3701f4cd51198e36a911ef2498614f04edc6039be9da6b16132981087c",
+        "stderr": "coefficient_hits=6 codeblock_hits=107\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_hifi/hifi_p1_02.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "18ce5f756a5a3feea228ab43ca29db67271b5a6c8d12c18a226a503755e46cf1",
+        "stderr": "coefficient_hits=6 codeblock_hits=107\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "18ce5f756a5a3feea228ab43ca29db67271b5a6c8d12c18a226a503755e46cf1",
+        "stderr": "coefficient_hits=6 codeblock_hits=106\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_04.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1e375649d1773218dce9ffbee3a13efc31d7895a2b2b437eb5a13bd3f457ac57",
+        "stderr": "coefficient_hits=6 codeblock_hits=457\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1e375649d1773218dce9ffbee3a13efc31d7895a2b2b437eb5a13bd3f457ac57",
+        "stderr": "coefficient_hits=6 codeblock_hits=459\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_04.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "bb0f34ff58e592252acac313482e065b7e3b347d28a5085c7e34826ddb57caac",
+        "stderr": "coefficient_hits=6 codeblock_hits=276\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "bb0f34ff58e592252acac313482e065b7e3b347d28a5085c7e34826ddb57caac",
+        "stderr": "coefficient_hits=6 codeblock_hits=264\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_04.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "22f99e421319283130182e810473a009025eaaf93d595f9d92193f85e22fec90",
+        "stderr": "coefficient_hits=6 codeblock_hits=189\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "22f99e421319283130182e810473a009025eaaf93d595f9d92193f85e22fec90",
+        "stderr": "coefficient_hits=6 codeblock_hits=193\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_07.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "eacbbc70a27e4c4a273bdf8368281db48d8928e53cbcf592108af06fec54ed4b",
+        "stderr": "coefficient_hits=6 codeblock_hits=603\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "eacbbc70a27e4c4a273bdf8368281db48d8928e53cbcf592108af06fec54ed4b",
+        "stderr": "coefficient_hits=6 codeblock_hits=600\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_07.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "c9f913865b6afdf3afa9f1b6e1d4b3d4e8cd965751daf065c959155b249bb3ff",
+        "stderr": "coefficient_hits=6 codeblock_hits=114\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "c9f913865b6afdf3afa9f1b6e1d4b3d4e8cd965751daf065c959155b249bb3ff",
+        "stderr": "coefficient_hits=6 codeblock_hits=116\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_08.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "063760420ff2b60a8be4832efd35366fb4ae48421f427c624b42dce288635465",
+        "stderr": "coefficient_hits=6 codeblock_hits=760\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "063760420ff2b60a8be4832efd35366fb4ae48421f427c624b42dce288635465",
+        "stderr": "coefficient_hits=6 codeblock_hits=785\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_08.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "a4b664cf26a9cf849b54ce5afffbb9610ff0ab79e013682338631ab527b51e13",
+        "stderr": "coefficient_hits=6 codeblock_hits=609\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "a4b664cf26a9cf849b54ce5afffbb9610ff0ab79e013682338631ab527b51e13",
+        "stderr": "coefficient_hits=6 codeblock_hits=606\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_08.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2c99ea94d39eb536d97589d38bf5187f0aefb25f7e9f8c047efc0837923b3f4e",
+        "stderr": "coefficient_hits=6 codeblock_hits=758\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2c99ea94d39eb536d97589d38bf5187f0aefb25f7e9f8c047efc0837923b3f4e",
+        "stderr": "coefficient_hits=6 codeblock_hits=792\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_08.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "7d18d49e363bf1e51ff3d2375c3cf09eae5218d1624e9736fe38413eda2420e3",
+        "stderr": "coefficient_hits=6 codeblock_hits=617\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "7d18d49e363bf1e51ff3d2375c3cf09eae5218d1624e9736fe38413eda2420e3",
+        "stderr": "coefficient_hits=6 codeblock_hits=609\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_14.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "11080ea16a97a48b89e290459c0bab6c9cb7f7ed5489189627fae3cd8a0cb212",
+        "stderr": "coefficient_hits=6 codeblock_hits=99\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "11080ea16a97a48b89e290459c0bab6c9cb7f7ed5489189627fae3cd8a0cb212",
+        "stderr": "coefficient_hits=6 codeblock_hits=103\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_14.j2k",
+      "mode": "area-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "07452470aa6e4f910d1a16e2f3263379a40eaf19420be350ad25dc39ec03cd49",
+        "stderr": "coefficient_hits=6 codeblock_hits=102\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "07452470aa6e4f910d1a16e2f3263379a40eaf19420be350ad25dc39ec03cd49",
+        "stderr": "coefficient_hits=6 codeblock_hits=103\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_14.j2k",
+      "mode": "coarsest-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "d137239c76784a4838c1f63f049f05ed2bab20c64d3829992e6fb25f7b248f46",
+        "stderr": "coefficient_hits=6 codeblock_hits=7\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "d137239c76784a4838c1f63f049f05ed2bab20c64d3829992e6fb25f7b248f46",
+        "stderr": "coefficient_hits=6 codeblock_hits=6\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_14.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "bd55a2a8dd0b7d783a3deb462090f3868f31d34f494cb395975cac1ca6e5c7d6",
+        "stderr": "coefficient_hits=6 codeblock_hits=83\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "bd55a2a8dd0b7d783a3deb462090f3868f31d34f494cb395975cac1ca6e5c7d6",
+        "stderr": "coefficient_hits=6 codeblock_hits=84\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_02.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "1e375649d1773218dce9ffbee3a13efc31d7895a2b2b437eb5a13bd3f457ac57",
+        "stderr": "coefficient_hits=6 codeblock_hits=447\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "1e375649d1773218dce9ffbee3a13efc31d7895a2b2b437eb5a13bd3f457ac57",
+        "stderr": "coefficient_hits=6 codeblock_hits=439\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_02.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "22f99e421319283130182e810473a009025eaaf93d595f9d92193f85e22fec90",
+        "stderr": "coefficient_hits=6 codeblock_hits=182\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "22f99e421319283130182e810473a009025eaaf93d595f9d92193f85e22fec90",
+        "stderr": "coefficient_hits=6 codeblock_hits=178\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_02.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "2220f0f8acab7ddcb2e50954a04a529641b7ff5763daea1c0c3bfa2bfc9e0e1d",
+        "stderr": "coefficient_hits=6 codeblock_hits=132\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "2220f0f8acab7ddcb2e50954a04a529641b7ff5763daea1c0c3bfa2bfc9e0e1d",
+        "stderr": "coefficient_hits=6 codeblock_hits=131\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_07.j2k",
+      "mode": "full-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "01fdcdecb60417d90de71990128c902f256af3ddf2cb698f2467426af00dac76",
+        "stderr": "coefficient_hits=4 codeblock_hits=67\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "01fdcdecb60417d90de71990128c902f256af3ddf2cb698f2467426af00dac76",
+        "stderr": "coefficient_hits=4 codeblock_hits=68\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_07.j2k",
+      "mode": "reduce1-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "faea87cf18b6c8525965c00f2a802d20d8d3ffed1c3a38bb848a9e031bd5a4ad",
+        "stderr": "coefficient_hits=4 codeblock_hits=29\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "faea87cf18b6c8525965c00f2a802d20d8d3ffed1c3a38bb848a9e031bd5a4ad",
+        "stderr": "coefficient_hits=4 codeblock_hits=26\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_07.j2k",
+      "mode": "coarsest-t8",
+      "probe": "hvc",
+      "baseline": {
+        "status": 0,
+        "sha256": "faea87cf18b6c8525965c00f2a802d20d8d3ffed1c3a38bb848a9e031bd5a4ad",
+        "stderr": "coefficient_hits=4 codeblock_hits=28\n",
+        "stdout": ""
+      },
+      "candidate": {
+        "status": 0,
+        "sha256": "faea87cf18b6c8525965c00f2a802d20d8d3ffed1c3a38bb848a9e031bd5a4ad",
+        "stderr": "coefficient_hits=4 codeblock_hits=27\n",
+        "stdout": ""
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b11.j2k",
+      "mode": "full-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nA malformed codeblock that has more than one coding pass, but zero length for 2nd and potentially the 3rd pass in an HT codeblock.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 9 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=0\nRESULT status=1 stage=decode messages=11\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=0\nRESULT status=1 stage=decode messages=6\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b11.j2k",
+      "mode": "area-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nA malformed codeblock that has more than one coding pass, but zero length for 2nd and potentially the 3rd pass in an HT codeblock.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=0\nRESULT status=1 stage=decode messages=11\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Failed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=0\nRESULT status=1 stage=decode messages=2\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b11.j2k",
+      "mode": "reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=1\nRESULT status=1 stage=decode messages=9\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 18 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 31 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=1\nRESULT status=1 stage=decode messages=10\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b11.j2k",
+      "mode": "coarsest-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=3\nRESULT status=1 stage=decode messages=10\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nA malformed codeblock that has more than one coding pass, but zero length for 2nd and potentially the 3rd pass in an HT codeblock.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=3\nRESULT status=1 stage=decode messages=6\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b11.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nA malformed codeblock that has more than one coding pass, but zero length for 2nd and potentially the 3rd pass in an HT codeblock.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 9 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=1\nRESULT status=1 stage=decode messages=10\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nA malformed codeblock that has more than one coding pass, but zero length for 2nd and potentially the 3rd pass in an HT codeblock.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=1\nRESULT status=1 stage=decode messages=11\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b12.j2k",
+      "mode": "full-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nA malformed codeblock that has more than one coding pass, but zero length for 2nd and potentially the 3rd pass in an HT codeblock.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 18 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=0\nRESULT status=1 stage=decode messages=11\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=0\nRESULT status=1 stage=decode messages=7\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b12.j2k",
+      "mode": "area-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 20 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=0\nRESULT status=1 stage=decode messages=10\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=0\nRESULT status=1 stage=decode messages=5\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b12.j2k",
+      "mode": "reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=1\nRESULT status=1 stage=decode messages=10\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=1\nRESULT status=1 stage=decode messages=5\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b12.j2k",
+      "mode": "coarsest-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 28 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=3\nRESULT status=1 stage=decode messages=9\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=3\nRESULT status=1 stage=decode messages=9\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_05_bset/ds0_ht_05_b12.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=1\nRESULT status=1 stage=decode messages=10\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 11 passes.\nA malformed codeblock that has more than one coding pass, but zero length for 2nd and potentially the 3rd pass in an HT codeblock.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 4 0 0 1024 1024 4 reduce=1\nRESULT status=1 stage=decode messages=10\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_10_bset/ds0_ht_10_b11.j2k",
+      "mode": "full-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Failed to decode.\nFailed to decode tile 1/4\n",
+        "stdout": "HEADER 3 0 0 256 256 4 reduce=0\nRESULT status=1 stage=decode messages=2\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/4\n",
+        "stdout": "HEADER 3 0 0 256 256 4 reduce=0\nRESULT status=1 stage=decode messages=3\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_10_bset/ds0_ht_10_b11.j2k",
+      "mode": "area-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/4\n",
+        "stdout": "HEADER 3 0 0 256 256 4 reduce=0\nRESULT status=1 stage=decode messages=4\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/4\n",
+        "stdout": "HEADER 3 0 0 256 256 4 reduce=0\nRESULT status=1 stage=decode messages=6\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_10_bset/ds0_ht_10_b11.j2k",
+      "mode": "reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 7 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/4\n",
+        "stdout": "HEADER 3 0 0 256 256 4 reduce=1\nRESULT status=1 stage=decode messages=5\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 7 passes.\nFailed to decode.\nFailed to decode tile 1/4\n",
+        "stdout": "HEADER 3 0 0 256 256 4 reduce=1\nRESULT status=1 stage=decode messages=4\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_10_bset/ds0_ht_10_b11.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/4\n",
+        "stdout": "HEADER 3 0 0 256 256 4 reduce=1\nRESULT status=1 stage=decode messages=3\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Failed to decode.\nFailed to decode tile 1/4\n",
+        "stdout": "HEADER 3 0 0 256 256 4 reduce=1\nRESULT status=1 stage=decode messages=2\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_16_bset/ds0_ht_16_b11.j2k",
+      "mode": "reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 1 0 0 128 128 4 reduce=1\nRESULT status=1 stage=decode messages=6\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 1 0 0 128 128 4 reduce=1\nRESULT status=1 stage=decode messages=6\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile0/p0_16_bset/ds0_ht_16_b11.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 1 0 0 128 128 4 reduce=1\nRESULT status=1 stage=decode messages=6\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. One of the following condition is not met: 2 <= Scup <= min(Lcup, 4079)\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 1 0 0 128 128 4 reduce=1\nRESULT status=1 stage=decode messages=6\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile1/p1_02_bset/ds1_ht_02_b11.j2k",
+      "mode": "full-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=0\nRESULT status=1 stage=decode messages=4\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=0\nRESULT status=1 stage=decode messages=7\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile1/p1_02_bset/ds1_ht_02_b11.j2k",
+      "mode": "area-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 4 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=0\nRESULT status=1 stage=decode messages=5\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=0\nRESULT status=1 stage=decode messages=5\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile1/p1_02_bset/ds1_ht_02_b11.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=1\nRESULT status=1 stage=decode messages=3\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=1\nRESULT status=1 stage=decode messages=5\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile1/p1_02_bset/ds1_ht_02_b12.j2k",
+      "mode": "full-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=0\nRESULT status=1 stage=decode messages=5\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=0\nRESULT status=1 stage=decode messages=4\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile1/p1_02_bset/ds1_ht_02_b12.j2k",
+      "mode": "area-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=0\nRESULT status=1 stage=decode messages=5\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=0\nRESULT status=1 stage=decode messages=5\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile1/p1_02_bset/ds1_ht_02_b12.j2k",
+      "mode": "reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=1\nRESULT status=1 stage=decode messages=4\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nMalformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=1\nRESULT status=1 stage=decode messages=6\n"
+      }
+    },
+    {
+      "path": "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/htj2k_bsets_profile1/p1_02_bset/ds1_ht_02_b12.j2k",
+      "mode": "area-reduce1-t8",
+      "probe": "raw",
+      "baseline": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "We do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 6 passes.\nMalformed HT codeblock. Invalid codeblock length values.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=1\nRESULT status=1 stage=decode messages=5\n"
+      },
+      "candidate": {
+        "status": 1,
+        "sha256": null,
+        "stderr": "Malformed HT codeblock. Invalid codeblock length values.\nWe do not support more than 3 coding passes in an HT codeblock; This codeblocks has 5 passes.\nFailed to decode.\nFailed to decode tile 1/1\n",
+        "stdout": "HEADER 3 0 0 640 480 7 reduce=1\nRESULT status=1 stage=decode messages=4\n"
+      }
+    }
+  ]
+}

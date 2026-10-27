@@ -1,0 +1,8 @@
+{
+  "configurations": 637,
+  "counts": {
+    "identical": 562,
+    "unsupported_layout": 51,
+    "client_refused": 24
+  }
+}

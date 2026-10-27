@@ -1,0 +1,14 @@
+{
+  "baseline": {
+    "keys": 298899,
+    "key_bytes": 387551002,
+    "hits": 2197,
+    "misses": 148351
+  },
+  "candidate": {
+    "keys": 150548,
+    "key_bytes": 194426604,
+    "hits": 2197,
+    "misses": 148351
+  }
+}

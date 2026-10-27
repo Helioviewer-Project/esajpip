@@ -1,0 +1,186 @@
+diff --git a/client/vendor/openjpeg/README.md b/client/vendor/openjpeg/README.md
+index 1a13208..1828c06 100644
+--- a/client/vendor/openjpeg/README.md
++++ b/client/vendor/openjpeg/README.md
+@@ -33,9 +33,10 @@ WebAssembly SIMD, SSE2 or NEON, with the same results as `lrintf`.
+ `neon-dwt-simd.h` maps the DWT's SSE kernels to AArch64 NEON, as
+ `wasm-dwt-simd.h` does for WebAssembly, and `dwt.c` transposes four rows at a
+ time with SSE or NEON as it does with WebAssembly SIMD.
+-The vertical passes load and store four column strips row by row (9/7
+-directly, 5/3 through a copy), so that rows a power-of-two stride apart do not
+-refetch each cache line.
++The irreversible vertical pass loads and stores four 8-column strips row by
++row, so that rows a power-of-two stride apart do not refetch each cache line.
++For rows at least 16,384 samples wide, the horizontal 9/7 pass runs lifting
++steps in chunks while loading the row buffer.
+ They preserve scalar tails and floating-point operation order;
+ compile without fast-math or fused multiply-add (`-ffp-contract=off`).
+ The workspace binds its pool to a raw J2K decoder and drains and restores the
+diff --git a/client/vendor/openjpeg/decoder_workspace.c b/client/vendor/openjpeg/decoder_workspace.c
+index f10bd79..4f63ebe 100644
+--- a/client/vendor/openjpeg/decoder_workspace.c
++++ b/client/vendor/openjpeg/decoder_workspace.c
+@@ -52,7 +52,7 @@ void opj_workspace_image_data_free(void *data) {
+ }
+ 
+ opj_decoder_workspace *opj_decoder_workspace_create(int threads) {
+-    if (threads < 0 || threads > 16 || (threads && !opj_has_thread_support())) return NULL;
++    if (threads < 0 || threads > 8 || (threads && !opj_has_thread_support())) return NULL;
+     opj_decoder_workspace *workspace = opj_calloc(1, sizeof *workspace);
+     if (!workspace) return NULL;
+     workspace->pool = opj_thread_pool_create(threads);
+diff --git a/client/vendor/openjpeg/dwt.c b/client/vendor/openjpeg/dwt.c
+index 258c815..8608368 100644
+--- a/client/vendor/openjpeg/dwt.c
++++ b/client/vendor/openjpeg/dwt.c
+@@ -2270,38 +2270,6 @@ typedef struct {
+     OPJ_UINT32 max_j;
+ } opj_dwt_decode_v_job_t;
+ 
+-/* As for the 9/7 pass (see HVC_V8_STRIPS), copy HVC_53_STRIPS strips of
+- * PARALLEL_COLS_53 columns row by row into the buffer after the lifting
+- * scratch, transform them there and copy them back. Returns the number of
+- * columns done, a multiple of HVC_53_STRIPS * PARALLEL_COLS_53. */
+-#define HVC_53_STRIPS 4
+-
+-static OPJ_UINT32 opj_idwt53_v_strips(const opj_dwt_t *dwt,
+-                                      OPJ_INT32* tiledp_col,
+-                                      OPJ_SIZE_T stride,
+-                                      OPJ_UINT32 nb_cols)
+-{
+-    const OPJ_UINT32 cols = HVC_53_STRIPS * PARALLEL_COLS_53;
+-    const OPJ_UINT32 len = (OPJ_UINT32)(dwt->sn + dwt->dn);
+-    OPJ_INT32* strips = dwt->mem + (OPJ_SIZE_T)len * PARALLEL_COLS_53;
+-    OPJ_UINT32 j, k, s;
+-
+-    for (j = 0; j + cols <= nb_cols; j += cols) {
+-        for (k = 0; k < len; ++k) {
+-            memcpy(strips + (OPJ_SIZE_T)k * cols, tiledp_col + j + k * stride,
+-                   cols * sizeof(OPJ_INT32));
+-        }
+-        for (s = 0; s < HVC_53_STRIPS; ++s) {
+-            opj_idwt53_v(dwt, strips + s * PARALLEL_COLS_53, cols, PARALLEL_COLS_53);
+-        }
+-        for (k = 0; k < len; ++k) {
+-            memcpy(tiledp_col + j + k * stride, strips + (OPJ_SIZE_T)k * cols,
+-                   cols * sizeof(OPJ_INT32));
+-        }
+-    }
+-    return j;
+-}
+-
+ static void opj_dwt_decode_v_func(void* user_data, opj_tls_t* tls)
+ {
+     OPJ_UINT32 j;
+@@ -2309,9 +2277,7 @@ static void opj_dwt_decode_v_func(void* user_data, opj_tls_t* tls)
+     (void)tls;
+ 
+     job = (opj_dwt_decode_v_job_t*)user_data;
+-    j = job->min_j + opj_idwt53_v_strips(&job->v, &job->tiledp[job->min_j],
+-                                         (OPJ_SIZE_T)job->w, job->max_j - job->min_j);
+-    for (; j + PARALLEL_COLS_53 <= job->max_j;
++    for (j = job->min_j; j + PARALLEL_COLS_53 <= job->max_j;
+             j += PARALLEL_COLS_53) {
+         opj_idwt53_v(&job->v, &job->tiledp[j], (OPJ_SIZE_T)job->w,
+                      PARALLEL_COLS_53);
+@@ -2355,16 +2321,14 @@ static OPJ_BOOL opj_dwt_decode_tile(opj_thread_pool_t* tp,
+     num_threads = opj_thread_pool_get_thread_count(tp);
+     h_mem_size = opj_dwt_max_resolution(tr, numres);
+     /* overflow check */
+-    if (h_mem_size > (SIZE_MAX / PARALLEL_COLS_53 / sizeof(OPJ_INT32) /
+-                      (1 + HVC_53_STRIPS))) {
++    if (h_mem_size > (SIZE_MAX / PARALLEL_COLS_53 / sizeof(OPJ_INT32))) {
+         /* FIXME event manager error callback */
+         return OPJ_FALSE;
+     }
+     /* We need PARALLEL_COLS_53 times the height of the array, */
+     /* since for the vertical pass */
+-    /* we process PARALLEL_COLS_53 columns at a time, */
+-    /* plus the strips of opj_idwt53_v_strips() */
+-    h_mem_size *= PARALLEL_COLS_53 * sizeof(OPJ_INT32) * (1 + HVC_53_STRIPS);
++    /* we process PARALLEL_COLS_53 columns at a time */
++    h_mem_size *= PARALLEL_COLS_53 * sizeof(OPJ_INT32);
+     h.mem = (OPJ_INT32*)opj_aligned_32_malloc(h_mem_size);
+     if (! h.mem) {
+         /* FIXME event manager error callback */
+@@ -2439,8 +2403,7 @@ static OPJ_BOOL opj_dwt_decode_tile(opj_thread_pool_t* tp,
+         v.cas = tr->y0 % 2;
+ 
+         if (num_threads <= 1 || rw <= 1) {
+-            for (j = opj_idwt53_v_strips(&v, tiledp, (OPJ_SIZE_T)w, rw);
+-                    j + PARALLEL_COLS_53 <= rw;
++            for (j = 0; j + PARALLEL_COLS_53 <= rw;
+                     j += PARALLEL_COLS_53) {
+                 opj_idwt53_v(&v, &tiledp[j], (OPJ_SIZE_T)w, PARALLEL_COLS_53);
+             }
+@@ -3977,10 +3940,8 @@ OPJ_BOOL opj_dwt_decode_tile_97(opj_thread_pool_t* tp,
+             aj += j;
+         } else {
+             /* WASM measurements benefit from four workers at large levels.
+-             * Keep the upstream bandwidth limit for smaller reconstructions.
+-             * Levels at least 2048 wide use all workers whatever their
+-             * height, which measured faster on wide, short spectra. */
+-            OPJ_UINT32 num_jobs = rw >= 2048 ? (OPJ_UINT32)num_threads :
++             * Keep the upstream bandwidth limit for smaller reconstructions. */
++            OPJ_UINT32 num_jobs = rw >= 2048 && rh >= 2048 ? (OPJ_UINT32)num_threads :
+                                  opj_uint_max((OPJ_UINT32)num_threads / 2, 2U);
+             OPJ_UINT32 step_j;
+ 
+diff --git a/client/vendor/openjpeg/t2.c b/client/vendor/openjpeg/t2.c
+index 4043f3a..e610175 100644
+--- a/client/vendor/openjpeg/t2.c
++++ b/client/vendor/openjpeg/t2.c
+@@ -415,14 +415,9 @@ OPJ_BOOL opj_t2_decode_packets(opj_tcd_t* tcd,
+ #endif
+     opj_packet_info_t *l_pack_info = 00;
+     opj_image_comp_t* l_img_comp = 00;
+-    OPJ_UINT32 l_needed_res = 0, compno;
+ 
+     OPJ_ARG_NOT_USED(p_cstr_index);
+ 
+-    for (compno = 0; compno < p_tile->numcomps; ++compno) {
+-        l_needed_res = opj_uint_max(l_needed_res,
+-                                    p_tile->comps[compno].minimum_num_resolutions);
+-    }
+ 
+ #ifdef TODO_MSD
+     if (p_cstr_index) {
+@@ -464,21 +459,6 @@ OPJ_BOOL opj_t2_decode_packets(opj_tcd_t* tcd,
+         while (opj_pi_next(l_current_pi)) {
+             OPJ_BOOL skip_packet = OPJ_FALSE;
+ 
+-            /* In a resolution-major order without progression changes, the
+-             * packets from here on are all beyond the needed resolutions and
+-             * would only be skipped. Stop once every component has had a
+-             * packet decoded, which leaves nothing for the skips to update. */
+-            if (l_nb_pocs == 1 && l_current_pi->resno >= l_needed_res &&
+-                    (l_current_pi->poc.prg == OPJ_RLCP || l_current_pi->poc.prg == OPJ_RPCL)) {
+-                for (compno = 0; compno < l_image->numcomps; ++compno) {
+-                    if (first_pass_failed[compno]) {
+-                        break;
+-                    }
+-                }
+-                if (compno == l_image->numcomps) {
+-                    break;
+-                }
+-            }
+             JAS_FPRINTF(stderr,
+                         "packet offset=00000166 prg=%d cmptno=%02d rlvlno=%02d prcno=%03d lyrno=%02d\n\n",
+                         l_current_pi->poc.prg1, l_current_pi->compno, l_current_pi->resno,
+diff --git a/tests/client/test_image.c b/tests/client/test_image.c
+index 7e77a1a..4e5b457 100644
+--- a/tests/client/test_image.c
++++ b/tests/client/test_image.c
+@@ -220,10 +220,8 @@ static void verify_codeblock_cache(void) {
+     opj_t1_cache_destroy(cache);
+ }
+ 
+-/* Rows of at least HVC_V8_CHUNKED_MIN_WIDTH samples take the chunked 9/7
+- * horizontal pass in dwt.c. Regions take the plain pass, so a region decode
+- * is the reference: its pixels must match the whole frame. Origins 0, 1 and 2
+- * give both parities of the band split at each level. */
++/* Wide images and odd origins must have the same geometry and pixels in
++ * whole-frame and region decodes, across reductions and worker counts. */
+ static void verify_wide_rows(void) {
+     enum { width = 33000, height = 20 };
+     output out = {malloc(1 << 20), 0, 0, 1 << 20};

@@ -1,0 +1,109 @@
+JHV OPJ versus Kakadu — representative corpus comparison
+
+OPJ source: opj-evidence, 93966f775cb9ff3e8dcc2f7b34d89a7c77bd1448
+Kakadu runtime: v7.10.3, confirmed with kdu_get_core_version().
+Host: Apple M3 Pro, 12 logical CPUs, macOS ARM64.
+
+Method
+------
+All backends use the same frozen current JHV native bridge and the same pinned
+esajpip client snapshot. The pre-existing JHV OPJ bridge working-tree edit is
+preserved in jhv-native.patch; no production files or branches were changed.
+Bridges are Release/LTO builds with the same toolchain. Kakadu uses the bundled
+native library. Source, library, compiler and corpus fingerprints are in manifest.json.
+Timing covers begin_decode + decode + end_decode, including input handling,
+conversion and teardown. Source opening and geometry inspection are done first.
+Filesystem caches are warm. These are native interface timings, not GUI FPS.
+Every movie frame is decoded at each measured level. Movie runs have one warmup
+and three measured sweeps; single-frame inputs have three warmups and eleven
+measurements. Two runs reverse backend order. Tables average their per-run medians.
+AIA/FSI/HRI/SWAP/EUVI levels cover both axes >=1024; Callisto and TRACE cover
+every level. Separate Callisto tests cover 18 crops over all six levels.
+Wall time and process CPU time (all threads) are recorded separately.
+
+Thread and quality controls
+---------------------------
+Default OPJ has eight persistent workers plus a caller that can execute jobs.
+Kakadu has eight total threads including its caller and creates/destroys its
+thread environment per decode, as the current JHV integration specifies.
+An OPJ seven-worker control equalizes the maximum executing-thread count.
+Production Kakadu enables its 1/256 rendering quality limiter. A separate
+Kakadu build disables only that limiter. This matters even for reduced views
+of a reversible/lossless source. Both are measured; the default was not silently
+disabled to improve pixel agreement. OPJ has no corresponding rendering limiter.
+
+Full-resolution wall time, ms/frame (lower is faster)
+----------------------------------------------------
+Dataset                  OPJ default   OPJ 7 workers   KDU production   KDU no limiter
+AIA 171                       19.575          21.012           17.582           17.738
+FSI 174                       23.559          25.236           26.250           33.860
+HRI 174 Short                  1.983           2.148            2.905            2.866
+SWAP 174                       2.179           2.266            2.849            2.840
+STEREO-A EUVI 171              3.706           3.789            5.244            5.192
+Callisto                      65.671          70.882           65.460           73.652
+trace1216 5/3                  4.316           4.572            5.832            5.832
+
+OPJ is faster on FSI, HRI, SWAP, EUVI and TRACE at full resolution.
+Kakadu is faster on AIA; full-width Callisto is effectively tied at default
+settings. With the equal-thread-count OPJ control, those five OPJ wins remain,
+but AIA is about 20% slower and Callisto about 8% slower than production Kakadu.
+
+Reduced levels and regional workloads
+-------------------------------------
+The winner depends on resolution and region. See results.csv for every measured
+level and crop, including both execution orders and CPU time.
+AIA 171, level 1 (2048x2048): OPJ 10.223 ms; KDU 12.399 ms; KDU no limiter 12.441 ms.
+AIA 171, level 2 (1024x1024): OPJ 4.744 ms; KDU 3.788 ms; KDU no limiter 5.501 ms.
+FSI 174, level 1 (1520x1536): OPJ 9.081 ms; KDU 6.822 ms; KDU no limiter 14.229 ms.
+Callisto, level 5 (2700x12): OPJ 2.208 ms; KDU 0.512 ms; KDU no limiter 0.760 ms.
+trace1216 5/3, level 1 (512x512): OPJ 1.631 ms; KDU 1.659 ms; KDU no limiter 2.055 ms.
+trace1216 5/3, level 8 (4x4): OPJ 0.100 ms; KDU 0.141 ms; KDU no limiter 0.138 ms.
+Callisto central 511x12 crop, level 5: OPJ 2.328 ms; KDU 0.398 ms; KDU no limiter 0.542 ms.
+Kakadu has a substantial advantage on these coarse radio crops even without
+the limiter. Full-resolution wins do not establish a universal backend winner.
+
+CPU time, full resolution, ms/frame
+----------------------------------
+Dataset                  OPJ default   KDU production
+AIA 171                      146.343          125.672
+FSI 174                      188.450          204.351
+HRI 174 Short                 10.722            5.346
+SWAP 174                      15.499           19.621
+STEREO-A EUVI 171             22.271           35.677
+Callisto                     506.180          473.098
+trace1216 5/3                 33.131           43.908
+For HRI, OPJ reduces wall latency while using about twice Kakadu's CPU time.
+CPU time is not an energy measurement. No multi-source concurrency throughput
+or cross-platform performance claim is made.
+
+Correctness
+-----------
+Every timed backend is stable across execution orders. Default and seven-worker
+OPJ have identical pixels for every timed frame/level.
+After timing, a separate streamed comparison checks every pixel and geometry
+of every frame at every resolution: 372 frames, 2907 frame/level combinations
+against production Kakadu and another 2907 against limiter-disabled Kakadu.
+The OPJ bridge outputs also match the previously verified selected-decoder hashes
+for all 2907 combinations.
+Production Kakadu: maximum absolute difference 6 Gray8 values.
+  AIA 171: 4, FSI 174: 4, HRI 174 Short: 3, SWAP 174: 3, STEREO-A EUVI 171: 3, Callisto: 4, trace1216 5/3: 6
+Kakadu without limiter: maximum absolute difference 1 Gray8 values.
+  AIA 171: 1, FSI 174: 1, HRI 174 Short: 1, SWAP 174: 1, STEREO-A EUVI 171: 1, Callisto: 1, trace1216 5/3: 0
+Without the limiter, all 1143 TRACE frame/level outputs match OPJ exactly.
+All six irreversible datasets differ by at most one grayscale value across
+every checked frame, resolution and pixel. Production Kakadu differs by up to
+six values on reduced TRACE views because the rendering quality limiter is active.
+The 18 sampled Callisto crops also agree within one value without the limiter.
+No decoding failure or geometry mismatch occurred. The comparisons do not
+establish correctness for unsupported features or malformed inputs.
+
+Artifacts
+---------
+manifest.json: revisions, exact source/library hashes and variant controls.
+corpus.json: exact input paths, SHA-256s and frame counts.
+results.csv/json: all wall/CPU timings, individual sweeps and warnings.
+correctness.json: selected-frame and regional pixel comparisons.
+full-correctness-{kdu,kdu-exact}.json: every frame/level comparison.
+movies/ and regional/: per-run data and selected decoded images.
+bridge-source/, opj7-source/, kdu-exact-source/: frozen bridge sources.
+build.py, run.py, analyze.py, full_correctness.py: reproduction logic.

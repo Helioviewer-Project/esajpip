@@ -1,0 +1,310 @@
+[
+  {
+    "variant": "before",
+    "index": 0,
+    "case": "AIA 171",
+    "frames": 97,
+    "inspection": {
+      "header_parses": 194,
+      "diagnostic_snapshots": 194,
+      "malloc_calls": 776,
+      "calloc_calls": 5626,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 17408784
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 1,
+      "malloc_calls": 4166,
+      "calloc_calls": 16470,
+      "realloc_calls": 2011,
+      "allocation_requested_bytes": 2874250
+    }
+  },
+  {
+    "variant": "after",
+    "index": 0,
+    "case": "AIA 171",
+    "frames": 97,
+    "inspection": {
+      "header_parses": 97,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 388,
+      "calloc_calls": 2619,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 8592648
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 4166,
+      "calloc_calls": 16468,
+      "realloc_calls": 2011,
+      "allocation_requested_bytes": 2873098
+    }
+  },
+  {
+    "variant": "before",
+    "index": 1,
+    "case": "FSI 174",
+    "frames": 4,
+    "inspection": {
+      "header_parses": 8,
+      "diagnostic_snapshots": 8,
+      "malloc_calls": 32,
+      "calloc_calls": 232,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 717888
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 1,
+      "malloc_calls": 2375,
+      "calloc_calls": 9300,
+      "realloc_calls": 2328,
+      "allocation_requested_bytes": 3599447
+    }
+  },
+  {
+    "variant": "after",
+    "index": 1,
+    "case": "FSI 174",
+    "frames": 4,
+    "inspection": {
+      "header_parses": 4,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 16,
+      "calloc_calls": 108,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 354336
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 2375,
+      "calloc_calls": 9298,
+      "realloc_calls": 2328,
+      "allocation_requested_bytes": 3598295
+    }
+  },
+  {
+    "variant": "before",
+    "index": 2,
+    "case": "HRI 174 Short",
+    "frames": 74,
+    "inspection": {
+      "header_parses": 148,
+      "diagnostic_snapshots": 148,
+      "malloc_calls": 592,
+      "calloc_calls": 4292,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 13280928
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 1,
+      "malloc_calls": 1079,
+      "calloc_calls": 4158,
+      "realloc_calls": 20,
+      "allocation_requested_bytes": 406415
+    }
+  },
+  {
+    "variant": "after",
+    "index": 2,
+    "case": "HRI 174 Short",
+    "frames": 74,
+    "inspection": {
+      "header_parses": 74,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 296,
+      "calloc_calls": 1998,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 6555216
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 1079,
+      "calloc_calls": 4156,
+      "realloc_calls": 20,
+      "allocation_requested_bytes": 405263
+    }
+  },
+  {
+    "variant": "before",
+    "index": 3,
+    "case": "SWAP 174",
+    "frames": 68,
+    "inspection": {
+      "header_parses": 136,
+      "diagnostic_snapshots": 136,
+      "malloc_calls": 544,
+      "calloc_calls": 3944,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 12204096
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 1,
+      "malloc_calls": 314,
+      "calloc_calls": 1098,
+      "realloc_calls": 264,
+      "allocation_requested_bytes": 412314
+    }
+  },
+  {
+    "variant": "after",
+    "index": 3,
+    "case": "SWAP 174",
+    "frames": 68,
+    "inspection": {
+      "header_parses": 68,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 272,
+      "calloc_calls": 1836,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 6023712
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 314,
+      "calloc_calls": 1096,
+      "realloc_calls": 264,
+      "allocation_requested_bytes": 411162
+    }
+  },
+  {
+    "variant": "before",
+    "index": 4,
+    "case": "STEREO-A EUVI 171",
+    "frames": 1,
+    "inspection": {
+      "header_parses": 2,
+      "diagnostic_snapshots": 2,
+      "malloc_calls": 8,
+      "calloc_calls": 58,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 179472
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 1,
+      "malloc_calls": 89,
+      "calloc_calls": 162,
+      "realloc_calls": 867,
+      "allocation_requested_bytes": 732544
+    }
+  },
+  {
+    "variant": "after",
+    "index": 4,
+    "case": "STEREO-A EUVI 171",
+    "frames": 1,
+    "inspection": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 4,
+      "calloc_calls": 27,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 88584
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 89,
+      "calloc_calls": 160,
+      "realloc_calls": 867,
+      "allocation_requested_bytes": 731392
+    }
+  },
+  {
+    "variant": "before",
+    "index": 5,
+    "case": "Callisto",
+    "frames": 1,
+    "inspection": {
+      "header_parses": 2,
+      "diagnostic_snapshots": 2,
+      "malloc_calls": 8,
+      "calloc_calls": 58,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 179472
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 1,
+      "malloc_calls": 9204,
+      "calloc_calls": 36176,
+      "realloc_calls": 8008,
+      "allocation_requested_bytes": 8218243
+    }
+  },
+  {
+    "variant": "after",
+    "index": 5,
+    "case": "Callisto",
+    "frames": 1,
+    "inspection": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 4,
+      "calloc_calls": 27,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 88584
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 9204,
+      "calloc_calls": 36174,
+      "realloc_calls": 8012,
+      "allocation_requested_bytes": 8219005
+    }
+  },
+  {
+    "variant": "before",
+    "index": 6,
+    "case": "trace1216 5/3",
+    "frames": 127,
+    "inspection": {
+      "header_parses": 254,
+      "diagnostic_snapshots": 254,
+      "malloc_calls": 1016,
+      "calloc_calls": 7366,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 22792944
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 1,
+      "malloc_calls": 89,
+      "calloc_calls": 162,
+      "realloc_calls": 269,
+      "allocation_requested_bytes": 631463
+    }
+  },
+  {
+    "variant": "after",
+    "index": 6,
+    "case": "trace1216 5/3",
+    "frames": 127,
+    "inspection": {
+      "header_parses": 127,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 508,
+      "calloc_calls": 3429,
+      "realloc_calls": 0,
+      "allocation_requested_bytes": 11250168
+    },
+    "coarsest_decode": {
+      "header_parses": 1,
+      "diagnostic_snapshots": 0,
+      "malloc_calls": 89,
+      "calloc_calls": 160,
+      "realloc_calls": 269,
+      "allocation_requested_bytes": 630311
+    }
+  }
+]

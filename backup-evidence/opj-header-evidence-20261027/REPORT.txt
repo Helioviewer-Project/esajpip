@@ -1,0 +1,59 @@
+Header inspection and narrow OpenJPEG metadata queries
+
+Implementation (uncommitted):
+- esajpip worktree: /Users/bogdan/jhv/esajpip-opj-evidence (opj-evidence, based on 93966f775cb9ff3e8dcc2f7b34d89a7c77bd1448).
+- JHV worktree: /Users/bogdan/jhv/JHelioviewer-SWHV. Existing user changes preserved.
+- One parsed header serves output component counting, render selection, geometry, and first-component fallback in both backends.
+- A local vendored OpenJPEG accessor reads per-component main-header resolution count and layer count, respecting COC overrides, without exporting a diagnostic snapshot.
+- The client decode adapter uses the same accessor. No worker counts, thresholds, SIMD policy, or hardware settings changed.
+
+Observed work counts (separate instrumented builds, entire representative corpus of 372 frames):
+before: {"allocation_requested_bytes": 66763584, "calloc_calls": 21576, "diagnostic_snapshots": 744, "header_parses": 744, "malloc_calls": 2976, "realloc_calls": 0}
+after: {"allocation_requested_bytes": 32953248, "calloc_calls": 10044, "diagnostic_snapshots": 0, "header_parses": 372, "malloc_calls": 1488, "realloc_calls": 0}
+- Header parses: 744 -> 372. Diagnostic snapshot exports: 744 -> 0.
+- OpenJPEG malloc/calloc/realloc call requests: 24552 -> 11532 (53.0% fewer).
+- Requested bytes in those allocators: 66763584 -> 32953248. This is cumulative requested allocation volume, not peak/live memory. Aligned allocations and external allocators are not included.
+- Every normal decode avoids one diagnostic snapshot, i.e. two calloc requests and the exported precinct/quantization metadata. Each representative grayscale decode saves 1152 requested bytes for that snapshot.
+- Exercised RGB-to-gray fallback: 3 header parses / 3 snapshot exports -> 1 parse / 0 exports.
+- Counters exist only in the evidence builds; production has no instrumentation.
+
+Native source inspection timings, milliseconds per whole dataset (open + all frame descriptions + close):
+- 5 warmups and 21 samples per variant per order, forward and reverse order. Entries average the two medians. Warm filesystem, Release/LTO, same production worker settings. This measures native source inspection only, not rendering or whole-application performance.
+Dataset | frames | OPJ before | OPJ after | KDU before | KDU after
+AIA 171 | 97 | 1.158333 | 0.722250 | 8.078354 | 7.144083
+FSI 174 | 4 | 0.059416 | 0.039979 | 0.253084 | 0.217583
+HRI 174 Short | 74 | 0.565146 | 0.345604 | 3.333562 | 2.715188
+SWAP 174 | 68 | 0.805833 | 0.504125 | 2.591541 | 1.980229
+STEREO-A EUVI 171 | 1 | 0.035083 | 0.030541 | 0.067979 | 0.060895
+Callisto | 1 | 0.032542 | 0.028917 | 0.151375 | 0.146334
+trace1216 5/3 | 127 | 1.433188 | 0.845792 | 3.875937 | 2.786188
+
+Correctness:
+- JHV representative corpus: all 2907 frame/level outputs match prior selected OpenJPEG pixels and geometry exactly, including all TRACE 5/3 levels. KDU also matches its own baseline for all 2907 outputs including warnings.
+- C API inspection of 311 standard/OPJ corpus inputs plus 2 targeted fallback fixtures: geometry, refusal text, and statuses preserved for both backends. Raw codestream files rejected at container opening are included in this count. Two inherited KDU native crashes occur on the same files in baseline and candidate.
+- Project CTest: 56/56, including actual scalar and SIMD WebAssembly runtime tests. After adding the component-specific COC regression, client_image was rebuilt and rerun successfully.
+- Native FFM checks against supplied KDU references pass for both backends, including new fallback, failed-fallback retry, and cached-description checks.
+- Standard 2024 P0/P1 Class1 reference checks: 23/23.
+- Stock-style OPJ CTest with the modified vendor sources: 1585/1587, with the same issue226 decode and dependent MD5 failures as the existing baseline.
+- Standard and OPJ raw differential: 311 inputs, 1769 configurations: 1308 identical successes, 454 common refusals, 7 common resource caps (128M header component samples).
+- Changed HVC caller: 860 raw-codestream configurations, each attempted three times: 562 identical successful outputs and 298 common refusals. Includes full/reduced, region, and worker variants.
+- Concurrent diagnostics/statistics differ in 173 comparisons; statuses, geometry/pixels, and refusal stages agree. Baseline-only repeated controls reproduce this variability: raw failure text/message counts, HVC cache-hit counts, and HVC last-error selection vary. Original diagnostics and the strict comparison run are preserved.
+- ASan+UBSan client_image passes, including COD/COC accessor checks, invalid component output preservation, buffer/context reuse, wide odd-origin images, and large real AIA frames.
+- git diff --check passes in both changed worktrees.
+
+Preserved native failures (not introduced by this change):
+- 4241ac039aba57e6a9c948d519d94216_asan_heap-oob_14650f2_7469_602.jp2
+- dwt_interleave_h.gsr105.jp2
+- The invoking interpreter is /opt/homebrew/opt/python@3.15/bin/python3.15 (3.15.0). Crash reports show EXC_BAD_ACCESS at address 0x18 in libkdu_jni.dylib, kd_core_local::kd_tile_comp::~kd_tile_comp(), called during codestream destruction. Matching baseline/candidate reports are saved under crash-reports/.
+
+Validation limits:
+- Native bridges tested on macOS arm64. Shared client decoder tested natively and as scalar/SIMD WebAssembly. Windows/Linux native bridges and live GUI playback were not run.
+- No claim of faster pixel decoding or whole-application speedup. The decode-path saving demonstrated here is removal of metadata snapshot allocation/export work.
+
+Reproduction and review:
+- Task-only patches: esajpip-changes.patch and jhv-changes.patch, excluding pre-existing JHV edits.
+- Frozen production inputs: candidate-source/ and bridge-source/. Baseline shared libraries, instrumented source trees, source hashes, and binary hashes are retained.
+- Work: instrument.py and work_counts.py; fallback-work-counts.json.
+- JHV: correctness.py; inspection.py (isolates and records inherited native crashes).
+- Corpora: corpus.py, corpus.jsonl, corpus-behavior-summary.json, standard_refs.py. The initial stricter diagnostic comparison is preserved as corpus-strict-diagnostics.py.
+- Timing: inspect_bench.cc, inspect_bench, performance.py, inspection-performance.json. The earlier build-overlap sample is retained separately and excluded from the reported table.

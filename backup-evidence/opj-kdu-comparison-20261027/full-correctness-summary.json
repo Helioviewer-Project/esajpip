@@ -1,0 +1,30 @@
+{
+  "kdu": {
+    "configurations": 2907,
+    "max_difference": 6,
+    "all_trace_exact": false,
+    "per_case": {
+      "AIA 171": 4,
+      "FSI 174": 4,
+      "HRI 174 Short": 3,
+      "SWAP 174": 3,
+      "STEREO-A EUVI 171": 3,
+      "Callisto": 4,
+      "trace1216 5/3": 6
+    }
+  },
+  "kdu-exact": {
+    "configurations": 2907,
+    "max_difference": 1,
+    "all_trace_exact": true,
+    "per_case": {
+      "AIA 171": 1,
+      "FSI 174": 1,
+      "HRI 174 Short": 1,
+      "SWAP 174": 1,
+      "STEREO-A EUVI 171": 1,
+      "Callisto": 1,
+      "trace1216 5/3": 0
+    }
+  }
+}

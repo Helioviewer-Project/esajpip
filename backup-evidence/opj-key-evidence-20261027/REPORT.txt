@@ -1,0 +1,102 @@
+Prepared Tier-1 cache key reuse: evaluated candidate
+
+Conclusion: key preparation/copy/hash work is reduced, but this benchmark does not establish a meaningful overall decode-time improvement. Full-resolution retained-context timings range from 0.50% less time to 1.24% more time. Keep the source change uncommitted for review; do not characterize it as a demonstrated decode speedup.
+
+Scope and baseline:
+- Only esajpip source changed, in /Users/bogdan/jhv/esajpip-opj-evidence on opj-evidence. No JHV source changes in this step.
+- Baseline commit: 897fa12a044a2a241ddc0361aed988a1c0f7a5fa. Candidate patch: changes.patch.
+- Sources and production-like libraries are frozen under baseline/ and candidate/. Instrumented work-count builds are separate under work-baseline/ and work-candidate/.
+
+Implementation and invariants:
+- Cache lookup prepares the exact bounded key once. A miss keeps that key in job-local scratch until successful decode, then insertion uses the prepared bytes/hash.
+- Main Tier-1 MQ and HT decoders do not change serialized coding metadata. MQ marker padding is restored by opq_mqc_finish_dec before returning. T2 marks corruption before Tier-1 jobs; store still rechecks corruption after decoding.
+- Full key-byte comparison, HT Mb key coverage, cache budget, worker configuration, and slot locking are preserved. Store locks and re-reads its slot, retaining no borrowed entry across decoding.
+- No new heap allocation. The 12 KiB key scratch plus metadata now lives across decoding, rather than only during lookup/store. WASM stack/runtime tests and targeted native ASan/UBSan checks pass.
+
+Deterministic work measurement:
+- All 372 frames, full and coarsest levels, two sweeps, 1488 decodes per variant, zero worker threads. The same inputs, geometry, pixels, hit count and miss count match.
+- This is a work-count control, not a proposed production thread setting.
+baseline: {"hits": 2197, "key_bytes": 387551002, "keys": 298899, "misses": 148351}
+candidate: {"hits": 2197, "key_bytes": 194426604, "keys": 150548, "misses": 148351}
+- 148351 fewer key preparations; exactly one preparation removed per eligible miss.
+- Serialized and hashed key data: 387551002 -> 194426604 bytes, a reduction of 193124398 bytes (49.83%). These counts exclude the necessary copy into the cache-owned entry and the full-byte equality comparisons on lookup.
+
+Decode timing method:
+- Uninstrumented Release/LTO native libraries built with the same toolchain, floating-point contraction disabled as in the project, 8 workers unchanged. Resident compressed JHV data. Input read/loading, Python hashing and output allocation are outside timers.
+- Decode includes output packing and decoder cleanup. Wall and process CPU time are recorded. Forward order baseline/candidate and reverse order candidate/baseline; table entries average the two per-order medians.
+- Retained-context: every movie frame, 2 warmup sweeps plus 5 measured sweeps (11 measured for single-frame datasets).
+- Cold-first-frame: 5 warmups and 11 measured decodes with a fresh context each time; context construction/destruction are outside timers. Output scratch is shared across those trials to avoid allocating a large Python buffer per trial.
+- Full, <=1024 level (when available), coarsest level, and central Callisto crops are included.
+- Results describe this native decoder workload on macOS arm64, not whole-application playback or other platforms.
+
+Full-resolution retained-context results (ms/frame, average of medians):
+Dataset | baseline wall | candidate wall | time reduction | baseline process CPU | candidate process CPU
+AIA 171 | 19.813972 | 19.769285 | 0.23% | 149.125747 | 148.943314
+FSI 174 | 23.248224 | 23.261515 | -0.06% | 187.851875 | 187.804000
+HRI 174 Short | 2.027130 | 2.045043 | -0.88% | 10.416243 | 10.509797
+SWAP 174 | 2.197224 | 2.186242 | 0.50% | 15.600110 | 15.530199
+STEREO-A EUVI 171 | 3.631729 | 3.668875 | -1.02% | 22.158500 | 22.187000
+Callisto | 65.886666 | 66.701042 | -1.24% | 513.147000 | 516.056500
+trace1216 5/3 | 4.292985 | 4.286459 | 0.15% | 32.975587 | 32.951575
+
+All timing configurations (ms/frame):
+Dataset | mode | level | area | baseline | candidate | time reduction
+AIA 171 | cold-first-frame | 0 | None | 19.613250 | 19.567895 | 0.23%
+AIA 171 | retained-context | 0 | None | 19.813972 | 19.769285 | 0.23%
+AIA 171 | cold-first-frame | 2 | None | 4.719459 | 4.647020 | 1.53%
+AIA 171 | retained-context | 2 | None | 4.673205 | 4.658174 | 0.32%
+AIA 171 | cold-first-frame | 8 | None | 0.936500 | 0.945354 | -0.95%
+AIA 171 | retained-context | 8 | None | 0.969466 | 0.971844 | -0.25%
+FSI 174 | cold-first-frame | 0 | None | 24.013542 | 24.031813 | -0.08%
+FSI 174 | retained-context | 0 | None | 23.248224 | 23.261515 | -0.06%
+FSI 174 | cold-first-frame | 2 | None | 3.705250 | 3.703438 | 0.05%
+FSI 174 | retained-context | 2 | None | 2.511364 | 2.485172 | 1.04%
+FSI 174 | cold-first-frame | 5 | None | 0.890709 | 0.913208 | -2.53%
+FSI 174 | retained-context | 5 | None | 0.607786 | 0.598255 | 1.57%
+HRI 174 Short | cold-first-frame | 0 | None | 2.308937 | 2.330271 | -0.92%
+HRI 174 Short | retained-context | 0 | None | 2.027130 | 2.045043 | -0.88%
+HRI 174 Short | cold-first-frame | 1 | None | 0.905021 | 0.924937 | -2.20%
+HRI 174 Short | retained-context | 1 | None | 0.948126 | 0.972115 | -2.53%
+HRI 174 Short | cold-first-frame | 5 | None | 0.354042 | 0.380521 | -7.48%
+HRI 174 Short | retained-context | 5 | None | 0.157272 | 0.158831 | -0.99%
+SWAP 174 | cold-first-frame | 0 | None | 2.290875 | 2.252562 | 1.67%
+SWAP 174 | retained-context | 0 | None | 2.197224 | 2.186242 | 0.50%
+SWAP 174 | cold-first-frame | 5 | None | 0.132041 | 0.136896 | -3.68%
+SWAP 174 | retained-context | 5 | None | 0.108824 | 0.108548 | 0.25%
+STEREO-A EUVI 171 | cold-first-frame | 0 | None | 5.268896 | 5.315292 | -0.88%
+STEREO-A EUVI 171 | retained-context | 0 | None | 3.631729 | 3.668875 | -1.02%
+STEREO-A EUVI 171 | cold-first-frame | 1 | None | 2.939417 | 2.901187 | 1.30%
+STEREO-A EUVI 171 | retained-context | 1 | None | 1.471583 | 1.400438 | 4.83%
+STEREO-A EUVI 171 | cold-first-frame | 8 | None | 0.244541 | 0.244354 | 0.08%
+STEREO-A EUVI 171 | retained-context | 8 | None | 0.214292 | 0.211605 | 1.25%
+Callisto | cold-first-frame | 0 | None | 67.881146 | 67.867166 | 0.02%
+Callisto | retained-context | 0 | None | 65.886666 | 66.701042 | -1.24%
+Callisto | cold-first-frame | 5 | None | 2.429709 | 2.347750 | 3.37%
+Callisto | retained-context | 5 | None | 2.136021 | 2.068583 | 3.16%
+Callisto | cold-first-frame | 0 | [42944, 0, 43455, 380] | 3.510146 | 3.455417 | 1.56%
+Callisto | retained-context | 0 | [42944, 0, 43455, 380] | 3.371437 | 3.383958 | -0.37%
+Callisto | cold-first-frame | 5 | [35008, 0, 51360, 380] | 2.161604 | 2.104583 | 2.64%
+Callisto | retained-context | 5 | [35008, 0, 51360, 380] | 1.985771 | 1.972084 | 0.69%
+trace1216 5/3 | cold-first-frame | 0 | None | 4.864959 | 4.842500 | 0.46%
+trace1216 5/3 | retained-context | 0 | None | 4.292985 | 4.286459 | 0.15%
+trace1216 5/3 | cold-first-frame | 8 | None | 0.069916 | 0.067604 | 3.31%
+trace1216 5/3 | retained-context | 8 | None | 0.079577 | 0.078932 | 0.81%
+
+Correctness:
+- All 2907 representative JHV frame/level outputs match the established selected OpenJPEG hashes and geometry at both 0 and 8 workers (5814 successful configuration checks). TRACE 5/3 is included.
+- 70 representative cropped configurations match baseline geometry and pixels for 3 consecutive decodes each, including left/center/right and coarse/full-level Callisto.
+- Project CTest: 56/56, including actual scalar and SIMD WebAssembly runtime tests.
+- Standard 2024 P0/P1 Class1 reference comparisons: 23/23.
+- Stock-style OPJ CTest using the candidate vendor sources: 1585/1587, same pre-existing issue226 decode and dependent MD5 failures.
+- Standard/OPJ raw differential: 311 inputs, 1769 configurations, 1308 identical successes, 454 common refusals, 7 common 128M-header-sample resource caps.
+- HVC context caller: 860 raw-codestream configurations, 562 identical successful outputs (3 decodes each) and 298 common refusals. Diagnostics/cache-hit counts are recorded separately because concurrent ordering and collisions can vary.
+- ASan+UBSan client_image passes. Added direct regressions cover a block becoming corrupted after key preparation, exact comparison despite hash collision, invalid HT bit-plane key separation, and rejecting an oversized key after a prior valid lookup.
+- git diff --check passes. Working source matches the frozen candidate snapshot.
+
+Reproduction:
+- build.py: baseline, candidate and separate instrumented work builds.
+- work.py and work-summary.json/work-totals.json: reduced work, exact single-thread cache hits/misses, and output comparisons.
+- correctness.py and regions.py: representative corpus correctness.
+- corpus.py and standard_refs.py: standard and OpenJPEG corpora.
+- performance.py and analyze.py: both timing orders, cold and retained-context modes. Raw wall/CPU samples are retained under performance/.
+- Project, upstream, sanitizer and corpus logs are retained beside this report. No KDU calls or tests were run in this step.

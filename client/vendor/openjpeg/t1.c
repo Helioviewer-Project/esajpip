@@ -1690,11 +1690,13 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
     t1->mustuse_cblkdatabuffer = job->mustuse_cblkdatabuffer;
 
     OPJ_BOOL reused = OPJ_FALSE;
+    opj_t1_cache_key cache_key;
+    cache_key.size = 0;
     if (job->cache && opj_t1_allocate_buffers(t1,
             (OPJ_UINT32)(cblk->x1-cblk->x0), (OPJ_UINT32)(cblk->y1-cblk->y0)))
-        reused = opj_t1_cache_transfer(job->cache, cblk, band->bandno,
+        reused = opj_t1_cache_lookup(job->cache, cblk, band->bandno,
             (OPJ_UINT32)tccp->roishift, tccp->cblksty,
-            cblk->decoded_data ? cblk->decoded_data : t1->data, OPJ_FALSE);
+            cblk->decoded_data ? cblk->decoded_data : t1->data, &cache_key);
     if (reused) {
         /* Raw coefficients still pass through the normal ROI/dequantization. */
     } else if ((tccp->cblksty & J2K_CCP_CBLKSTY_HT) != 0) {
@@ -1726,9 +1728,8 @@ static void opj_t1_clbl_decode_processor(void* user_data, opj_tls_t* tls)
     }
 
     if (job->cache && !reused)
-        opj_t1_cache_transfer(job->cache, cblk, band->bandno,
-            (OPJ_UINT32)tccp->roishift, tccp->cblksty,
-            cblk->decoded_data ? cblk->decoded_data : t1->data, OPJ_TRUE);
+        opj_t1_cache_store(job->cache, cblk, &cache_key,
+            cblk->decoded_data ? cblk->decoded_data : t1->data);
 
     x = cblk->x0 - band->x0;
     y = cblk->y0 - band->y0;

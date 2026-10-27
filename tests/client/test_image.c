@@ -263,14 +263,28 @@ static void verify_codeblock_cache(void) {
     block.numchunks = 1;
     block.chunks = &chunk;
     OPJ_INT32 pixels[] = {11, 22, 33, 44};
-    check(opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_TRUE), "cache insert");
+    opj_t1_cache_key key;
+    check(!opj_t1_cache_lookup(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, &key) && key.size,
+          "cold lookup did not prepare a key");
+    block.corrupted = OPJ_TRUE;
+    check(!opj_t1_cache_store(cache, &block, &key, pixels), "corrupted block stored with a prepared key");
+    block.corrupted = OPJ_FALSE;
+    check(opj_t1_cache_store(cache, &block, &key, pixels), "cache insert");
     block.Mb = 31;
     memset(pixels, 0, sizeof pixels);
-    check(!opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) && pixels[0] == 0,
+    check(!opj_t1_cache_lookup(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, &key) && pixels[0] == 0,
           "cache hit bypassed HT bit-plane validation");
     block.Mb = 1;
-    check(opj_t1_cache_transfer(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, OPJ_FALSE) &&
+    check(opj_t1_cache_lookup(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, &key) &&
           pixels[0] == 11 && pixels[3] == 44, "unchanged codeblock was not reused");
+    /* A matching hash and size cannot substitute for exact byte equality. */
+    key.data[key.size - 1] ^= 1;
+    check(opj_t1_cache_store(cache, &block, &key, pixels), "colliding cache insert");
+    check(!opj_t1_cache_lookup(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, &key),
+          "cache hit on hash collision with different compressed bytes");
+    chunk.len = sizeof key.data;
+    check(!opj_t1_cache_lookup(cache, &block, 0, 0, J2K_CCP_CBLKSTY_HT, pixels, &key) && !key.size &&
+          !opj_t1_cache_store(cache, &block, &key, pixels), "oversized block reused an earlier prepared key");
     opj_t1_cache_destroy(cache);
 }
 

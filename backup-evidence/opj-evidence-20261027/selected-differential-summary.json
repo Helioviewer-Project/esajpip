@@ -1,0 +1,9 @@
+{
+  "inputs": 311,
+  "configurations": 1769,
+  "counts": {
+    "identical": 1308,
+    "both_refused": 454,
+    "resource_limit": 7
+  }
+}

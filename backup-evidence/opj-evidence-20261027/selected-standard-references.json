@@ -1,0 +1,692 @@
+[
+  {
+    "test": "ETS-C1P0-p0_01.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_01.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_01.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_01.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_01.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_02.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_02.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_02.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_02.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_02.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_03.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_03.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_03.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_03.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_03.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_04.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_04.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_04.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_04.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_04.j2k-decode/decoded.pgx",
+      "-n",
+      "3",
+      "-p",
+      "5:4:6",
+      "-m",
+      "0.776:0.626:1.070",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_05.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_05.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_05.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_05.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_05.j2k-decode/decoded.pgx",
+      "-n",
+      "4",
+      "-p",
+      "2:2:2:0",
+      "-m",
+      "0.302:0.307:0.269:0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_06.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_06.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_06.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_06.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_06.j2k-decode/decoded.pgx",
+      "-n",
+      "4",
+      "-p",
+      "635:403:378:0",
+      "-m",
+      "11287:6124:3968:0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_07.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_07.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_07.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_07.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_07.j2k-decode/decoded.pgx",
+      "-n",
+      "3",
+      "-p",
+      "0:0:0",
+      "-m",
+      "0:0:0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_08.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_08.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_08.j2k-decode/decoded.pgx",
+      "-r",
+      "1"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_08.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_08.j2k-decode/decoded.pgx",
+      "-n",
+      "3",
+      "-p",
+      "0:0:0",
+      "-m",
+      "0:0:0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_09.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_09.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_09.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_09.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_09.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_10.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_10.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_10.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_10.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_10.j2k-decode/decoded.pgx",
+      "-n",
+      "3",
+      "-p",
+      "0:0:0",
+      "-m",
+      "0:0:0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_11.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_11.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_11.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_11.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_11.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_12.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_12.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_12.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_12.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_12.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_13.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_13.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_13.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_13.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_13.j2k-decode/decoded.pgx",
+      "-n",
+      "4",
+      "-p",
+      "0:0:0:0",
+      "-m",
+      "0:0:0:0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_14.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_14.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_14.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_14.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_14.j2k-decode/decoded.pgx",
+      "-n",
+      "3",
+      "-p",
+      "0:0:0",
+      "-m",
+      "0:0:0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_15.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_15.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_15.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_15.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_15.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P0-p0_16.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile0/p0_16.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_16.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile0/c1p0_16.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P0-p0_16.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P1-p1_01.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_01.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_01.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile1/c1p1_01.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_01.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "0",
+      "-m",
+      "0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P1-p1_02.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_02.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_02.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile1/c1p1_02.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_02.j2k-decode/decoded.pgx",
+      "-n",
+      "3",
+      "-p",
+      "5:4:6",
+      "-m",
+      "0.765:0.616:1.051",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P1-p1_03.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_03.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_03.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile1/c1p1_03.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_03.j2k-decode/decoded.pgx",
+      "-n",
+      "4",
+      "-p",
+      "2:2:1:0",
+      "-m",
+      "0.3:0.210:0.200:0",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P1-p1_04.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_04.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_04.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile1/c1p1_04.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_04.j2k-decode/decoded.pgx",
+      "-n",
+      "1",
+      "-p",
+      "624",
+      "-m",
+      "3080",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P1-p1_05.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_05.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_05.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile1/c1p1_05.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_05.j2k-decode/decoded.pgx",
+      "-n",
+      "3",
+      "-p",
+      "40:40:40",
+      "-m",
+      "8.458:9.816:10.154",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P1-p1_06.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_06.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_06.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile1/c1p1_06.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_06.j2k-decode/decoded.pgx",
+      "-n",
+      "3",
+      "-p",
+      "2:2:2",
+      "-m",
+      "0.6:0.6:0.6",
+      "-s",
+      "b-t_"
+    ]
+  },
+  {
+    "test": "ETS-C1P1-p1_07.j2k-decode",
+    "variant": "selected",
+    "decode": 0,
+    "compare": 0,
+    "decode_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/opj_decompress",
+      "-i",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/codestreams_profile1/p1_07.j2k",
+      "-o",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_07.j2k-decode/decoded.pgx",
+      "-r",
+      "0"
+    ],
+    "compare_command": [
+      "/Users/bogdan/jhv/opj-evidence-20261027/validation/selected/release/bin/compare_images",
+      "-b",
+      "/Users/bogdan/jhv/esajpip-SWHV/standards/conformance-testing--T803--ISO-IEC-15444-4/current-2024/conformance-suite/files/reference_class1_profile1/c1p1_07.pgx",
+      "-t",
+      "/Users/bogdan/jhv/opj-evidence-20261027/standard-references/selected/ETS-C1P1-p1_07.j2k-decode/decoded.pgx",
+      "-n",
+      "2",
+      "-p",
+      "0:0",
+      "-m",
+      "0:0",
+      "-s",
+      "b-t_"
+    ]
+  }
+]

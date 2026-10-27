@@ -1,0 +1,10 @@
+{
+  "before": {
+    "header_parses": 3,
+    "diagnostic_snapshots": 3
+  },
+  "after": {
+    "header_parses": 1,
+    "diagnostic_snapshots": 0
+  }
+}
