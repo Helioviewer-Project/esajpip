@@ -12,6 +12,9 @@ OpenJPEG version a system packages.
   changes `openjpeg.c`; decoder performance changes are listed below.
 - `opj_config.h` and `opj_config_private.h` are not upstream files: upstream
   generates them with CMake. They are written by hand here.
+  The private configuration selects the Windows CRT aligned allocator on
+  Windows and `posix_memalign` elsewhere. `opj_malloc.c` includes `<malloc.h>`
+  for the Windows allocator declarations.
 - `LICENSE` is from the upstream root. OpenJPEG is distributed under the
   2-clause BSD license.
 
