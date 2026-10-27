@@ -150,6 +150,15 @@ const uint8_t *EXPORT(hvc_wasm_palette_table)(void) {
     return palette;
 }
 
+/* Display planes, separate from the SIZ coded count in hvc_view. */
+int EXPORT(hvc_wasm_display_components)(uint32_t frame) {
+    error[0] = 0;
+    if (!client) return -1;
+    hv_render render;
+    if (hvc_render_read(client, frame, SIZE_MAX, &render)) return -1;
+    return render.channel[0].palette_column >= 0 ? 1 : (int)render.channel_count;
+}
+
 /* Inspect or prepare a frame request. JavaScript reads the fixed-width view;
  * the client owns the pending request and confirms its completed response. */
 #define VIEW_OFFSET(field, offset) \

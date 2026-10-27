@@ -606,6 +606,8 @@ from bytes the source already holds for that frame, is refused without changing
 the source: drop that cache entry and request the frame. A block imported into
 a frame with no bytes held cannot be checked. The host's key must identify the
 image, and a later response that conflicts with it is refused as described above.
+Allocation failure during import may retain earlier validated bins. The source
+remains usable: retry the import or request the frame and accept identical replay.
 
 ### Requests
 
@@ -849,7 +851,7 @@ checks below.
 | `client_jpp_malformed` | Damaged messages, all refused |
 | `client_reconstruct` | Every codestream of the corpus, the transcoder's reference images and the merger's reference movie, served by the server's own code at each resolution: the written codestream, the cached levels, the decoded pixels, and the movie's frame count and XML |
 | `client_image` | Sample scaling, component selection and display order, unchanged palette indices, and exact codeblock cache keys |
-| `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality; frames exported and imported between sources, their replay by the server, and refused blocks leaving the source unchanged |
+| `client_source` | Local/JPIP equivalence for JP2 and JPX with reordered layers, fewer layers than codestreams, channel/palette instructions, decoder geometry, immutable inputs and pixels at every reduction; also header requests, per-frame geometry and viewport fit, preview confirmation, refinement, rejected responses, pending-request preservation during restoration, metadata replay, first inspection with partial data, byte-limit to layer-limit transitions and decoded pixel equality; frames exported and imported between sources, their replay by the server, and invalid blocks leaving the source unchanged |
 | `client_converter` | Refusal of incomplete/header-only/unconfirmed quality input without overwriting output; completed continuation, reduced windows and replay |
 
 When Zig and Node.js are available, the normal native test build also builds
@@ -857,6 +859,8 @@ the scalar and SIMD WASM modules and registers `client_wasm` and
 `client_wasm_simd` with CTest. Each test starts private
 local servers and runs the JavaScript, worker, layer-mapping and recovery checks
 on the checked-in RGB, non-square and movie fixtures. It asserts that response
+status and decoded output agree on grayscale and palette display-plane counts,
+including layers with additional coded components. It also asserts that response
 bodies, XML and decoded pixels each occupy addresses above 2 GiB, and checks
 bounded growth in nine live instances without block rounding, progress timeouts,
 retryable recovery, worker import failure, the module import/export contract,

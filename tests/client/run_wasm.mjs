@@ -55,6 +55,11 @@ try {
     const mappedRgb = Buffer.concat([rgb.subarray(0, end), cdef, rgb.subarray(end)]);
     mappedRgb.writeUInt32BE(end - header + cdef.length, header);
     await writeFile(join(images, "mapped-rgb.jp2"), mappedRgb);
+    // Keep all three coded components, but display only the grayscale channel.
+    const grayImage = Buffer.from(rgb);
+    assert.equal(grayImage.readUInt32BE(73), 16);
+    grayImage.writeUInt32BE(17, 73);
+    await writeFile(join(images, "three-coded-gray.jp2"), grayImage);
     const escapedImage = 'space #?%20&+"é.jp2';
     await copyFile(join(images, fixtures[0]), join(images, escapedImage));
     await copyFile(join(repository, "tests/merge/fixtures/expected/merged.jpx"), join(images, "movie.jpx"));
@@ -188,6 +193,16 @@ try {
             assert.equal(frame.pixels[at + 2], expected[at], "cdef red-to-blue mapping lost");
         }
     } finally { await color.close(); }
+    const gray = await JpipChannel.open(wasm, server, "three-coded-gray.jp2");
+    try {
+        assert.equal((await gray.fetch(0)).components, 1, "fetch reported coded components as display channels");
+        assert.equal(gray.cached(0).components, 1, "cached reported coded components as display channels");
+        const frame = await gray.frame(0);
+        assert.equal(frame.components, 1);
+        assert.equal(frame.pixels.length, frame.width * frame.height);
+        for (let i = 0; i < frame.pixels.length; i++)
+            assert.equal(frame.pixels[i], expected[i * 3]);
+    } finally { await gray.close(); }
     const mapped = await JpipChannel.open(wasm, server, "shared-palette.jpx");
     try {
         const reversed = mapped.palette(0), direct = mapped.palette(1);
@@ -196,6 +211,8 @@ try {
         assert.deepEqual(reversed.table.slice(15, 18), new Uint8Array([2, 250, 5]));
         assert.deepEqual(direct.table.slice(15, 18), new Uint8Array([5, 250, 2]));
         assert.deepEqual(mapped.palette(0), reversed, "shared codestream overwrote the first layer's palette");
+        assert.equal((await mapped.fetch(0)).components, 1, "fetch must report the single palette index plane");
+        assert.equal(mapped.cached(0).components, 1, "cached must report the single palette index plane");
         const frame = await mapped.frame(0);
         assert.equal(frame.components, 1, "palette must return its single index plane");
         for (let i = 0; i < frame.pixels.length; i++)

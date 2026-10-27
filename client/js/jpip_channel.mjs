@@ -431,13 +431,16 @@ export class JpipChannel {
 
     #view(index, options, prepare = false) {
         this.#checkIndex(index);
+        const components = this.#wasm.hvc_wasm_display_components(index);
+        if (components < 0)
+            throw new Error(this.#error());
         const at = this.#wasm.hvc_wasm_view(index,
             Math.min(options.reduce ?? 0, 2147483647),
             options.fit?.[0] ?? 0, options.fit?.[1] ?? 0,
             Math.min(options.layers ?? 0, 2147483647), prepare ? 1 : 0) >>> 0;
         if (at === 0)
             throw new Error(this.#error());
-        const [fullWidth, fullHeight, components, resolutions, , totalLayers] =
+        const [fullWidth, fullHeight, , resolutions, , totalLayers] =
             new Uint32Array(this.#wasm.memory.buffer, at, 6);
         if (resolutions > 33)
             throw new Error("invalid WebAssembly resolution count");
@@ -445,7 +448,7 @@ export class JpipChannel {
         const [reduce, width, height, layers, ready, request, requestedLayers] =
             new Uint32Array(this.#wasm.memory.buffer, at + 156, 7);
         return {
-            index, reduce, width, height, components: components >= 3 ? 3 : 1,
+            index, reduce, width, height, components,
             fullWidth, fullHeight, resolutions, layers, totalLayers, quality,
             complete: resolutions > 0 && layers === totalLayers,
             ready: Boolean(ready), request, requestedLayers,

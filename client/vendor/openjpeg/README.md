@@ -25,15 +25,23 @@ build for WebAssembly.
 
 ## Decoder optimizations
 
-Local changes touch `dwt.c`, `t1.c`, `t2.c`, `tcd.c`, `tgt.c`, `thread.c`,
+Local changes touch `dwt.c`, `t1.c`, `t2.c`, `tcd.c`, `tcd.h`, `tgt.c`, `thread.c`,
 `mqc.c`, `mqc.h`, `mqc_inl.h` and `openjpeg.c` and add
-`wasm-dwt-simd.h` and `neon-dwt-simd.h`. `t1_cache.c` owns the bounded Tier-1 cache.
+`wasm-dwt-simd.h`, `neon-dwt-simd.h` and `decoder_header.h`.
+`decoder_header.h` declares the scalar main-header coding accessor implemented
+in `openjpeg.c`, avoiding a diagnostic codestream-info allocation.
+`t1_cache.c` owns the bounded Tier-1 cache.
 `decoder_workspace.c` owns its lifetime, the persistent thread pool, and up to
 64 MiB of reusable aligned coefficient buffers. Its opaque local interface in
 `decoder_workspace.h` keeps private codec and tile access inside OpenJPEG.
 `tcd.c` splits the DC shift, rounding and clamping of decoded samples into row
 bands on the decoder's thread pool and rounds irreversible samples with
 WebAssembly SIMD, SSE2 or NEON, with the same results as `lrintf`.
+For a supported whole-tile grayscale decode, the `gray8` and `gray8_compno`
+fields in `tcd.h` select caller-owned byte output. The DC shift packs that
+selected plane directly, bypassing its ordinary integer sample output.
+The buffer must remain writable through decode completion; see
+`opj_decoder_gray8_output` in `decoder_workspace.h` for the lifetime contract.
 `neon-dwt-simd.h` maps the DWT's SSE kernels to AArch64 NEON, as
 `wasm-dwt-simd.h` does for WebAssembly, and `dwt.c` transposes four rows at a
 time with SSE or NEON as it does with WebAssembly SIMD.
@@ -80,7 +88,7 @@ a copy against an upstream checkout:
 
 ```sh
 for f in client/vendor/openjpeg/*.[ch]; do
-    case $f in */opj_config*.h|*/wasm-dwt-simd.h|*/neon-dwt-simd.h|*/decoder_workspace.[ch]|*/t1_cache.[ch]) continue;; esac
+    case $f in */opj_config*.h|*/wasm-dwt-simd.h|*/neon-dwt-simd.h|*/decoder_header.h|*/decoder_workspace.[ch]|*/t1_cache.[ch]) continue;; esac
     cmp $f /path/to/openjpeg/src/lib/openjp2/$(basename $f)
 done
 ```

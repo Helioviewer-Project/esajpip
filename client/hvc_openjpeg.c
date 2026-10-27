@@ -261,9 +261,9 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
         OPJ_UINT32 resolutions, layers;
         if (!opj_decoder_get_coding_parameters(codec, components[c], &resolutions, &layers)) goto done;
         if (c == 0 || (int)resolutions < out->resolutions) out->resolutions = (int)resolutions;
-        if (render && (component->dx != 1 || component->dy != 1 ||
-                       component->x0 != image->x0 || component->y0 != image->y0)) {
-            why = "selected output components require resampling";
+        if ((render || region) && (component->dx != 1 || component->dy != 1 ||
+            (render && (component->x0 != image->x0 || component->y0 != image->y0)))) {
+            why = render ? "selected output components require resampling" : "invalid decode region";
             goto done;
         }
     }
@@ -279,8 +279,6 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
         if (region[0] >= region[2] || region[1] >= region[3] ||
             region[2] > out->full_width || region[3] > out->full_height ||
             image->x1 > INT_MAX || image->y1 > INT_MAX) goto done;
-        for (c = 0; c < out->components; ++c)
-            if (image->comps[components[c]].dx != 1 || image->comps[components[c]].dy != 1) goto done;
         const uint32_t gx = ceil_div_pow2(image->x0, reduce);
         const uint32_t gy = ceil_div_pow2(image->y0, reduce);
         out->grid_width = ceil_div_pow2(image->x1, reduce) - gx;

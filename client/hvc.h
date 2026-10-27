@@ -158,7 +158,8 @@ int hvc_palette(hvc *client, uint64_t frame, int *channels,
 size_t hvc_codestream(hvc *client, uint64_t frame, uint8_t *out, size_t capacity);
 
 /* Host disk cache: a JPIP frame's complete data-bins, size-query/caller-buffer,
- * and back into a frame of the same image. A refused import changes nothing. */
+ * and back into a frame of the same image. Validation refusal changes nothing.
+ * Allocation failure may retain earlier validated bins; retrying is safe. */
 size_t hvc_export(hvc *client, uint64_t frame, uint8_t *out, size_t capacity);
 int hvc_import(hvc *client, uint64_t frame, const uint8_t *block, size_t size);
 
