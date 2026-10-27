@@ -7,6 +7,7 @@
 
 #include "jpeg2000/hv_error.h"
 #include "decoder_workspace.h"
+#include "decoder_header.h"
 #ifdef __wasm_simd128__
 #include <wasm_simd128.h>
 #endif
@@ -200,7 +201,6 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     opj_dparameters_t parameters;
     opj_stream_t *stream = opj_stream_create(1 << 16, OPJ_TRUE);
     opj_codec_t *codec = opj_create_decompress(OPJ_CODEC_J2K);
-    opj_codestream_info_v2_t *info = NULL;
     opj_image_t *image = NULL;
     int bound = 0;
     size_t count, packed = 0;
@@ -229,8 +229,7 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
     opj_set_default_decoder_parameters(&parameters);
 
     why = "cannot decode the codestream";
-    if (!opj_setup_decoder(codec, &parameters) || !opj_read_header(stream, codec, &image) ||
-        (info = opj_get_cstr_info(codec)) == NULL)
+    if (!opj_setup_decoder(codec, &parameters) || !opj_read_header(stream, codec, &image))
         goto done;
     out->components = image->numcomps >= 3 ? 3 : 1;
     if (render) {
@@ -257,11 +256,11 @@ static int decode(hvc_decoder *context, const uint8_t *codestream, size_t size, 
         why = "palette indices require one unsigned component of at most 8 bits";
         goto done;
     }
-    out->resolutions = (int)info->m_default_tile_info.tccp_info[components[0]].numresolutions;
     for (c = 0; c < out->components; c++) {
         const opj_image_comp_t *component = &image->comps[components[c]];
-        int resolutions = (int)info->m_default_tile_info.tccp_info[components[c]].numresolutions;
-        if (resolutions < out->resolutions) out->resolutions = resolutions;
+        OPJ_UINT32 resolutions, layers;
+        if (!opj_decoder_get_coding_parameters(codec, components[c], &resolutions, &layers)) goto done;
+        if (c == 0 || (int)resolutions < out->resolutions) out->resolutions = (int)resolutions;
         if (render && (component->dx != 1 || component->dy != 1 ||
                        component->x0 != image->x0 || component->y0 != image->y0)) {
             why = "selected output components require resampling";
@@ -360,8 +359,6 @@ done:
     }
     if (status != 0 && !failure.reported)
         hv_fail(error, error_size, "%s", why);
-    if (info != NULL)
-        opj_destroy_cstr_info(&info);
     opj_image_destroy(image);
     opj_destroy_codec(codec);
     opj_stream_destroy(stream);

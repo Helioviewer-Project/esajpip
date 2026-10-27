@@ -3,6 +3,7 @@
 #define OPJ_SKIP_POISON
 #include "opj_includes.h"
 #include "t1_cache.h"
+#include "decoder_header.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -87,6 +88,44 @@ static void verify_reuse(const output *encoded, const uint8_t *full, const hv_re
     }
 }
 
+static OPJ_SIZE_T read_bytes(void *bytes, OPJ_SIZE_T size, void *user) {
+    output *in = user;
+    if (in->at == in->size) return (OPJ_SIZE_T)-1;
+    if (size > in->size - in->at) size = in->size - in->at;
+    memcpy(bytes, in->data + in->at, size);
+    in->at += size;
+    return size;
+}
+
+static void verify_header(const output *encoded, OPJ_UINT32 components, const OPJ_UINT32 *expected_resolutions) {
+    output in = *encoded;
+    in.at = 0;
+    opj_codec_t *codec = opj_create_decompress(OPJ_CODEC_J2K);
+    opj_stream_t *stream = opj_stream_create(8192, OPJ_TRUE);
+    opj_image_t *image = NULL;
+    opj_dparameters_t parameters;
+    check(codec != NULL && stream != NULL, "header decoder allocation");
+    opj_set_default_decoder_parameters(&parameters);
+    opj_stream_set_user_data(stream, &in, NULL);
+    opj_stream_set_user_data_length(stream, in.size);
+    opj_stream_set_read_function(stream, read_bytes);
+    opj_stream_set_seek_function(stream, seek_bytes);
+    opj_stream_set_skip_function(stream, skip_bytes);
+    check(opj_setup_decoder(codec, &parameters) && opj_read_header(stream, codec, &image), "read encoded header");
+    for (OPJ_UINT32 c = 0; c < components; c++) {
+        OPJ_UINT32 resolutions = 0, layers = 0;
+        check(opj_decoder_get_coding_parameters(codec, c, &resolutions, &layers) &&
+              resolutions == (expected_resolutions ? expected_resolutions[c] : 3) && layers == 1,
+              "main-header coding parameters differ from COD/COC settings");
+    }
+    OPJ_UINT32 resolutions = 123, layers = 456;
+    check(!opj_decoder_get_coding_parameters(codec, components, &resolutions, &layers) &&
+          resolutions == 123 && layers == 456, "missing header component changed outputs");
+    opj_image_destroy(image);
+    opj_stream_destroy(stream);
+    opj_destroy_codec(codec);
+}
+
 static void encode(opj_image_t *input, output *out, int irreversible) {
     opj_codec_t *codec = opj_create_compress(OPJ_CODEC_J2K);
     opj_stream_t *stream = opj_stream_create(8192, OPJ_FALSE);
@@ -105,6 +144,7 @@ static void encode(opj_image_t *input, output *out, int irreversible) {
           opj_encode(codec, stream) && opj_end_compress(codec, stream), "encode known samples");
     opj_stream_destroy(stream);
     opj_destroy_codec(codec);
+    verify_header(out, input->numcomps, NULL);
 }
 
 static void verify(unsigned bits, int signed_samples) {
@@ -169,6 +209,20 @@ static void verify_channels(void) {
             input->comps[c].data[i] = (i + 37 * c) % 256;
     encode(input, &out, 0);
     opj_image_destroy(input);
+
+    /* A main-header COC overrides COD for component 1 only. No pixel decode
+     * of this header-only variant: its original packets still encode 3 levels. */
+    uint8_t coc_bytes[sizeof bytes + 11];
+    const uint8_t coc[] = {0xff, 0x53, 0, 9, 1, 0, 1, 4, 4, 0, 1};
+    size_t sot = 0;
+    while (sot + 1 < out.size && !(bytes[sot] == 0xff && bytes[sot + 1] == 0x90)) sot++;
+    check(sot + 1 < out.size, "encoded SOT marker");
+    memcpy(coc_bytes, bytes, sot);
+    memcpy(coc_bytes + sot, coc, sizeof coc);
+    memcpy(coc_bytes + sot + sizeof coc, bytes + sot, out.size - sot);
+    output with_coc = {coc_bytes, 0, out.size + sizeof coc, sizeof coc_bytes};
+    const OPJ_UINT32 resolutions[] = {3, 2, 3};
+    verify_header(&with_coc, 3, resolutions);
 
     hvc_image image;
     char error[256];

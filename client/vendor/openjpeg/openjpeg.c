@@ -37,6 +37,7 @@
 
 #include "opj_includes.h"
 #include "decoder_workspace.h"
+#include "decoder_header.h"
 
 
 /* ---------------------------------------------------------------------- */
@@ -1072,6 +1073,27 @@ void OPJ_CALLCONV opj_dump_codec(opj_codec_t *p_codec,
     /* TODO return error */
     /* fprintf(stderr, "[ERROR] Input parameter of the dump_codec function are incorrect.\n"); */
     return;
+}
+
+OPJ_BOOL opj_decoder_get_coding_parameters(opj_codec_t *codec, OPJ_UINT32 component,
+        OPJ_UINT32 *resolutions, OPJ_UINT32 *layers)
+{
+    const opj_codec_private_t *internal = (const opj_codec_private_t *)codec;
+    const opj_j2k_t *j2k;
+    const opj_tcp_t *tile;
+    if (!internal || !internal->is_decompressor ||
+            internal->opj_get_codec_info != j2k_info_callback || !resolutions || !layers) {
+        return OPJ_FALSE;
+    }
+    j2k = (const opj_j2k_t *)internal->m_codec;
+    tile = j2k->m_specific_param.m_decoder.m_default_tcp;
+    if (!j2k->m_private_image || component >= j2k->m_private_image->numcomps ||
+            !tile || !tile->tccps) {
+        return OPJ_FALSE;
+    }
+    *resolutions = tile->tccps[component].numresolutions;
+    *layers = tile->numlayers;
+    return OPJ_TRUE;
 }
 
 opj_codestream_info_v2_t* OPJ_CALLCONV opj_get_cstr_info(opj_codec_t *p_codec)
