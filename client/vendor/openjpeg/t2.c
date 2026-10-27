@@ -1201,6 +1201,21 @@ static OPJ_BOOL opj_t2_read_packet_header(opj_t2_t* p_t2,
         }
 
         l_nb_code_blocks = l_prc->cw * l_prc->ch;
+        if (l_nb_code_blocks == 0) {
+            continue;
+        }
+        if (!l_prc->incltree) {
+            l_prc->incltree = opj_tgt_create(l_prc->cw, l_prc->ch, p_manager);
+            if (!l_prc->incltree) {
+                return OPJ_FALSE;
+            }
+        }
+        if (!l_prc->imsbtree) {
+            l_prc->imsbtree = opj_tgt_create(l_prc->cw, l_prc->ch, p_manager);
+            if (!l_prc->imsbtree) {
+                return OPJ_FALSE;
+            }
+        }
         l_cblk = l_prc->cblks.dec;
         for (cblkno = 0; cblkno < l_nb_code_blocks; cblkno++) {
             OPJ_UINT32 l_included, l_increment, l_segno;

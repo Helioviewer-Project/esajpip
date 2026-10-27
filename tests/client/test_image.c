@@ -140,11 +140,80 @@ static void encode(opj_image_t *input, output *out, int irreversible) {
     opj_stream_set_write_function(stream, write_bytes);
     opj_stream_set_seek_function(stream, seek_bytes);
     opj_stream_set_skip_function(stream, skip_bytes);
-    check(opj_setup_encoder(codec, &parameters, input) && opj_start_compress(codec, input, stream) &&
+    const char *options[] = {"PLT=YES", NULL};
+    check(opj_setup_encoder(codec, &parameters, input) &&
+          opj_encoder_set_extra_options(codec, options) && opj_start_compress(codec, input, stream) &&
           opj_encode(codec, stream) && opj_end_compress(codec, stream), "encode known samples");
     opj_stream_destroy(stream);
     opj_destroy_codec(codec);
     verify_header(out, input->numcomps, NULL);
+}
+
+static void verify_empty_prefix_layers(const output *encoded) {
+    uint8_t bytes[8192];
+    memcpy(bytes, encoded->data, encoded->size);
+    size_t sot = 2;
+    while (sot + 4 <= encoded->size && !(bytes[sot] == 0xff && bytes[sot + 1] == 0x90)) {
+        size_t length = (size_t)bytes[sot + 2] * 256 + bytes[sot + 3];
+        check(length >= 2 && length <= encoded->size - sot - 2, "prefix-layer marker length");
+        if (bytes[sot + 1] == 0x52) {
+            bytes[sot + 5] = OPJ_RPCL;
+            bytes[sot + 6] = 0;
+            bytes[sot + 7] = 4;
+        }
+        sot += length + 2;
+    }
+    check(sot + 14 <= encoded->size, "prefix-layer tile header");
+    size_t at = sot + 12, lengths[3] = {0}, packets = 0;
+    while (at + 4 <= encoded->size && !(bytes[at] == 0xff && bytes[at + 1] == 0x93)) {
+        size_t length = (size_t)bytes[at + 2] * 256 + bytes[at + 3];
+        check(bytes[at + 1] == 0x58 && length >= 3 && length <= encoded->size - at - 2,
+              "prefix-layer packet lengths");
+        size_t value = 0;
+        for (size_t i = at + 5; i < at + 2 + length; ++i) {
+            value = value * 128 + (bytes[i] & 127);
+            if (!(bytes[i] & 128)) {
+                check(packets < 3, "prefix-layer packet count");
+                lengths[packets++] = value;
+                value = 0;
+            }
+        }
+        at += length + 2;
+    }
+    check(packets == 3 && at + 2 <= encoded->size, "prefix-layer resolution packets");
+    at += 2;
+    size_t size = sot + 12;
+    bytes[size++] = 0xff;
+    bytes[size++] = 0x93;
+    for (unsigned packet = 0; packet < 3; ++packet) {
+        check(lengths[packet] <= encoded->size - at && size + 3 + lengths[packet] + 2 <= sizeof bytes,
+              "prefix-layer packet size");
+        memset(bytes + size, 0, 3);
+        size += 3;
+        memcpy(bytes + size, encoded->data + at, lengths[packet]);
+        size += lengths[packet];
+        at += lengths[packet];
+    }
+    check(at + 2 == encoded->size, "prefix-layer packet coverage");
+    size_t tile_length = size - sot;
+    for (unsigned i = 0; i < 4; ++i) bytes[sot + 6 + i] = (uint8_t)(tile_length >> (24 - 8 * i));
+    bytes[size++] = 0xff;
+    bytes[size++] = 0xd9;
+    hvc_decoder *decoder = hvc_decoder_create(0);
+    check(decoder != NULL, "prefix-layer decoder allocation");
+    for (int reduce = 2; reduce >= 0; --reduce) {
+        hvc_image reference, image;
+        char error[256] = {0};
+        check(hvc_openjpeg_decode(encoded->data, encoded->size, reduce, NULL, &reference,
+                                 error, sizeof error) == 0, error);
+        check(hvc_openjpeg_decode_context(decoder, bytes, size, reduce, NULL, &image,
+                                         error, sizeof error) == 0, error);
+        check(image.width == reference.width && image.height == reference.height &&
+              memcmp(image.pixels, reference.pixels, (size_t)image.width * image.height) == 0,
+              "empty initial layers changed resolution pixels");
+        free(reference.pixels);
+    }
+    hvc_decoder_destroy(decoder);
 }
 
 static void verify(unsigned bits, int signed_samples) {
@@ -164,6 +233,7 @@ static void verify(unsigned bits, int signed_samples) {
 
     encode(input, &out, 0);
     opj_image_destroy(input);
+    if (bits == 8 && !signed_samples) verify_empty_prefix_layers(&out);
 
     hvc_image image;
     char error[256];

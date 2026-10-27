@@ -1206,20 +1206,20 @@ static INLINE OPJ_BOOL opj_tcd_init_tile(opj_tcd_t *p_tcd, OPJ_UINT32 p_tile_no,
                         l_current_precinct->block_size = l_nb_code_blocks_size;
                     }
 
-                    if (! l_current_precinct->incltree) {
-                        l_current_precinct->incltree = opj_tgt_create(l_current_precinct->cw,
-                                                       l_current_precinct->ch, manager);
-                    } else {
+                    if (l_current_precinct->incltree) {
                         l_current_precinct->incltree = opj_tgt_init(l_current_precinct->incltree,
                                                        l_current_precinct->cw, l_current_precinct->ch, manager);
+                    } else if (isEncoder) {
+                        l_current_precinct->incltree = opj_tgt_create(l_current_precinct->cw,
+                                                       l_current_precinct->ch, manager);
                     }
 
-                    if (! l_current_precinct->imsbtree) {
-                        l_current_precinct->imsbtree = opj_tgt_create(l_current_precinct->cw,
-                                                       l_current_precinct->ch, manager);
-                    } else {
+                    if (l_current_precinct->imsbtree) {
                         l_current_precinct->imsbtree = opj_tgt_init(l_current_precinct->imsbtree,
                                                        l_current_precinct->cw, l_current_precinct->ch, manager);
+                    } else if (isEncoder) {
+                        l_current_precinct->imsbtree = opj_tgt_create(l_current_precinct->cw,
+                                                       l_current_precinct->ch, manager);
                     }
 
                     for (cblkno = 0; cblkno < l_nb_code_blocks; ++cblkno) {
