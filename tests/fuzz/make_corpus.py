@@ -250,6 +250,16 @@ def build_corpora(repo: Path, out: Path) -> None:
         for right_index, right in enumerate(merge_inputs):
             payload = struct.pack(">I", len(left)) + left + right
             write_unique(merge, f"merge-{left_index}-{right_index}", payload)
+            for exponent in (8, 9):
+                # fuzz_merge.c transcodes at exponent data[0] % 15 + 1, so a top
+                # byte of exponent - 1 selects it; keep the split modulo the
+                # pair's size while changing that byte.
+                encoded = (exponent - 1) << 24
+                encoded += (len(left) - encoded) % (len(left) + len(right) + 1)
+                assert encoded >> 24 == exponent - 1
+                assert encoded % (len(left) + len(right) + 1) == len(left)
+                payload = struct.pack(">I", encoded) + left + right
+                write_unique(merge, f"merge-{left_index}-{right_index}-precinct-{exponent}", payload)
     # One valid input and one of the JP2 vectors, each of which breaks one
     # rule of that same file, in both orders.
     valid = (repo / "tests" / "vectors" / "j2k" / "jp2.jp2").read_bytes()

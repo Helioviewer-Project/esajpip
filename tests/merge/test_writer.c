@@ -44,20 +44,43 @@ static void test_limit(void) {
     fclose(file);
 }
 
+enum { PATCH_SHORT_WRITE = 1, PATCH_FLUSH, PATCH_RESTORE };
+
 typedef struct {
     long position, size;
     int fail_seek;
+    int failure, patching, faulted;
+    uint32_t patch_type;
     FILE *base;
 } stream;
 
+/* funopen's write callback reports an error with -1; fopencookie's must
+ * return 0 instead, and never a negative value. */
 #ifdef __APPLE__
+#define WRITE_ERROR (-1)
 static int stream_write(void *context, const char *bytes, int size) {
 #else
+#define WRITE_ERROR 0
 static ssize_t stream_write(void *context, const char *bytes, size_t size) {
 #endif
     stream *s = context;
+    if (s->patching) {
+        if (size >= 8)
+            s->patch_type = (uint32_t)(unsigned char)bytes[4] << 24 |
+                            (uint32_t)(unsigned char)bytes[5] << 16 |
+                            (uint32_t)(unsigned char)bytes[6] << 8 | (unsigned char)bytes[7];
+        if (s->failure == PATCH_SHORT_WRITE || s->failure == PATCH_FLUSH) {
+            s->faulted++;
+            if (s->failure == PATCH_FLUSH)
+                errno = ENOSPC;
+            return s->failure == PATCH_SHORT_WRITE ? 0 : WRITE_ERROR;
+        }
+    } else if (s->failure == PATCH_SHORT_WRITE) {
+        /* A stale errno that only the merge's own reset before the patch clears. */
+        errno = EDOM;
+    }
     if (s->base != NULL && fwrite(bytes, 1, size, s->base) != (size_t)size)
-        return -1;
+        return WRITE_ERROR;
     s->position += size;
     if (s->position > s->size)
         s->size = s->position;
@@ -79,6 +102,16 @@ static int stream_seek(void *context, off64_t *offset, int whence) {
         errno = ESPIPE;
         return -1;
     }
+    if (s->patching && whence == SEEK_SET && value == s->size &&
+        s->failure == PATCH_RESTORE) {
+        s->faulted++;
+        errno = ESPIPE;
+        return -1;
+    }
+    /* Stays set after the first patch, so a fault also reaches any later
+     * patch; faulted == 1 then shows that no later patch was attempted. */
+    if (whence == SEEK_SET && value < s->size)
+        s->patching = 1;
     s->position = (whence == SEEK_CUR ? s->position : whence == SEEK_END ? s->size : 0) + value;
 #ifdef __APPLE__
     return s->position;
@@ -97,12 +130,14 @@ typedef struct {
     hv_merge_input input;
     stream *output;
     int opens, closes;
+    int opened[2], closed[2], fail_seek;
 } patch_input;
 
 static int input_open(void *context, size_t i, hv_merge_input *in, char *error, size_t size) {
     patch_input *p = context;
-    (void)i; (void)error; (void)size;
+    (void)error; (void)size;
     p->opens++;
+    p->opened[i]++;
     *in = p->input;
     return 0;
 }
@@ -111,7 +146,8 @@ static void input_close(void *context, size_t i, hv_merge_input *in) {
     patch_input *p = context;
     (void)in;
     p->closes++;
-    if (i == 1)
+    p->closed[i]++;
+    if (i == 1 && p->fail_seek)
         p->output->fail_seek = 1;
 }
 
@@ -119,7 +155,7 @@ static void test_seek(void) {
     size_t size = 0;
     uint8_t *bytes = hv_load_file(MERGE_FIXTURES "/input/swap_000.jp2", INT_MAX, &size);
     stream s = {0};
-    patch_input p = {{"frame.jp2", bytes, size}, &s, 0, 0};
+    patch_input p = {.input = {"frame.jp2", bytes, size}, .output = &s, .fail_seek = 1};
     hv_merge_inputs inputs = {input_open, input_close, &p};
     FILE *file, *existing;
     hv_file output;
@@ -185,6 +221,59 @@ static void test_seek(void) {
     free(bytes);
     unlink(path);
     rmdir(dir);
+}
+
+static void test_patch_failures(void) {
+    size_t size = 0;
+    uint8_t *bytes = hv_load_file(MERGE_FIXTURES "/input/swap_000.jp2", INT_MAX, &size);
+    static const struct {
+        int failure, links, error;
+        const char *name;
+    } cases[] = {
+        {PATCH_SHORT_WRITE, 0, EIO, "Reader Requirements short write without errno"},
+        {PATCH_FLUSH, 0, ENOSPC, "Reader Requirements flush failure"},
+        {PATCH_RESTORE, 0, ESPIPE, "Reader Requirements append-position seek failure"},
+        {PATCH_SHORT_WRITE, 1, EIO, "Data Reference length patch failure"},
+    };
+    if (bytes == NULL) {
+        check(0, "load patch failure input");
+        return;
+    }
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        stream s = {.failure = cases[i].failure};
+        patch_input p = {.input = {MERGE_FIXTURES "/input/swap_000.jp2", bytes, size}, .output = &s};
+        hv_merge_inputs inputs = {input_open, input_close, &p};
+        char error[512] = {0}, expected[512], message[600], buffer[4096];
+        FILE *file;
+#ifdef __APPLE__
+        file = funopen(&s, NULL, stream_write, stream_seek, stream_close);
+#else
+        cookie_io_functions_t io = {.write = stream_write, .seek = stream_seek, .close = stream_close};
+        file = fopencookie(&s, "w", io);
+#endif
+        if (file == NULL) {
+            check(0, cases[i].name);
+            continue;
+        }
+        /* Buffer the patch so its write fails when the stream is flushed. */
+        check(setvbuf(file, cases[i].failure == PATCH_FLUSH ? buffer : NULL,
+                      cases[i].failure == PATCH_FLUSH ? _IOFBF : _IONBF,
+                      cases[i].failure == PATCH_FLUSH ? sizeof buffer : 0) == 0,
+              cases[i].name);
+        snprintf(expected, sizeof expected, "cannot patch the JPX file: %s", strerror(cases[i].error));
+        snprintf(message, sizeof message, "%s (error)", cases[i].name);
+        check(hv_merge_files(&inputs, 2, cases[i].links, HV_OUTPUT_JPEG2000, 0, 0,
+                             file, error, sizeof error) == -1 && strcmp(error, expected) == 0,
+              message);
+        snprintf(message, sizeof message, "%s (fault and box)", cases[i].name);
+        check(s.faulted == 1 && s.patch_type == (cases[i].links ? HV_BOX_DTBL : HV_BOX_RREQ),
+              message);
+        snprintf(message, sizeof message, "%s (open and close)", cases[i].name);
+        check(p.opens == 2 && p.closes == 2 && p.opened[0] == 1 && p.closed[0] == 1 &&
+              p.opened[1] == 1 && p.closed[1] == 1, message);
+        fclose(file);
+    }
+    free(bytes);
 }
 
 static void test_counting(void) {
@@ -261,6 +350,7 @@ int main(void) {
     test_limit();
     test_counting();
     test_seek();
+    test_patch_failures();
     test_append();
     test_dtbl_flush();
     printf("%d checks, %d failed\n", checks, failures);

@@ -925,7 +925,7 @@ done:
 /* Inputs opened on demand: counts what hv_merge_files opens, and can
  * fail an open before or after output has been written. */
 typedef struct {
-    int opens[NINPUTS], transcodes[NINPUTS], open, most;
+    int opens[NINPUTS], closes[NINPUTS], transcodes[NINPUTS], open, most;
     size_t fail_at;                 /* NINPUTS: never */
 } counting;
 
@@ -946,8 +946,8 @@ static int counting_open(void *context, size_t i, hv_merge_input *in, char *erro
 
 static void counting_close(void *context, size_t i, hv_merge_input *in) {
     counting *c = context;
-    (void)i;
     (void)in;
+    c->closes[i]++;
     c->open--;
     input_transcode_calls = NULL;
 }
@@ -1019,6 +1019,33 @@ static void test_opening(void) {
     transcode_calls = 0;
     test_opening_mode();
     opening_transcode = 0;
+}
+
+static void test_transcode_failure(void) {
+    const char *path = TRANSCODE_FIXTURES "/input/synthetic_rgb_129x129_origin129_CPRL.jp2";
+    bytes origin = read_file(path);
+    hv_merge_input saved = inputs[1];
+    counting c = {.fail_at = NINPUTS};
+    char error[512] = {0};
+    if (origin.data == NULL) {
+        check(0, "load %s", path);
+        return;
+    }
+    inputs[1] = (hv_merge_input){path, origin.data, origin.size};
+    opening_validate = 0;
+    opening_transcode = 1;
+    check(merge_counting(&c, 0, error, sizeof error) == -1 &&
+          strstr(error, path) != NULL && strstr(error, "siz.zero-origin") != NULL,
+          "later transcode failure names its input: %s", error);
+    opening_transcode = 0;
+    check(c.transcodes[0] == 1 && c.transcodes[1] == 1,
+          "failure occurs in the later input's transcoder");
+    check(c.open == 0, "failed transcode releases all inputs");
+    for (size_t i = 0; i < NINPUTS; i++)
+        check(c.opens[i] == (i < 2 ? 1 : 0) && c.closes[i] == c.opens[i],
+              "failed transcode: input %zu opened %d times, closed %d times", i, c.opens[i], c.closes[i]);
+    inputs[1] = saved;
+    bytes_free(&origin);
 }
 
 static void test_arguments(void) {
@@ -1540,33 +1567,60 @@ static void test_transcoding(void) {
         hv_box box;
         const char *rule;
         size_t at;
+        int found_input = 0;
         hv_boxes_file(&it, original.data, original.size);
         while (hv_boxes_next(&it, &box, &rule, &at) == 1)
             if (box.type == HV_BOX_XML && box.end > box.payload + 3) {
-                original.data[box.payload + 3] = 0;
-                check(merge_precincts(in, 2, 0, 0, 7, 7, &got, error, sizeof error) == 0,
-                      "XML NUL transcode: %s", error);
-                if (got.data != NULL) {
-                    hv_boxes top, children;
-                    hv_box asoc, xml;
-                    int found = 0;
-                    hv_boxes_file(&top, got.data, got.size);
-                    while (hv_boxes_next(&top, &asoc, &rule, &at) == 1)
-                        if (asoc.type == HV_BOX_ASOC) {
-                            hv_boxes_children(&children, got.data, &asoc);
-                            while (hv_boxes_next(&children, &xml, &rule, &at) == 1)
-                                if (xml.type == HV_BOX_XML) {
-                                    found++;
-                                    check(!xml.to_end && xml.end - xml.payload == 3 &&
-                                          memcmp(got.data + xml.payload, original.data + box.payload, 3) == 0,
-                                          "XML trimmed with explicit length");
-                                }
-                        }
-                    check(found == 2, "both XML boxes emitted: %d", found);
+                /* Offset 0 comes last: each NUL is written into the fixture in
+                 * place, and the case at 3 must not find the NUL at 0 first. */
+                size_t offsets[] = {3, 0};
+                found_input = 1;
+                for (size_t i = 0; i < sizeof offsets / sizeof *offsets; i++) {
+                    size_t length = offsets[i];
+                    hv_out prepared;
+                    hv_merge_input pair[2];
+                    original.data[box.payload + length] = 0;
+                    check(merge_precincts(in, 2, 0, 0, 7, 7, &got, error, sizeof error) == 0,
+                          "XML NUL transcode: %s", error);
+                    if (got.data != NULL) {
+                        hv_boxes top, children;
+                        hv_box asoc, xml;
+                        int found = 0;
+                        hv_boxes_file(&top, got.data, got.size);
+                        while (hv_boxes_next(&top, &asoc, &rule, &at) == 1)
+                            if (asoc.type == HV_BOX_ASOC) {
+                                hv_boxes_children(&children, got.data, &asoc);
+                                while (hv_boxes_next(&children, &xml, &rule, &at) == 1)
+                                    if (xml.type == HV_BOX_XML) {
+                                        found++;
+                                        check(!xml.to_end && xml.end - xml.payload == length &&
+                                              get32(got.data + xml.start) == 8 + length &&
+                                              memcmp(got.data + xml.payload, original.data + box.payload, length) == 0,
+                                              "XML trimmed with explicit length");
+                                    }
+                            }
+                        check(found == 2, "both XML boxes emitted: %d", found);
+                        expect_served("XML NUL transcode", &got, in);
+                    }
+                    hv_out_init(&prepared);
+                    int status = hv_transcode_file(original.data, original.size, 7, 7, HV_OUTPUT_JPIP,
+                                                   &prepared, error, sizeof error);
+                    check(status == 0, "prepare separate XML NUL transcode: %s", error);
+                    if (status == 0) {
+                        pair[0] = (hv_merge_input){path, prepared.data, prepared.size};
+                        pair[1] = pair[0];
+                        check(merge_mode(pair, 2, 0, 1, &expected, error, sizeof error) == 0,
+                              "merge prepared XML NUL transcode: %s", error);
+                        check(got.data != NULL && expected.data != NULL && got.size == expected.size &&
+                              memcmp(got.data, expected.data, got.size) == 0, "XML NUL pipeline bytes");
+                    }
+                    hv_out_free(&prepared);
+                    bytes_free(&expected);
+                    bytes_free(&got);
                 }
-                bytes_free(&got);
                 break;
             }
+        check(found_input, "XML NUL fixture available");
     }
     bytes_free(&second);
     bytes_free(&original);
@@ -1579,6 +1633,7 @@ int main(void) {
     } groups[] = {
         {"hvJP2K reference", test_reference},
         {"transcode merge", test_transcoding},
+        {"later transcode failure", test_transcode_failure},
         {"default and validation modes", test_modes},
         {"general container access", test_container_access},
         {"opaque main-header bodies", test_opaque_headers},
