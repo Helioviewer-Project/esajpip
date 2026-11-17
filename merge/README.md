@@ -11,19 +11,25 @@ makes itself (`ftyp`, `rreq`, a generated `cmap`, `nlst`, `flst`, `url`,
 
 ## Usage
 
-    hv_merge -i jp2file1,jp2file2,... [jp2file ...] -o jpxfile [-links] [--validate | --transcode [-p W,H]] [-s argfile]
+    hv_merge -i jp2file[,jp2file...] [jp2file ...] -o jpxfile [-links] [--validate | --transcode [-p W,H]] [-s argfile]
 
-The single-dash options follow Kakadu's `kdu_merge` through hvJP2K.
+The single-dash option names follow Kakadu's `kdu_merge` through hvJP2K.
 `--validate` and `--transcode` are hv_merge extensions:
 
 - `-i`: the input JP2 files, in the order of the JPX codestreams, comma or
-  space separated (empty names between commas are dropped).
-- `-o`: the output JPX file.
+  space separated (empty names between commas are dropped). It takes words
+  up to the next word starting with `-`; repeated `-i` options accumulate
+  names in order.
+- `-o FILE`: the output JPX file, required exactly once.
 - `-links`: link to the codestreams (`ftbl`, and `url` boxes naming each
   input by absolute, resolved path) instead of copying them (`jp2c`).
-- `-s`: more arguments from a file, or from standard input for `-`, split as
-  Python's `shlex.split` does (quotes and backslashes).
-- `-h`: the usage, on standard output.
+- `-s FILE`: insert arguments from FILE at this position, or from standard
+  input for `-`. Space, tab, newline and carriage return separate words.
+  Single quotes keep everything; double quotes let a backslash escape only
+  a double quote or a backslash; outside quotes a backslash escapes any
+  character. An unterminated quote or a final backslash fails with exit
+  status 1. A `-s` inside the file is a usage error.
+- `-h`, `--help`: the help text on standard output, with exit status 0.
 - `--validate`: also validate the complete codestream against the served
   profile, including PLT entries, padding, packet count and coverage.
   Without it, the codestream after the checked main header is copied or
@@ -34,7 +40,8 @@ The single-dash options follow Kakadu's `kdu_merge` through hvJP2K.
   archive, without modifying or duplicating the source files. It cannot be
   combined with `-links` or `--validate`.
 - `-p W,H`: precinct width and height for `--transcode`, powers of 2 from
-  2 to 32,768, default 128,128, as in `hv_transcode`. Without `--transcode`
+  2 to 32,768, default 128,128, parsed as
+  [`../tools/README.md`](../tools/README.md) describes. Without `--transcode`
   it is a usage error. Precincts become the requested size. SOP/EPH,
   tile-part COM, TLM and PLM are dropped; the selected XML ends at its
   first NUL. The transcoder rejects BYPASS/TERMALL, COC/POC/PPM, more than
@@ -43,21 +50,18 @@ The single-dash options follow Kakadu's `kdu_merge` through hvJP2K.
   without `--transcode` but fails with it). See
   [`transcode/`](../transcode/README.md) for its supported input.
 
-They are parsed as hvJP2K's `argparse` parser does. With `-s`, the command
-line and the file's words after it are parsed again, once: a later `-i`,
-`-o` or `-p` replaces an earlier one, the command line's included; a `-s` in
-the file is parsed but not read; words in the file continue a `-i` that
-ends the command line, and are an error otherwise. `-i` takes the words up
-to the next one that looks like an option: one starting with `-`, other
-than `-` alone, a negative number such as `-1`, or a word with a space
-that names no option. An option's value may be attached (`-ofile.jpx`,
-`-o=file.jpx`, `-i` then taking that one name), and an option may be
-abbreviated (`-lin`). `--` is an error. Names that leave nothing once the
-commas are dropped fail with hvJP2K's "no JP2 input files". `cli_test.sh`
-checks these cases. Deliberate differences: the argument file is read as
-bytes, where hvJP2K decodes it as text and fails on bytes the locale's
-encoding rejects; a NUL byte in it is an error (it would end the text
-early); and `-h` prints hv_merge's own usage text.
+Options must use their exact names, with values in the following word.
+A word starting with `-`, including `-` alone, is never a value, except
+`-` after `-s`. Unknown options, missing values and duplicate `-o`
+options are usage errors. `-h` or `--help` anywhere on the command line
+prints the help before any `-s` file is read.
+This plain command line differs from hvJP2K's `hv_jpx_merge`: abbreviations,
+combined short options, `=` and attached option values are not accepted.
+The words of an argument file are inserted at each `-s`, without reparsing
+the command line.
+Names that leave nothing once the commas are dropped fail with "no JP2
+input files". Argument files are read as bytes; a read error or NUL byte is
+an error, so a partial argument list cannot silently merge fewer frames.
 
 Inputs are immutable. Their bytes and sizes must remain unchanged throughout
 the merge. Mutation is a configuration/operational error outside the merger's contract. With `-links`,
@@ -211,7 +215,7 @@ them and keeps the IPR 1 that announces them.
 | --- | --- |
 | `hv_merge.c` | The command: options, `-s`, mapping the inputs, writing the output file. |
 | `merge.h` / `.c` | `hv_merge_files`: checks the inputs and writes the JPX file box by box to a stream, opening each input exactly once (`hv_merge_buffers` for inputs already in memory). |
-| `../tests/merge/` | `test_merge.c`: hvJP2K's output plus the `free` box byte for byte (`fixtures/`), the linked merge box for box against it and within the served profile, the reader requirement cases of hvJP2K's tests, IPR boxes carried into each `jpch`, an XML box with LBox = 0 given a length, rejected inputs (Rsiz bit 15, header boxes, `colr` counts and methods, the limits), inputs opened on demand (`test_opening`: how often each is opened, at most two at a time, cleanup on a failed open), and 1,024- and 1,025-character links; `test_writer.c`: INT_MAX accounting, counted and written sizes, late seek failure cleanup, append-mode output rejection, and a failed `dtbl` flush; `cli_test.sh`: the command (options as `argparse` parses them, `-s`, permissions, symbolic links, every mode over an input, failures). |
+| `../tests/merge/` | `test_merge.c`: hvJP2K's output plus the `free` box byte for byte (`fixtures/`), the linked merge box for box against it and within the served profile, the reader requirement cases of hvJP2K's tests, IPR boxes carried into each `jpch`, an XML box with LBox = 0 given a length, rejected inputs (Rsiz bit 15, header boxes, `colr` counts and methods, the limits), inputs opened on demand (`test_opening`: how often each is opened, at most two at a time, cleanup on a failed open), and 1,024- and 1,025-character links; `test_writer.c`: INT_MAX accounting, counted and written sizes, late seek failure cleanup, append-mode output rejection, and a failed `dtbl` flush; `cli_test.sh`: the command (plain options, `-s`, permissions, symbolic links, every mode over an input, failures). |
 | `fuzz_merge.c` | libFuzzer target: two JP2 files from one input, merged as embedded and linked output in default and validation modes, plus embedded output with transcoding. An accepted merge must pass `hv_served_jpx` and `hv_check_jpx_headers`, plus `HV_READ_JPIP` for each codestream in validation and transcode modes. |
 
 ## Build and test

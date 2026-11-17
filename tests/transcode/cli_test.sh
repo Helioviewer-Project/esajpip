@@ -32,6 +32,9 @@ mode() {
 [ "$(status "$exe" -q "$input" "$work/out.jp2")" = 2 ] || fail "unknown option: expected 2"
 [ "$(status "$exe" -p 100,128 "$input" "$work/out.jp2")" = 2 ] || fail "-p 100,128: expected 2"
 [ "$(status "$exe" -p 1,128 "$input" "$work/out.jp2")" = 2 ] || fail "-p 1,128: expected 2"
+for value in ' 128,128' '+128,128' '128, 128' '128,+128'; do
+    [ "$(status "$exe" -p "$value" "$input" "$work/out.jp2")" = 2 ] || fail "-p '$value': expected 2"
+done
 [ ! -e "$work/out.jp2" ] || fail "a usage error wrote the output"
 
 [ "$(status "$exe" "$input" "$work/out.jp2")" = 0 ] ||

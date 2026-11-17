@@ -10,6 +10,12 @@ This helper owns process-wide signal cleanup and allows one active output.
 It also briefly changes the process umask when reading it. These policies
 belong to the commands; library callers supply their own output and lifecycle.
 
+`hv_cli.c` and `hv_cli.h` parse the `-p W,H` value of `hv_transcode` and
+`hv_merge --transcode` (`hv_cli_precincts`): W and H are powers of 2 from 2
+to 32,768, written as decimal digits only, with no sign, space or other
+character. The result is a pair of exponents from 1 to 15. Like `hv_file`,
+it is compiled into each command and is not part of the transcoder library.
+
 ## JPIP benchmark
 
 `jpip_bench.cc` measures target opening and a persistent response sequence with

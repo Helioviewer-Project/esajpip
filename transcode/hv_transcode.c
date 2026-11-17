@@ -27,6 +27,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
+#include "tools/hv_cli.h"
 #include "tools/hv_file.h"
 #include "jpeg2000/hv_served.h"
 #include "jpeg2000/hv_writer.h"
@@ -34,19 +35,6 @@
 
 static void usage(void) {
     fprintf(stderr, "usage: hv_transcode [-p W,H] input output\n");
-}
-
-/* The exponent of a power of 2 from 2 to 32,768, or -1. */
-static int exponent(const char *s, char **end) {
-    long v;
-    int e = 0;
-    errno = 0;
-    v = strtol(s, end, 10);
-    if (errno != 0 || *end == s || v < 2 || v > 32768 || (v & (v - 1)) != 0)
-        return -1;
-    while ((1L << e) < v)
-        e++;
-    return e;
 }
 
 /* Replaces the file `path` with out (hv_file), with permissions `mode`. */
@@ -73,9 +61,7 @@ int main(int argc, char **argv) {
 
     for (i = 1; i < argc && argv[i][0] == '-' && argv[i][1]; i++) {
         if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) {
-            char *end;
-            ppx = exponent(argv[++i], &end);
-            if (ppx < 0 || *end != ',' || (ppy = exponent(end + 1, &end)) < 0 || *end) {
+            if (hv_cli_precincts(argv[++i], &ppx, &ppy) != 0) {
                 fprintf(stderr, "hv_transcode: -p takes W,H: powers of 2 from 2 to 32,768\n");
                 return 2;
             }

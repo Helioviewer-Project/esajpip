@@ -1,5 +1,5 @@
 #!/bin/sh
-# The hv_merge command: options as hvJP2K's, exit status, and nothing
+# The hv_merge command: plain options, exit status, and nothing
 # written or left behind on failure.
 #   cli_test.sh HV_MERGE HV_TRANSCODE MERGE_FIXTURES TRANSCODE_FIXTURES WORK
 set -eu
@@ -41,12 +41,39 @@ $kakadu/solo_fsi174_511x513_LRCP_PLT.jp2 $kakadu/synthetic_rgb_129x129_CPRL_SOP_
     fail "a name starting with - after -i: expected 2"
 [ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -o "$work/out.jpx" --)" = 2 ] ||
     fail "--: expected 2"
-[ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -o "$work/out.jpx" -links=yes)" = 2 ] ||
-    fail "-links=yes: expected 2"
-[ ! -e "$work/out.jpx" ] || fail "a usage error wrote the output"
+for option in --trans -lin -hi -oattached.jpx -o=equals.jpx --transcode=yes; do
+    [ "$(status "$exe" "$option" -i "$fixtures/input/swap_000.jp2" -o "$work/out.jpx")" = 2 ] ||
+        fail "non-exact option $option: expected 2"
+done
+for option in -i -o -p -s; do
+    [ "$(status "$exe" "$option")" = 2 ] || fail "$option without value: expected 2"
+    [ "$(status "$exe" "$option" --validate)" = 2 ] || fail "$option before an option: expected 2"
+done
+[ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -o "$work/out.jpx" -o "$work/other.jpx")" = 2 ] ||
+    fail "duplicate -o: expected 2"
+[ ! -e "$work/out.jpx" ] && [ ! -e "$work/other.jpx" ] || fail "a usage error wrote the output"
+for option in -h --help; do
+    [ "$(status "$exe" "$option")" = 0 ] && grep -q "^usage: hv_merge" "$work/stdout" &&
+        grep -q -- "-s FILE" "$work/stdout" ||
+        fail "$option: expected the usage on standard output and exit status 0"
+    # Help comes before any argument file is read, even a missing one.
+    [ "$(status "$exe" "$option" -s "$work/missing-args")" = 0 ] ||
+        fail "$option -s missing: expected help"
+    [ "$(status "$exe" -s "$work/missing-args" "$option")" = 0 ] ||
+        fail "-s missing $option: expected help"
+done
+# "-" alone is never a value of -i or -o.
+[ "$(status "$exe" -i - -o "$work/out.jpx")" = 2 ] || fail "-i -: expected 2"
+[ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -o -)" = 2 ] || fail "-o -: expected 2"
+# Help wins over an unknown option, and also comes from an argument file.
 [ "$(status "$exe" -q -h)" = 0 ] && grep -q "^usage: hv_merge" "$work/stdout" ||
-    fail "-h: expected the usage on standard output and exit status 0"
-# No names left once the commas are dropped: hvJP2K's error.
+    fail "-q -h: expected help"
+printf -- '-h\n' >"$work/help-args"
+[ "$(status "$exe" -s "$work/help-args")" = 0 ] && grep -q "^usage: hv_merge" "$work/stdout" ||
+    fail "-h in an argument file: expected help"
+# No names left once empty names and commas are dropped.
+[ "$(status "$exe" -i '' -o "$work/out.jpx")" = 1 ] && grep -q "no JP2 input files" "$work/stderr" ||
+    fail "-i '': expected \"no JP2 input files\""
 [ "$(status "$exe" -i , -o "$work/out.jpx")" = 1 ] && grep -q "no JP2 input files" "$work/stderr" ||
     fail "only commas: expected 1 and \"no JP2 input files\""
 [ ! -e "$work/out.jpx" ] || fail "a failed merge wrote the output"
@@ -58,46 +85,52 @@ $kakadu/solo_fsi174_511x513_LRCP_PLT.jp2 $kakadu/synthetic_rgb_129x129_CPRL_SOP_
     -o "$work/out.jpx")" = 0 ] || fail "merge failed: $(cat "$work/stderr")"
 cmp -s "$work/out.jpx" "$expected" || fail "the output differs from hvJP2K's"
 
-# Arguments from a file, quoted, after those of the command line.
+# Repeated -i accumulates names in order.
+# shellcheck disable=SC2086
+[ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -i "$fixtures/input/swap_001.jp2" \
+    -i $rest -o "$work/repeated.jpx")" = 0 ] || fail "repeated -i: $(cat "$work/stderr")"
+cmp -s "$work/repeated.jpx" "$expected" || fail "repeated -i gives other bytes"
+
+# File arguments are inserted at -s, with space, tab, newline and carriage
+# return separating words, including repeated and trailing whitespace.
 {
-    printf -- "-i '%s' \"%s\"" "$fixtures/input/swap_000.jp2" "$fixtures/input/swap_001.jp2"
-    for f in $rest; do printf ' %s' "$f"; done
-    printf '\n-o %s\n' "$work/argfile.jpx"
+    printf ' \t\r\n-i\t%s\r%s' "$fixtures/input/swap_000.jp2" "$fixtures/input/swap_001.jp2"
+    for f in $rest; do printf '\n%s' "$f"; done
+    printf '\n-o %s \t\r\n' "$work/argfile.jpx"
 } >"$work/args"
 [ "$(status "$exe" -s "$work/args")" = 0 ] || fail "-s failed: $(cat "$work/stderr")"
 cmp -s "$work/argfile.jpx" "$expected" || fail "-s gives other bytes"
-
-# As argparse reparses: a later -i replaces an earlier one, the command
-# line's included; a -s in the file is parsed but not read.
+# Bare file words continue an active -i at this position, before the next
+# command-line input and -o.
+printf '%s\n' "$fixtures/input/swap_001.jp2" >"$work/names"
+# shellcheck disable=SC2086
+[ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -s "$work/names" $rest \
+    -o "$work/position.jpx")" = 0 ] || fail "-s position: $(cat "$work/stderr")"
+cmp -s "$work/position.jpx" "$expected" || fail "-s position gives other bytes"
+printf -- '-i %s\n' "$fixtures/input/swap_001.jp2" >"$work/more-inputs"
+# shellcheck disable=SC2086
+[ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -s "$work/more-inputs" $rest \
+    -o "$work/more.jpx")" = 0 ] || fail "-i in argument file: $(cat "$work/stderr")"
+cmp -s "$work/more.jpx" "$expected" || fail "-i in argument file gives other bytes"
+# Two argument files: inputs from the first, the rest from the second.
 {
-    printf -- "-i %s" "$fixtures/input/swap_000.jp2,$fixtures/input/swap_001.jp2"
+    printf -- '-i %s' "$fixtures/input/swap_000.jp2,$fixtures/input/swap_001.jp2"
     for f in $rest; do printf ' %s' "$f"; done
-    printf ' -s %s\n' "$work/missing-args"
-} >"$work/later-args"
-[ "$(status "$exe" -i "$fixtures/input/swap_001.jp2" -o "$work/later.jpx" \
-    -s "$work/later-args")" = 0 ] ||
-    fail "-i and -s in the argument file: $(cat "$work/stderr")"
-cmp -s "$work/later.jpx" "$expected" || fail "-i in the argument file: other bytes"
-# Only space, tab, line feed and carriage return separate words, as in
-# shlex: "-links" and a form feed make an unknown option.
+    printf '\n'
+} >"$work/first-args"
+printf -- '-o %s\n' "$work/two.jpx" >"$work/second-args"
+[ "$(status "$exe" -s "$work/first-args" -s "$work/second-args")" = 0 ] ||
+    fail "two argument files: $(cat "$work/stderr")"
+cmp -s "$work/two.jpx" "$expected" || fail "two argument files give other bytes"
+printf -- '-s %s\n' "$work/missing-args" >"$work/nested-args"
+[ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -s "$work/nested-args" \
+    -o "$work/nested.jpx")" = 2 ] || fail "nested -s: expected 2"
+[ ! -e "$work/nested.jpx" ] || fail "nested -s wrote the output"
+[ "$(status "$exe" -o "$work/duplicate.jpx" -s "$work/args")" = 2 ] || fail "duplicate -o in argument file: expected 2"
+[ ! -e "$work/duplicate.jpx" ] || fail "duplicate -o wrote the output"
 printf -- '-i %s -o %s -links\f\n' "$fixtures/input/swap_000.jp2" "$work/ff.jpx" >"$work/ff-args"
 [ "$(status "$exe" -s "$work/ff-args")" = 2 ] || fail "a form feed in the argument file: expected 2"
 [ ! -e "$work/ff.jpx" ] || fail "a form feed in the argument file: the output was written"
-# Bare names in the file continue a final -i of the command line.
-for f in $rest; do printf '%s\n' "$f"; done >"$work/names"
-[ "$(status "$exe" -o "$work/bare.jpx" -s "$work/names" -i "$fixtures/input/swap_000.jp2" \
-    "$fixtures/input/swap_001.jp2")" = 0 ] || fail "bare names in the file: $(cat "$work/stderr")"
-cmp -s "$work/bare.jpx" "$expected" || fail "bare names in the file: other bytes"
-# Values that start with -: "-" alone and negative numbers; attached values
-# and abbreviations.
-ln -s "$fixtures/input/swap_000.jp2" "$work/-1"
-(cd "$work" && "$exe" -i -1 -o neg.jpx 2>/dev/null) || fail "-i -1: a file named -1 not merged"
-[ "$(status "$exe" "-i$work/-1" "-o$work/attached.jpx" -lin)" = 0 ] ||
-    fail "-iNAME -oNAME -lin: $(cat "$work/stderr")"
-[ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -o "$work/full.jpx" -links)" = 0 ] &&
-    cmp -s "$work/attached.jpx" "$work/full.jpx" || fail "-iNAME -oNAME -lin: other bytes"
-rm -f "$work/-1" "$work/neg.jpx" "$work/attached.jpx" "$work/full.jpx" "$work/bare.jpx" \
-    "$work/later.jpx"
 
 # An argument file read only in part must not merge the part: a read
 # error (a directory) and a NUL byte (which would end the text) fail.
@@ -112,8 +145,19 @@ printf -- '-i %s\0%s\n' "$fixtures/input/swap_000.jp2" "$fixtures/input/swap_001
 [ ! -e "$work/partial.jpx" ] || fail "a partly read -s file gave a merge"
 rmdir "$work/argdir"
 
-# shlex's quoting in the argument file: a backslash outside quotes, a
-# quote escaped inside double quotes, runs of blanks and blanks at the ends.
+# A single-quoted name with spaces in the argument file.
+cp "$fixtures/input/swap_000.jp2" "$work/single quoted.jp2"
+{
+    printf -- "-i '%s' %s" "$work/single quoted.jp2" "$fixtures/input/swap_001.jp2"
+    for f in $rest; do printf ' %s' "$f"; done
+    printf '\n-o %s\n' "$work/single.jpx"
+} >"$work/single-args"
+[ "$(status "$exe" -s "$work/single-args")" = 0 ] ||
+    fail "single quotes in the argument file: $(cat "$work/stderr")"
+cmp -s "$work/single.jpx" "$expected" || fail "single quotes in the argument file: other bytes"
+rm -f "$work/single quoted.jp2" "$work/single.jpx" "$work/single-args"
+# Quoting in the argument file: a backslash outside quotes, a quote escaped
+# inside double quotes, runs of blanks and blanks at the ends.
 cp "$fixtures/input/swap_000.jp2" "$work/sw ap.jp2"
 cp "$fixtures/input/swap_001.jp2" "$work/q\"x.jp2"
 {
@@ -134,20 +178,6 @@ for bad in "-i 'a.jp2" '-i "a.jp2' '-i a.jp2\'; do
 done
 [ ! -e "$work/bad.jpx" ] || fail "an unreadable argument file gave a merge"
 rm -f "$work/sw ap.jp2" "$work/q\"x.jp2" "$work/quoted.jpx" "$work/quoted-args" "$work/bad-args"
-
-# -h with letters attached: help once the option it carries is taken;
-# with "=" or a "-", argparse's ignored explicit argument.
-[ "$(status "$exe" -hi "$fixtures/input/swap_000.jp2")" = 0 ] &&
-    grep -q "^usage: hv_merge" "$work/stdout" || fail "-hi NAME: expected help"
-[ "$(status "$exe" -hx)" = 0 ] && grep -q "^usage: hv_merge" "$work/stdout" ||
-    fail "-hx: expected help"
-[ "$(status "$exe" -h=x)" = 2 ] || fail "-h=x: expected 2"
-[ "$(status "$exe" -h-x)" = 2 ] || fail "-h-x: expected 2"
-[ "$(status "$exe" -hi)" = 2 ] || fail "-hi without a name: expected 2"
-# A negative number with a fraction is a value, as -1 is.
-ln -s "$fixtures/input/swap_000.jp2" "$work/-1.5"
-(cd "$work" && "$exe" -i -1.5 -o frac.jpx 2>/dev/null) || fail "-i -1.5: a file named -1.5 not merged"
-rm -f "$work/-1.5" "$work/frac.jpx"
 
 # Inputs that are no regular file, or empty.
 mkdir "$work/dir.jp2"
@@ -233,11 +263,6 @@ grep -q "siz.zero-origin" "$work/stderr" ||
     fail "nonzero origins: the message does not name the rule"
 [ "$(status "$exe" -i "$transcode_fixtures/input/synthetic_rgb_129x129_origin129_CPRL.jp2" \
     -o "$work/origin.jpx")" = 0 ] || fail "default merge rejected non-profile origins"
-[ "$(status "$exe" --validate=yes -i "$fixtures/input/swap_000.jp2" \
-    -o "$work/bad-option.jpx")" = 2 ] || fail "--validate takes no value"
-[ "$(status "$exe" --h -i "$fixtures/input/swap_000.jp2" \
-    -o "$work/bad-option.jpx")" = 0 ] || fail "--h means help"
-[ "$(status "$exe" --he)" = 0 ] || fail "--he still means help"
 [ "$(status "$exe" --validate -i "$fixtures/input/swap_000.jp2" \
     "$fixtures/input/swap_001.jp2" $rest -o "$work/validated.jpx")" = 0 ] ||
     fail "validation merge failed"
@@ -260,17 +285,23 @@ for name in jp2-rule-plt.sum-exceeds-data-23.jp2 jp2-rule-plt.packet-count-45.jp
         cmp -s "$work/rejected.jpx" "$work/sentinel" || fail "validation failure changed output"
     done
 done
-# Interactions are checked after the argument file is reparsed.
+# Interactions and precinct values are usage errors before any output is written.
 for options in '-links --transcode' '--transcode --validate' '-p 128,128' \
-    '--transcode=yes' '--transcode -p 3,128' '--transcode -p 1,128' \
-    '--transcode -p 65536,128' '--transcode -p 128' '--transcode -p 128,128x'; do
+    '--transcode -p 3,128' '--transcode -p 1,128' \
+    '--transcode -p 65536,128' '--transcode -p 128' '--transcode -p 128,128x' \
+    '--transcode -p 128,3' '--transcode -p 128,1' '--transcode -p 128,65536' \
+    '--transcode -p 0,128' '--transcode -p 128,128,128' '--transcode -p ,128' \
+    '--transcode -p 128,' '--transcode -p 999999999999999999999999,128'; do
     # shellcheck disable=SC2086
     [ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -o "$work/usage.jpx" $options)" = 2 ] ||
         fail "usage $options: expected 2"
 done
+# Precinct values are decimal digits only: no space, no sign.
+for value in ' 128,128' '+128,128' '128, 128' '128,+128'; do
+    [ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -o "$work/usage.jpx" \
+        --transcode -p "$value")" = 2 ] || fail "-p '$value': expected 2"
+done
 [ ! -e "$work/usage.jpx" ] || fail "usage error created output"
-[ "$(status "$exe" -hp 128,128)" = 0 ] || fail "-hp: expected help"
-[ "$(status "$exe" -hp)" = 2 ] || fail "-hp without value: expected 2"
 mkdir "$work/inputs"
 input="$work/inputs/first.jp2"
 second_input="$work/inputs/second.jp2"
@@ -291,14 +322,22 @@ for precincts in 128,128 256,128; do
     find "$work/inputs" -print | sort >"$work/inputs-after"
     cmp -s "$work/inputs-before" "$work/inputs-after" || fail "transcode changed the input directory"
 done
-printf -- '--transcode -p=256,128\n' >"$work/precinct-args"
-[ "$(status "$exe" -p128,128 -i "$input" "$second_input" -o "$work/arg-precinct.jpx" -s "$work/precinct-args")" = 0 ] ||
-    fail "argfile enables transcode and overrides precincts"
-cmp -s "$work/arg-precinct.jpx" "$work/direct.jpx" || fail "argfile precinct override bytes"
+printf -- '--transcode -p 256,128\n' >"$work/precinct-args"
+[ "$(status "$exe" -i "$input" "$second_input" -s "$work/precinct-args" -o "$work/arg-precinct.jpx")" = 0 ] ||
+    fail "argfile enables transcode and precincts"
+cmp -s "$work/arg-precinct.jpx" "$work/direct.jpx" || fail "argfile precinct bytes"
+# A missing input proves the boundary values pass CLI validation without
+# depending on whether an image's code-block partition permits them.
+for precincts in 2,2 32768,32768; do
+    [ "$(status "$transcode" -p "$precincts" "$work/missing.jp2" "$work/boundary.jp2")" = 1 ] &&
+        grep -q 'cannot open' "$work/stderr" || fail "transcode boundary precincts: $precincts"
+    [ "$(status "$exe" --transcode -p "$precincts" -i "$work/missing.jp2" -o "$work/boundary.jpx")" = 1 ] &&
+        grep -q 'cannot open' "$work/stderr" || fail "merge boundary precincts: $precincts"
+done
 printf -- '--transcode\n' >"$work/precinct-args"
 [ "$(status "$exe" -i "$input" -o "$work/default-arg.jpx" -s "$work/precinct-args")" = 0 ] || fail "argfile defaults"
 [ "$(status "$exe" --transcode -i "$input" -o "$work/default.jpx")" = 0 ] || fail "transcode defaults"
-cmp -s "$work/default-arg.jpx" "$work/default.jpx" || fail "argfile precinct defaults not restored"
+cmp -s "$work/default-arg.jpx" "$work/default.jpx" || fail "argfile precinct defaults differ"
 printf -- '--validate\n' >"$work/precinct-args"
 [ "$(status "$exe" --transcode -i "$input" -o "$work/usage.jpx" -s "$work/precinct-args")" = 2 ] || fail "argfile conflict"
 [ ! -e "$work/usage.jpx" ] || fail "argfile conflict created output"

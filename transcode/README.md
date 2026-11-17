@@ -17,7 +17,7 @@ writes headers, and lays out precincts and packets, with `jpeg2000`
     hv_transcode [-p W,H] input output
 
 - `-p W,H`: precinct width and height, powers of 2 from 2 to 32,768; default
-  `128,128`.
+  `128,128`. The value is parsed as [`../tools/README.md`](../tools/README.md) describes.
 
 The input is read into memory (not mapped, so that a file another process
 truncates meanwhile cannot crash the tool), and one over INT_MAX bytes is

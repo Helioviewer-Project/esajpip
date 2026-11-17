@@ -2,160 +2,142 @@
 
 ## 2.0-rc1 - Unreleased
 
-Version 2.0 rearchitects the server. Where 1.x used a parent and a serving
-child, passed accepted sockets between them, created a detached thread per
-client, and tied a JPIP channel to one TCP connection, 2.0 is a single
-foreground process built on Asio: a control thread owns admission, channel
-routing, and signals; each connection parses its requests and generates and
-writes its responses on a bounded set of I/O threads; and a separate pool opens
-images. Each channel keeps private image, cache, and traversal state and is
-used by one thread at a time, which isolates JPEG 2000 state while letting
-HTTP connections be pooled or replaced independently of channels.
+Version 2.0 rebuilds the server, adds a JPIP client with its own decoder, and
+adds tools that check and prepare JP2 and JPX files for serving.
 
-### Added
+The server is now a single foreground process built on Asio. A control thread
+accepts connections and routes requests, one I/O thread per hardware thread
+generates and writes responses, and a small pool opens images. A JPIP channel
+is no longer tied to one TCP connection, so connections can be pooled or
+replaced without losing the channel.
 
-- `spec/`: the accepted JP2 and JPX files described in ASN.1/ACN, at two
-  layers (T.800/T.801 and the served profile), with a generated, labeled
-  test corpus that the server's tests and the tools' tests check against.
-  `spec/check-model.sh` checks the model, the corpus and the C code that
-  restates the model, and that OpenJPEG decodes every standard-valid vector
-  but those on the OpenJPEG limits it lists. The pinned asn1scc is built
-  from unmodified upstream 4.9.7.0; the eleven local fixes for issue #417
-  are retired in `spec/asn1scc-patches/reference/161cc246/`.
-- `jpeg2000/`: a JPEG 2000 reader/writer (`jpeg2000`) on code generated from
-  that model, applying the same cross-field rules as the corpus
-  (`hv_rules`). It reads boxes and codestream items in place, one header or
-  list element at a time, checks the served profile, the JP2/JPX header
-  boxes, the box tree and its fragment tables, JP2 compatibility, baseline
-  JPX, the marker segments across the codestream headers, and the files a
-  JPX file links to, lays out a tile's precincts and packets
-  (`hv_geometry`), and writes boxes and marker segments with measured
-  lengths. Its work is in proportion to
-  the input, whatever a header declares. `hv_walk` checks files with it.
-- `hv_transcode` (`transcode/`): a C port of hvJP2K's transcoder. It
-  rewrites a JP2 file in RPCL order with the given precincts and PLT,
-  without recompressing, and writes only files within the served profile:
-  its input must be within it but for the tile-parts. It reads packet
-  headers as T.800 requires (SOP, EPH, bit stuffing), rejects code-block
-  data that ends in 0xFF or holds 0xFF followed by a byte above 0x8F (T.800
-  B.10.7, C.3.4), bounds its memory by the input, and ends each top-level
-  XML box before its first NUL: old Kakadu, in IDL, ended XML boxes with
-  one, which is not XML.
-- `hv_merge` (`merge/`): a C port of hvJP2K's JPX merger, writing the same
-  bytes but for the differences `merge/README.md` lists, embedded or linked
-  (`-links`), with hvJP2K's command line. Its inputs must be within the
-  served profile and have valid header boxes and main header; it rejects
-  what the JPX file cannot hold (a box T.801 places elsewhere, such as a
-  `cgrp` or `cref` in `jp2h`, `colr.one-method`, `colr.approx`, a later
-  input without the `cdef` or `res` box of the first) and an input
-  codestream with T.801 extensions, which a JP2 file cannot hold
-  (`jp2.rsiz`). An input's IPR boxes, at the top level and in its `jp2h`, go
-  into its `jpch`, where hvJP2K drops them but keeps the IPR 1 announcing
-  them. Every box it copies from an input goes straight to the output file,
-  so its memory does not grow with them. Every input is opened once;
-  the first stays mapped for header comparisons, and each later input is
-  checked and emitted before closing it. Reader Requirements are patched
-  into a 44-byte reservation with a zero-filled `free` box after `rreq`.
-  Library output must be seekable; partial output must be discarded on failure.
-  `--transcode` transcodes every input once in memory and embeds it, with
-  `-p W,H` selecting precinct sizes (default 128,128), so PLT-less archives
-  can be served without modifying or duplicating them. `-links` and
-  `--validate` cannot be combined with `--transcode`.
-- Both tools replace their output through a synced temporary file, removed
-  if a signal ends the tool (SIGBUS from a truncated input included), keep
-  a replaced file's owner and group, write through an output that is a
-  symbolic link, and refuse inputs over `INT_MAX` bytes. The output takes
-  the permissions, less the setuid, setgid and sticky bits, of the file it
-  replaces (`hv_merge`) or of the input (`hv_transcode`). Every `hv_merge`
-  mode refuses to replace an input through any name, hard link or symbolic
-  link. hvJP2K truncates such an input before copying it, losing it and
-  writing a corrupt or truncated movie.
-- Every test in one place, `tests/` with its own CMake: the library and the
-  tools, their command lines, the server, and the shared corpus. One gate,
-  `BUILD_TESTING`, and one runner, `tests/run.sh`, with labels for `tools`,
-  `server`, `cli`, `model` and `fuzz`.
-- `tests/fuzz/`: the libFuzzer targets of the library and the tools
-  (`ESAJPIP_FUZZ=ON`), whose assertions are also available one input at a time
-  through `tests/fuzz/replay`, which needs no libFuzzer runtime. `fuzz_asn1`
-  decodes and encodes every PDU type of the generated code, read from its
-  headers at configure time, and checks that decoded values round-trip to the
-  same bytes and that no prefix of an encoding is read past; `fuzz_merge`
-  merges embedded and linked; `fuzz_deferred_plt` reads the PLT cursor from
-  two copies of the input in turn.
-- `tests/run_profile.sh`, `tests/run_baseline.sh`,
-  `tests/run_linux_docker.sh` and `tests/run_mutation.sh`: the sanitizer,
-  coverage, Valgrind, Debian-container and mutation profiles of the same
-  suite, described in `tests/DIAGNOSTICS.md`, with the coverage gaps in
-  `tests/COVERAGE_GAPS.md`.
+### Upgrading from 1.9
 
-### Changed
+- Configuration moves from `server.cfg` to `server.ini`. Rewrite existing
+  configurations; `README.md` lists every setting.
+- `esajpip` runs in the foreground and takes no command-line options. Restart
+  it with a process manager or a container runtime. The supervisor process,
+  the `status` command and the shared-memory process registry are gone.
+- Clients must use HTTP/1.1.
+- Log files are named `esajpip.<address>.<port>.<timestamp>.log`. They roll
+  at 1 GiB and keep one backup.
+- File logging is off unless `logging.file_enabled` is `true`; CMake turns
+  it on when `ESAJPIP_LOG_DIRECTORY` is set.
+- Building the server needs C11 and C++11 compilers, CMake 3.20,
+  pkg-config, GLib, llhttp, zlib and POSIX threads; Debian 13 is the minimum
+  supported Debian release. A client-only build
+  (`-DESAJPIP_CLIENT_ONLY=ON`) needs none of pkg-config, GLib, llhttp or
+  zlib. libconfig, log4cpp and libgsf are no longer needed.
+- Images are checked against the served profile (`JPIP_PROFILE.md`) when they
+  are opened. Files without PLT markers, with more than one tile, or with
+  markers the server cannot index are rejected instead of failing later.
+  `hv_transcode` and `hv_merge --transcode` add PLT markers to single-tile
+  files the transcoder can read (`transcode/README.md`); other files must be
+  re-encoded.
+- Existing movies from hvJP2K's `hv_jpx_merge` and the deployed `kdu_merge`
+  form still load. JPX-to-JPX links and raw codestream files are rejected.
 
-- Keep channels alive across replacement connections, and allow one persistent
-  connection to carry requests for different channels. This permits ordinary
-  browser and reverse-proxy connection pooling. Random, opaque channel IDs
-  prevent one client from guessing another client's channel.
-- Identify JPIP traffic before allocating JPEG 2000 state. Silent or unrelated
-  connections retain only their sockets and expire at the short initial
-  timeout. Physical connections and JPIP channels have independent limits.
-- Generate each response chunk on the thread that writes it, and only once
-  the socket has accepted the previous one, so responses for different
-  connections use different cores and a slow client throttles generation.
-- Reduce per-channel indexing memory. On the 4,014-frame linked-JPX fixture,
-  resident memory at the same held point fell from 13,040 KiB to 8,976 KiB
-  (31%), with CPU and elapsed time unchanged within measurement noise.
-- Stream gzip output one chunk at a time instead of buffering the complete
-  compressed response, removing libgsf and its dependencies.
-- Replace `server.cfg` and libconfig with `server.ini`, parsed by GLib. Existing
-  configurations must be rewritten for 2.0.
-- Replace log4cpp with bounded asynchronous logging. Log-file I/O does not run
-  on the serving threads. Logs retain timestamps, optional request
-  lines, 1 GiB rotation, and one backup.
-- Leave process restart to the host process manager or container runtime. The
-  supervisor, `status` command, and shared-memory process registry are removed.
-  Log names include the listening address and port.
-- Add verified PCRL and CPRL packet traversal and allow one multi-codestream
-  request to cover frames with different dimensions, decomposition levels,
-  quality layers, or precinct layouts.
-- Require HTTP/1.1, matching the chunked responses used by the server and the
-  requests sent by JHelioviewer.
+### Server
+
+- Channels survive a replaced connection, and one persistent connection can
+  carry requests for several channels, so browsers and reverse proxies can
+  pool connections. Channel IDs are random and cannot be guessed.
+- Connections are screened before any JPEG 2000 state is allocated. A
+  connection that does not send a JPIP request within
+  `connections.initial_timeout` is closed; identified connections use
+  `connections.timeout`. Connections and channels have separate limits.
+- Each response is generated chunk by chunk on the thread that writes it.
+  Different connections use different cores, and a slow client slows only
+  its own response. gzip output is streamed instead of buffered.
+- New JPIP support: the `layers` field; PCRL and CPRL progression, so all
+  five orders are served; one request spanning frames that differ in size,
+  decomposition levels, quality layers or precincts; open-ended `context`
+  and cache-model ranges; standard codestream lists; and absolute request
+  URIs. A request that asks for `handled` receives a conservative
+  `JPIP-handled` header.
+- Errors are reported with standard HTTP status codes (400, 404, 431, 500,
+  501, 503) and a short description. `JPIP-tid` no longer exposes file
+  paths.
+- Each channel's image index and cache model take less memory.
+
+### Client
+
+- `client/`: a new JPIP client for the images and movies the server sends.
+  The C library keeps everything it receives, works out what a frame still
+  needs at the chosen resolution and quality, rebuilds the codestream, and
+  supplies the frame's XML metadata and color table. The host program
+  makes the HTTP requests and decodes the pixels.
+- The same library, with the vendored OpenJPEG decoder, runs as WebAssembly
+  behind a JavaScript module and a Web Worker and returns 8-bit pixels. A
+  demonstration page plays movies against a running server.
+- Native programs can open local JP2 and JPX files through the same frame
+  interface (`hvc_open_local`).
+- Frames can be previewed with one quality layer and refined later, and are
+  requested at the size the display needs.
+- After a dropped connection or a lost channel, the client opens a
+  replacement channel from its cache and retries, keeping what it already
+  has. Frames can be exported to and imported from a disk cache.
+- Native hosts such as JHelioviewer can also use it with 1.x servers
+  (`client/CLASSICAL.md`).
+- The bundled OpenJPEG decoder is faster than upstream OpenJPEG and can
+  decode a region. It uses WebAssembly SIMD, and in native builds NEON on
+  ARM64 and up to eight worker threads.
+
+### Tools
+
+- `hv_walk` checks JP2 and JPX files against the standard and the served
+  profile, and raw codestreams against the standard.
+- `hv_transcode` rewrites a JP2 file in RPCL order with the given precincts
+  and PLT markers, without recompressing, so the server can index it. It
+  replaces hvJP2K's transcoder.
+- `hv_merge` merges JP2 files into a JPX movie, with the codestreams copied
+  or linked (`-links`), and replaces hvJP2K's merger. `--validate` checks
+  every input against the served profile. `--transcode` transcodes each
+  input in memory and embeds it, so archives without PLT markers can be
+  served without being modified or copied. No merge may overwrite one of
+  its inputs. Options use their exact names; hvJP2K's abbreviations and
+  attached values are not accepted, and the words of an `-s` file are
+  inserted where `-s` stands instead of being parsed again.
+- `hv_transcode` and `hv_merge` write to a temporary file and rename it into
+  place, so a failed run leaves an existing output unchanged.
+
+### Libraries
+
+- `jpeg2000/`: a JPEG 2000 reader and writer for boxes and codestreams,
+  shared by the server, the client and the tools. Its rules follow a formal
+  model of the accepted files in `spec/`, which also generates a labeled test
+  corpus.
+- `jpip/`: JPIP request parsing, image indexing and response generation,
+  separate from the server's network code.
+
+### Development
+
+- The test suite is opt-in (`BUILD_TESTING`) and runs with `tests/run.sh`.
+  Sanitizer, coverage, Valgrind, Debian-container and mutation profiles are
+  described in `tests/DIAGNOSTICS.md`.
+- libFuzzer targets cover the JPEG 2000 library, the tools, the server's JPIP
+  code and the client (`ESAJPIP_FUZZ=ON`).
+- Optimized builds use link-time optimization where the compiler supports it.
 
 ### Fixed
 
-- Compute precinct data-bin offsets incrementally so response generation stays
-  linear in packet count for sources with many quality layers.
-- Keep parsed values local to one request, preventing omitted window, response,
-  or rounding fields from inheriting values from an earlier request.
-- Make response limits, cache models, and metadata continuation reliable across
-  requests. An omitted `len` is unlimited, small limits still produce an EOR,
-  and metadata resumes correctly inside JPX placeholders.
-- Apply the standard window defaults and resolution mapping, including every
-  precinct intersecting the adjusted window. An empty intersection returns
-  `EOR WINDOW_DONE` instead of failing the channel.
-- Parse standard JPIP codestream lists, closed and open ranges, sampling
-  factors, cache-model qualifiers, and absolute request URIs consistently.
-- Validate JPEG 2000 boxes, markers, tile-parts, PLT coverage, packet locations,
-  codestream bounds, and linked-JPX references. Invalid or unsupported sources
-  are rejected instead of failing later or producing inconsistent JPP data.
-  Deployed trailing zero PLT entries remain accepted as padding; nonzero extras
-  are rejected. QCD and COM lengths and the COM registration value are checked
-  against T.800 (Lqcd 4 to 197, Lcom at least 5, Rcom 0 or 1). COC, POC,
-  PPM, markers T.800 places elsewhere, 0xFF00 and the segment-less 0xFF30 to
-  0xFF3F are rejected in the main header, and PLT entries longer than ten
-  bytes are rejected. A tile-part with Psot = 0 runs up to the final EOC,
-  without its packet data being scanned for markers.
-- Preserve separate coding parameters for embedded JPX codestreams, use the
-  standard default precinct size, and number codestreams by physical box order.
-- Bound client-controlled request values before allocation, including cache
-  models, response limits, codestream selections, and HTTP request heads.
-- Return useful `400`, `404`, `431`, `500`, and `503` responses for malformed
-  requests, oversized heads, missing or invalid targets, server failures, and
-  unavailable channels.
-- Reject client paths containing a parent-directory segment and stop exposing
-  resolved filesystem paths through `JPIP-tid`. Trusted links stored inside JPX
-  files may still refer to sources outside the image directory.
-- Improve cleanup and diagnosis. Logs identify a linked JP2 file that prevents
-  its JPX from loading, parser and response failures release owned resources, and
-  orderly shutdown drains queued logs.
+- Request fields no longer carry over from an earlier request on the same
+  channel.
+- Response limits, cache models and metadata continuation work across
+  requests. An omitted `len` leaves only the server's 2 GiB response
+  budget, small limits still end with an EOR message, and metadata resumes
+  correctly inside JPX placeholders.
+- Window requests follow the standard: default values, the resolution
+  mapping, and every precinct the window touches. A window outside the image
+  returns `EOR WINDOW_DONE` instead of ending the channel.
+- Embedded JPX codestreams keep their own coding parameters, use the standard
+  default precinct size, and are numbered in file order.
+- Values a client controls are bounded before memory is allocated, including
+  cache models, response limits, codestream selections and request heads.
+- Request paths containing `..` are rejected. Links stored in JPX files may
+  still point outside the image directory.
+- Logs name the linked JP2 file that stops a JPX from loading, and shutdown
+  writes out queued log records.
 
 ## 1.9.0-rc1 - 2026-09-14
 

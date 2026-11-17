@@ -1,19 +1,14 @@
 /* hv_merge: merges JP2 files into a JPX file for JHelioviewer and the
- * JPIP server, as hvJP2K's hv_jpx_merge does (see merge.h), with the same
- * command line, parsed as hvJP2K's argparse parser does:
+ * JPIP server (see merge.h).
  *
- *   hv_merge -i jp2file1,jp2file2,... [jp2file ...] -o jpxfile [-links]
- *                [--validate | --transcode [-p W,H]] [-s argfile]
+ *   hv_merge -i jp2file[,jp2file...] [jp2file ...] -o jpxfile [-links]
+ *            [--validate | --transcode [-p W,H]] [-s argfile]
  *
- *   -i      input JP2 files, comma or space separated, in the JPX order
- *   -o      output JPX file
- *   -links  link the codestreams instead of copying them
- *   --transcode  transcode each input once in memory and embed it
- *   -p W,H  precinct size for --transcode (default 128,128)
- *   -s      read more arguments from a file, or standard input for "-"
- *           (split as Python's shlex.split does, quotes and backslashes
- *           included), then parse the command line and them again
- *   -h      print the usage
+ * Options use exact names and separate values. Repeated -i names accumulate;
+ * -s inserts the words of a file at that position ("-" for standard
+ * input), split as split_words describes; a -s in the file is a usage error.
+ * -h or --help anywhere on the command line prints help before any -s file
+ * is read.
  *
  * The output replaces the file named (hv_file): an existing output keeps
  * its permissions, and one that is a symbolic link is written where the
@@ -30,6 +25,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "tools/hv_cli.h"
 #include "tools/hv_file.h"
 #include "merge.h"
 
@@ -52,7 +48,7 @@ static int push(list *l, char *s) {
 }
 
 static void usage(FILE *f) {
-    fprintf(f, "usage: hv_merge -i jp2file1,jp2file2,... [jp2file ...] -o jpxfile "
+    fprintf(f, "usage: hv_merge -i jp2file[,jp2file...] [jp2file ...] -o jpxfile "
                "[-links] [--validate | --transcode [-p W,H]] [-s argfile]\n");
 }
 
@@ -60,26 +56,28 @@ static void help(void) {
     usage(stdout);
     printf("\nMerge JP2 files into JPX files.\n\n"
            "options:\n"
-           "  -h, --help  show this help message and exit\n"
-           "  -i          comma separated input JP2 filenames\n"
-           "  -o          output JPX filename\n"
-           "  -links      record links rather than actual codestream data\n"
-           "  --validate  validate the complete codestream, including PLT entries\n"
-           "  --transcode transcode every input in memory to RPCL with PLT, then embed it\n"
-           "  -p W,H      precinct powers of 2 from 2 to 32,768 (default 128,128)\n"
-           "  -s          read arguments from file\n");
+           "  -h, --help   show this help message and exit\n"
+           "  -i FILE...   input JP2 filenames, comma or space separated; may repeat\n"
+           "  -o FILE      output JPX filename; required exactly once\n"
+           "  -links       record links rather than actual codestream data\n"
+           "  --validate   validate the complete codestream, including PLT entries\n"
+           "  --transcode  transcode every input in memory to RPCL with PLT, then embed it\n"
+           "  -p W,H       precinct powers of 2 from 2 to 32,768 (default 128,128)\n"
+           "  -s FILE      insert the words of FILE (- for stdin), with quotes and\n"
+           "               backslash escapes (see merge/README.md); no -s inside\n"
+           "\nUse exact option names and separate values; -p requires --transcode.\n"
+           "--transcode cannot be combined with -links or --validate.\n");
 }
 
-/* Whitespace as shlex has it: space, tab, line feed and carriage return. */
 static int blank(char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-/* The words of `text`, split as Python's shlex.split does: whitespace
- * separates them, backslash escapes any character outside quotes, single
- * quotes keep everything, double quotes let backslash escape only a double
- * quote or a backslash. Words point into `text`, which is rewritten. -1 on
- * an unterminated quote or a final backslash. */
+/* The words of `text`, separated by whitespace: backslash escapes any
+ * character outside quotes, single quotes keep everything, double quotes
+ * let backslash escape only a double quote or a backslash. Words point into
+ * `text`, which is rewritten. -1 on an unterminated quote or a final
+ * backslash, -2 out of memory. */
 static int split_words(char *text, list *words) {
     char *r = text, *w = text;
     while (*r) {
@@ -116,20 +114,21 @@ static int split_words(char *text, list *words) {
             r++;                                 /* the separator */
         *w++ = 0;
         if (push(words, word) != 0)
-            return -1;
+            return -2;
     }
     return 0;
 }
 
-/* The whole of a file ("-": standard input, as hvJP2K's fileinput) as a
- * string, or NULL: also on a read error and on a NUL byte, which would end
- * the text early. Either would leave a prefix of the arguments, and merge
- * fewer frames than asked for. */
-static char *read_text(const char *path) {
+/* The whole of a file ("-": standard input) as a string, or NULL, with
+ * *no_memory set when an allocation failed. A read error or a NUL byte,
+ * which would end the text early, also gives NULL: either would leave a
+ * prefix of the arguments and merge fewer frames than asked for. */
+static char *read_text(const char *path, int *no_memory) {
     int in = strcmp(path, "-") == 0;
     FILE *f = in ? stdin : fopen(path, "rb");
     char *text = NULL;
     size_t n = 0, cap = 0, got;
+    *no_memory = 0;
     if (f == NULL)
         return NULL;
     do {
@@ -139,6 +138,7 @@ static char *read_text(const char *path) {
                 free(text);
                 if (!in)
                     fclose(f);
+                *no_memory = 1;
                 return NULL;
             }
             text = t;
@@ -158,203 +158,47 @@ static char *read_text(const char *path) {
 }
 
 typedef struct {
-    list inputs;            /* the -i words */
-    const char *output, *argfile;
+    list inputs;
+    const char *output;
     int links, validate, transcode, precincts, ppx, ppy;
 } arguments;
 
-enum { OPT_NONE, OPT_HELP, OPT_I, OPT_O, OPT_S, OPT_LINKS, OPT_VALIDATE, OPT_TRANSCODE, OPT_P, OPT_UNKNOWN };
-
-/* The option strings, as hvJP2K's argparse parser has them. */
-static const struct {
-    const char *name;
-    int option;
-} options[] = {
-    {"-h", OPT_HELP}, {"--help", OPT_HELP}, {"-i", OPT_I}, {"-o", OPT_O},
-    {"-links", OPT_LINKS}, {"-s", OPT_S}, {"--validate", OPT_VALIDATE},
-    {"--transcode", OPT_TRANSCODE}, {"-p", OPT_P},
-};
-#define NOPTIONS (sizeof options / sizeof *options)
-
-static int starts_with(const char *s, const char *prefix, size_t n) {
-    return strncmp(s, prefix, n) == 0;
-}
-
-/* A number as argparse's negative-number pattern has it: -N, -N.N or -.N. */
-static int negative_number(const char *word) {
-    const char *p = word + 1;
-    int digits = 0;
-    while (*p >= '0' && *p <= '9')
-        p++, digits = 1;
-    if (*p == 0)
-        return digits;
-    if (*p++ != '.' || *p == 0)
-        return 0;
-    while (*p >= '0' && *p <= '9')
-        p++;
-    return *p == 0;
-}
-
-/* What argparse makes of a word (_parse_optional): OPT_NONE for a value
- * (not starting with "-", "-" alone, a negative number, or a word with a
- * space that names no option), OPT_UNKNOWN for any other word starting
- * with "-", otherwise the option it names: in full, as a prefix of it
- * ("-lin", "--he"), with a value after "=" ("-o=file.jpx", *equals then
- * set), or as a one-letter option with a value attached ("-ofile.jpx").
- * *value is the value, or NULL. No word is a prefix of two options. */
-static int classify(char *word, char **value, int *equals) {
-    char *eq = strchr(word, '=');
-    size_t i, n = strlen(word);
-    *value = NULL;
-    *equals = 0;
-    if (word[0] != '-')
-        return OPT_NONE;
-    for (i = 0; i < NOPTIONS; i++)
-        if (strcmp(word, options[i].name) == 0)
-            return options[i].option;
-    if (n == 1)
-        return OPT_NONE;
-    if (eq != NULL)
-        for (i = 0; i < NOPTIONS; i++)
-            if (strlen(options[i].name) == (size_t)(eq - word) &&
-                starts_with(word, options[i].name, (size_t)(eq - word))) {
-                *value = eq + 1;
-                *equals = 1;
-                return options[i].option;
-            }
-    for (i = 0; i < NOPTIONS; i++) {
-        const char *name = options[i].name;
-        if (word[1] != '-') {
-            if (strlen(name) == 2 && starts_with(word, name, 2)) {
-                *value = word + 2;
-                return options[i].option;
-            }
-            if (starts_with(name, word, n))
-                return options[i].option;
-        } else {
-            size_t prefix = eq != NULL ? (size_t)(eq - word) : n;
-            if (starts_with(name, word, prefix)) {
-                *value = eq != NULL ? eq + 1 : NULL;
-                *equals = eq != NULL;
-                return options[i].option;
-            }
-        }
-    }
-    if (negative_number(word) || strchr(word, ' ') != NULL)
-        return OPT_NONE;
-    return OPT_UNKNOWN;
-}
-
-/* Nonzero if argv[i] is a value, not an option. */
-static int is_value(char **argv, size_t i) {
-    char *value;
-    int equals;
-    return classify(argv[i], &value, &equals) == OPT_NONE;
-}
-
-/* The exponent of a power of 2 from 2 to 32,768, as hv_transcode takes. */
-static int exponent(const char *s, char **end) {
-    long v;
-    int e = 0;
-    errno = 0;
-    v = strtol(s, end, 10);
-    if (errno != 0 || *end == s || v < 2 || v > 32768 || (v & (v - 1)) != 0)
-        return -1;
-    while ((1L << e) < v)
-        e++;
-    return e;
-}
-
-/* Option -i, -o, -p or -s with its value, attached or in the next words, as
- * argv[*i] ends: -i takes the words up to the next one that is not a
- * value (one, if attached), -o, -p and -s one word. 0, -1 on a usage error, -2
- * out of memory. */
-static int take(int option, char *value, char **argv, size_t argc, size_t *i, arguments *a) {
-    if (option == OPT_I) {
-        a->inputs.n = 0;
-        if (value != NULL)
-            return push(&a->inputs, value) != 0 ? -2 : 0;
-        while (*i + 1 < argc && is_value(argv, *i + 1))
-            if (push(&a->inputs, argv[++*i]) != 0)
-                return -2;
-        return a->inputs.n == 0 ? -1 : 0;
-    }
-    if (value == NULL) {
-        if (*i + 1 == argc || !is_value(argv, *i + 1))
-            return -1;
-        value = argv[++*i];
-    }
-    if (option == OPT_O)
-        a->output = value;
-    else if (option == OPT_P) {
-        char *end;
-        a->precincts = 1;
-        a->ppx = exponent(value, &end);
-        if (a->ppx < 0 || *end != ',' || (a->ppy = exponent(end + 1, &end)) < 0 || *end)
-            return -1;
-    } else
-        a->argfile = value;
-    return 0;
-}
-
-/* Parses argv as argparse does for hvJP2K's options: an option's value is
- * attached to it or in the next words, which must not look like options;
- * a later occurrence of an option replaces an earlier one; a word that is
- * no option's value, or an unknown option, is an error once every word is
- * read, so that -h after it still asks for help. A value attached to -h
- * without "=" is read as more one-letter options ("-hi a.jp2" is -h -i
- * a.jp2); -h is then taken once they are. 0; 1 for -h; -1 on a usage
- * error; -2 out of memory. */
+/* 0 on success, 1 for help, -1 for usage, -2 for allocation failure. */
 static int parse(char **argv, size_t argc, arguments *a) {
-    char *value;
     size_t i;
-    int unrecognized = 0, option, equals, status;
     for (i = 0; i < argc; i++) {
-        if (strcmp(argv[i], "--") == 0)
-            return -1;      /* argparse: the rest are values, which no option takes */
-        option = classify(argv[i], &value, &equals);
-        switch (option) {
-        case OPT_HELP:
-            if (value == NULL)
-                return 1;
-            if (equals || value[0] == '-')  /* argparse: ignored explicit argument */
-                return -1;
-            /* -hX...: -X with the rest attached, if X names an option. */
-            option = value[0] == 'i' ? OPT_I : value[0] == 'o' ? OPT_O
-                   : value[0] == 's' ? OPT_S : value[0] == 'p' ? OPT_P : OPT_HELP;
-            if (option == OPT_HELP)
-                return 1;
-            value = value[1] == '=' ? value + 2 : value[1] != 0 ? value + 1 : NULL;
-            status = take(option, value, argv, argc, &i, a);
-            return status != 0 ? status : 1;
-        case OPT_TRANSCODE:
-            if (value != NULL)
-                return -1;
-            a->transcode = 1;
-            break;
-        case OPT_VALIDATE:
-            if (value != NULL)
-                return -1;
-            a->validate = 1;
-            break;
-        case OPT_LINKS:
-            if (value != NULL)          /* only as "-links=": ignored explicit argument */
-                return -1;
+        const char *option = argv[i];
+        if (strcmp(option, "-h") == 0 || strcmp(option, "--help") == 0)
+            return 1;
+        if (strcmp(option, "-links") == 0)
             a->links = 1;
-            break;
-        case OPT_I:
-        case OPT_O:
-        case OPT_S:
-        case OPT_P:
-            if ((status = take(option, value, argv, argc, &i, a)) != 0)
-                return status;
-            break;
-        default:
-            unrecognized = 1;
-            break;
-        }
+        else if (strcmp(option, "--validate") == 0)
+            a->validate = 1;
+        else if (strcmp(option, "--transcode") == 0)
+            a->transcode = 1;
+        else if (strcmp(option, "-i") == 0) {
+            size_t first = a->inputs.n;
+            while (i + 1 < argc && argv[i + 1][0] != '-')
+                if (push(&a->inputs, argv[++i]) != 0)
+                    return -2;
+            if (a->inputs.n == first)
+                return -1;
+        } else if (strcmp(option, "-o") == 0 || strcmp(option, "-p") == 0) {
+            if (i + 1 == argc || argv[i + 1][0] == '-')
+                return -1;
+            if (strcmp(option, "-o") == 0) {
+                if (a->output != NULL)
+                    return -1;
+                a->output = argv[++i];
+            } else {
+                a->precincts = 1;
+                if (hv_cli_precincts(argv[++i], &a->ppx, &a->ppy) != 0)
+                    return -1;
+            }
+        } else
+            return -1;
     }
-    return unrecognized ? -1 : 0;
+    return 0;
 }
 
 typedef struct {
@@ -445,43 +289,56 @@ static int merge(char **names, size_t n, const char *output, int links, int vali
 
 int main(int argc, char **argv) {
     arguments a;
-    list names = {NULL, 0, 0}, extra = {NULL, 0, 0}, all = {NULL, 0, 0};
-    char *text = NULL, error[4096];
+    list names = {NULL, 0, 0}, texts = {NULL, 0, 0}, all = {NULL, 0, 0};
+    char error[4096];
     size_t i;
     int status;
 
     memset(&a, 0, sizeof a);
     a.ppx = a.ppy = 7;
-    if ((status = parse(argv + 1, (size_t)argc - 1, &a)) != 0)
-        goto parsed;
-    /* hvJP2K reads the file only when -s names one (an empty name does
-     * not), and only once: a -s among its words is parsed and ignored. */
-    if (a.argfile != NULL && a.argfile[0] != 0) {
-        /* argparse's reparse: the command line, then the file's words. */
-        if ((text = read_text(a.argfile)) == NULL || split_words(text, &extra) != 0) {
-            fprintf(stderr, "hv_merge: cannot read the arguments in %s\n", a.argfile);
-            status = 1;
-            goto done;
+    for (i = 1; i < (size_t)argc; i++)
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            help();
+            return 0;
         }
-        for (i = 1; i < (size_t)argc; i++)
-            if (push(&all, argv[i]) != 0)
+    for (i = 1; i < (size_t)argc; i++) {
+        if (strcmp(argv[i], "-s") == 0) {
+            char *text;
+            size_t first = all.n, j;
+            int no_memory;
+            if (i + 1 == (size_t)argc ||
+                (argv[i + 1][0] == '-' && strcmp(argv[i + 1], "-") != 0))
+                goto usage;
+            if ((text = read_text(argv[++i], &no_memory)) == NULL) {
+                if (no_memory)
+                    goto oom;
+                fprintf(stderr, "hv_merge: cannot read the arguments in %s\n", argv[i]);
+                status = 1;
+                goto done;
+            }
+            if (push(&texts, text) != 0) {
+                free(text);
                 goto oom;
-        for (i = 0; i < extra.n; i++)
-            if (push(&all, extra.v[i]) != 0)
-                goto oom;
-        free(a.inputs.v);
-        memset(&a, 0, sizeof a);
-        a.ppx = a.ppy = 7;
-        if ((status = parse(all.v, all.n, &a)) != 0)
-            goto parsed;
+            }
+            if ((status = split_words(text, &all)) != 0) {
+                if (status == -2)
+                    goto oom;
+                fprintf(stderr, "hv_merge: cannot read the arguments in %s\n", argv[i]);
+                status = 1;
+                goto done;
+            }
+            for (j = first; j < all.n; j++)
+                if (strcmp(all.v[j], "-s") == 0)
+                    goto usage;
+        } else if (push(&all, argv[i]) != 0)
+            goto oom;
     }
+    if ((status = parse(all.v, all.n, &a)) != 0)
+        goto parsed;
     if ((a.transcode && (a.links || a.validate)) || (a.precincts && !a.transcode))
         goto usage;
     if (a.inputs.n == 0 || a.output == NULL)
         goto usage;
-    /* Names are split at commas, empty ones dropped (hvJP2K is lenient
-     * with stray commas); none left fails as hvJP2K does, with "no JP2
-     * input files". */
     for (i = 0; i < a.inputs.n; i++) {
         char *p = a.inputs.v[i], *comma;
         for (;;) {
@@ -517,9 +374,10 @@ usage:
     status = 2;
 done:
     free(names.v);
-    free(extra.v);
+    for (i = 0; i < texts.n; i++)
+        free(texts.v[i]);
+    free(texts.v);
     free(all.v);
     free(a.inputs.v);
-    free(text);
     return status;
 }
