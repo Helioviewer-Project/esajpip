@@ -6,7 +6,9 @@ and `swap_001.jp2`): 1,024×1,024, one 8-bit component with a 256-entry
 palette (`pclr`, `cmap`), FITS headers as XML, and trailing zero PLT
 entries.
 
-`expected/merged.jpx` is what hvJP2K's `hv_jpx_merge` (commit 473de1a)
+`expected/merged.jpx` is the output below with a zero-filled `free` box
+inserted after `rreq`, making their combined length 44 bytes. All other
+bytes are what hvJP2K's `hv_jpx_merge` (commit 473de1a)
 made of these two files followed by the six Kakadu references of the
 transcoder's tests that are within the served profile
 (`../../transcode/fixtures/kakadu/`, in name order, without the

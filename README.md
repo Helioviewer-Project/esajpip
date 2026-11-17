@@ -140,6 +140,13 @@ tool in timestamp order. `hv_merge --validate` additionally validates every
 input container and codestream against the served profile. Default embedded
 merging reads a JP2-compatible container and checks required headers without
 traversing PLT entries. Linked merging also requires served input containers.
+For PLT-less sources such as LMSAL's SDO/AIA archive, `hv_merge --transcode`
+transcodes each frame once in memory and embeds it in the movie, leaving the
+archive unchanged. `-p W,H` selects precinct sizes (default 128,128). This
+mode cannot be combined with `-links` or `--validate`; see
+[`merge/`](merge/README.md) for transcoder restrictions. Every merge mode
+opens each input once and refuses to overwrite any input through any name
+or link.
 
 Never modify a JP2, JPX, or linked source while a channel may be using it. The
 server indexes a target once and memory-maps its sources as responses need

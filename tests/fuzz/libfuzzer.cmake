@@ -22,6 +22,8 @@ endif()
 
 # Instrument the library too, so the targets' coverage sees into it, and give
 # everything that links it the coverage runtime.
+target_compile_options(hv_transcoder PRIVATE -fsanitize=fuzzer-no-link -fno-sanitize-recover=all)
+target_link_options(hv_transcoder INTERFACE -fsanitize=fuzzer-no-link)
 target_compile_options(jpeg2000 PRIVATE -fsanitize=fuzzer-no-link -fno-sanitize-recover=all)
 target_link_options(jpeg2000 INTERFACE -fsanitize=fuzzer-no-link)
 target_compile_options(esajpip_client PRIVATE -fsanitize=fuzzer-no-link -fno-sanitize-recover=all)
@@ -56,6 +58,8 @@ function(esajpip_fuzz_target name corpus)
         target_link_libraries(${name} PRIVATE jpip)
         list(APPEND fuzz_labels jpip_fuzz)
         set(fuzz_timeout TIMEOUT 60)
+    elseif(name MATCHES "^fuzz_(transcode|merge)$")
+        target_link_libraries(${name} PRIVATE hv_transcoder)
     else()
         target_link_libraries(${name} PRIVATE jpeg2000)
     endif()
@@ -79,9 +83,7 @@ esajpip_fuzz_target(fuzz_asn1 asn1 fuzz_asn1.c)
 
 # The tools: a transcoded codestream is idempotent and in the served profile,
 # and a merged file reads back.
-esajpip_fuzz_target(fuzz_transcode transcode-fuzz fuzz_transcode.c
-    ${PROJECT_SOURCE_DIR}/transcode/transcode.c
-    ${PROJECT_SOURCE_DIR}/transcode/tier2.c)
+esajpip_fuzz_target(fuzz_transcode transcode-fuzz fuzz_transcode.c)
 esajpip_fuzz_target(fuzz_merge merge-fuzz fuzz_merge.c
     ${PROJECT_SOURCE_DIR}/merge/merge.c)
 

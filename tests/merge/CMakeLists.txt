@@ -5,16 +5,24 @@ set(MERGE_TRANSCODE_FIXTURES ${PROJECT_SOURCE_DIR}/tests/transcode/fixtures)
 
 add_executable(test_merge test_merge.c ${PROJECT_SOURCE_DIR}/merge/merge.c)
 target_compile_definitions(test_merge PRIVATE
+    hv_transcode_codestream=merge_transcode_codestream
     JPEG2000_VECTORS="${PROJECT_SOURCE_DIR}/tests/vectors/j2k"
     MERGE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures"
     TRANSCODE_FIXTURES="${MERGE_TRANSCODE_FIXTURES}")
-target_link_libraries(test_merge PRIVATE jpeg2000)
+target_link_libraries(test_merge PRIVATE hv_transcoder)
 esajpip_add_test(merge COMMAND test_merge LABELS tools)
 
 esajpip_add_test(merge_command
     COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/cli_test.sh
         $<TARGET_FILE:hv_merge>
+        $<TARGET_FILE:hv_transcode>
         ${CMAKE_CURRENT_SOURCE_DIR}/fixtures
         ${MERGE_TRANSCODE_FIXTURES}
         ${CMAKE_CURRENT_BINARY_DIR}/command
     LABELS tools cli)
+
+add_executable(test_merge_writer test_writer.c ${PROJECT_SOURCE_DIR}/tools/hv_file.c)
+target_compile_definitions(test_merge_writer PRIVATE
+    MERGE_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
+target_link_libraries(test_merge_writer PRIVATE hv_transcoder)
+esajpip_add_test(merge_writer COMMAND test_merge_writer LABELS tools)

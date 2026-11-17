@@ -149,11 +149,11 @@ if [ "${ESAJPIP_BASELINE_SPLIT:-OFF}" = ON ]; then
         run_split jpeg2000 -R '^(reader_profile|writer_corpus|output_file|writer|served|reader|geometry)$' || split_status=$?
         run_split jpip -L '^jpip$' || split_status=$?
         run_split jpip-fuzz -L '^jpip_fuzz$' || split_status=$?
-        run_split merge -R '^(merge|merge_command)$' || split_status=$?
+        run_split merge -R '^(merge|merge_command|merge_writer)$' || split_status=$?
         run_split transcode -R '^(transcode|transcode_command)$' || split_status=$?
         run_split server -L '^server$' || split_status=$?
         run_split replay -R '^fuzz_replay_' || split_status=$?
-        run_split jpeg2000-merge-transcode -R '^(reader_profile|writer_corpus|output_file|writer|served|reader|geometry|merge|merge_command|transcode|transcode_command)$' || split_status=$?
+        run_split jpeg2000-merge-transcode -R '^(reader_profile|writer_corpus|output_file|writer|served|reader|geometry|merge|merge_command|merge_writer|transcode|transcode_command)$' || split_status=$?
     else
         mkdir -p "$split_reports"
         cat > "$split_reports/skipped.txt" <<EOF

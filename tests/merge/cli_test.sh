@@ -1,12 +1,14 @@
 #!/bin/sh
 # The hv_merge command: options as hvJP2K's, exit status, and nothing
 # written or left behind on failure.
-#   cli_test.sh HV_MERGE MERGE_FIXTURES TRANSCODE_FIXTURES WORK
+#   cli_test.sh HV_MERGE HV_TRANSCODE MERGE_FIXTURES TRANSCODE_FIXTURES WORK
 set -eu
 exe=$1
-fixtures=$2
-kakadu=$3/kakadu
-work=$4
+transcode=$2
+fixtures=$3
+transcode_fixtures=$4
+kakadu=$transcode_fixtures/kakadu
+work=$5
 rm -rf "$work"
 mkdir -p "$work"
 expected="$fixtures/expected/merged.jpx"
@@ -184,28 +186,27 @@ ln -s new.jpx "$work/new-link.jpx"
     fail "a dangling link was not written through"
 rm -f "$work/new-link.jpx" "$work/new.jpx"
 
-# A linked JPX file cannot replace one of its inputs, by any name; an
-# embedded one can.
+# No merge may replace an input, through any name or link.
 cp "$fixtures/input/swap_000.jp2" "$work/self.jp2"
 ln -s self.jp2 "$work/self-link.jp2"
 ln "$work/self.jp2" "$work/self-hard.jp2"
 for output in "$work/self.jp2" "$work/self-link.jp2" "$work/self-hard.jp2"; do
-    for inputs in "$work/self.jp2" "$fixtures/input/swap_000.jp2,$work/self.jp2"; do
-        [ "$(status "$exe" -i "$inputs" -o "$output" -links)" = 1 ] ||
-            fail "-links over its input $output: expected 1"
-        grep -q "self.jp2 is also the output" "$work/stderr" ||
-            fail "-links over its input: $(cat "$work/stderr")"
-        cmp -s "$work/self.jp2" "$fixtures/input/swap_000.jp2" &&
-            cmp -s "$output" "$fixtures/input/swap_000.jp2" ||
-            fail "-links over its input changed it"
-        [ -z "$(find "$work" -name 'self*.jp2.*' -print)" ] ||
-            fail "-links over its input left a temporary file"
+    for mode in "" "-links" "--validate" "--transcode"; do
+        for inputs in "$work/self.jp2" "$work/self-link.jp2" "$work/self-hard.jp2" \
+            "$fixtures/input/swap_000.jp2,$work/self.jp2"; do
+            # shellcheck disable=SC2086
+            [ "$(status "$exe" -i "$inputs" -o "$output" $mode)" = 1 ] ||
+                fail "merge over its input $output: expected 1"
+            grep -q "is also the output" "$work/stderr" ||
+                fail "merge over its input: $(cat "$work/stderr")"
+            cmp -s "$work/self.jp2" "$fixtures/input/swap_000.jp2" &&
+                cmp -s "$output" "$fixtures/input/swap_000.jp2" ||
+                fail "merge over its input changed it"
+            [ -z "$(find "$work" -name 'self*.jp2.*' -print)" ] ||
+                fail "merge over its input left a temporary file"
+        done
     done
 done
-[ "$(status "$exe" -i "$work/self.jp2" -o "$work/self-link.jp2")" = 0 ] ||
-    fail "embedded over its input: $(cat "$work/stderr")"
-[ -L "$work/self-link.jp2" ] && ! cmp -s "$work/self.jp2" "$fixtures/input/swap_000.jp2" ||
-    fail "embedded over its input: not replaced through the link"
 rm -f "$work/self.jp2" "$work/self-link.jp2" "$work/self-hard.jp2"
 
 # An output that cannot be created: the message names it, not the
@@ -225,12 +226,12 @@ grep -q "cut.jp2" "$work/stderr" || fail "the message does not name the input"
 [ ! -e "$work/cut.jpx" ] || fail "a failed merge wrote its output"
 [ "$(status "$exe" -i "$work/missing.jp2" -o "$work/missing.jpx")" = 1 ] ||
     fail "missing file: expected 1"
-[ "$(status "$exe" -i "$3/input/synthetic_rgb_129x129_origin129_CPRL.jp2" \
+[ "$(status "$exe" -i "$transcode_fixtures/input/synthetic_rgb_129x129_origin129_CPRL.jp2" \
     --validate -o "$work/origin.jpx")" = 1 ] ||
     fail "nonzero origins: expected 1"
 grep -q "siz.zero-origin" "$work/stderr" ||
     fail "nonzero origins: the message does not name the rule"
-[ "$(status "$exe" -i "$3/input/synthetic_rgb_129x129_origin129_CPRL.jp2" \
+[ "$(status "$exe" -i "$transcode_fixtures/input/synthetic_rgb_129x129_origin129_CPRL.jp2" \
     -o "$work/origin.jpx")" = 0 ] || fail "default merge rejected non-profile origins"
 [ "$(status "$exe" --validate=yes -i "$fixtures/input/swap_000.jp2" \
     -o "$work/bad-option.jpx")" = 2 ] || fail "--validate takes no value"
@@ -259,6 +260,63 @@ for name in jp2-rule-plt.sum-exceeds-data-23.jp2 jp2-rule-plt.packet-count-45.jp
         cmp -s "$work/rejected.jpx" "$work/sentinel" || fail "validation failure changed output"
     done
 done
+# Interactions are checked after the argument file is reparsed.
+for options in '-links --transcode' '--transcode --validate' '-p 128,128' \
+    '--transcode=yes' '--transcode -p 3,128' '--transcode -p 1,128' \
+    '--transcode -p 65536,128' '--transcode -p 128' '--transcode -p 128,128x'; do
+    # shellcheck disable=SC2086
+    [ "$(status "$exe" -i "$fixtures/input/swap_000.jp2" -o "$work/usage.jpx" $options)" = 2 ] ||
+        fail "usage $options: expected 2"
+done
+[ ! -e "$work/usage.jpx" ] || fail "usage error created output"
+[ "$(status "$exe" -hp 128,128)" = 0 ] || fail "-hp: expected help"
+[ "$(status "$exe" -hp)" = 2 ] || fail "-hp without value: expected 2"
+mkdir "$work/inputs"
+input="$work/inputs/first.jp2"
+second_input="$work/inputs/second.jp2"
+cp "$transcode_fixtures/input/2015_12_21__00_10_34_34__SDO_AIA_AIA_171.jp2" "$input"
+cp "$transcode_fixtures/input/solo_fsi174_510x514_LRCP.jp2" "$second_input"
+cp "$input" "$work/first-before.jp2"
+cp "$second_input" "$work/second-before.jp2"
+find "$work/inputs" -print | sort >"$work/inputs-before"
+for precincts in 128,128 256,128; do
+    [ "$(status "$transcode" -p "$precincts" "$input" "$work/frame.jp2")" = 0 ] || fail "prepare transcode"
+    [ "$(status "$transcode" -p "$precincts" "$second_input" "$work/second-frame.jp2")" = 0 ] || fail "prepare second transcode"
+    [ "$(status "$exe" --validate -i "$work/frame.jp2" "$work/second-frame.jp2" -o "$work/separate.jpx")" = 0 ] || fail "prepare merge"
+    [ "$(status "$exe" --transcode -p "$precincts" -i "$input" "$second_input" -o "$work/direct.jpx")" = 0 ] ||
+        fail "transcode merge: $(cat "$work/stderr")"
+    cmp -s "$work/direct.jpx" "$work/separate.jpx" || fail "transcode pipeline bytes: $precincts"
+    cmp -s "$input" "$work/first-before.jp2" || fail "transcode changed the first input"
+    cmp -s "$second_input" "$work/second-before.jp2" || fail "transcode changed the second input"
+    find "$work/inputs" -print | sort >"$work/inputs-after"
+    cmp -s "$work/inputs-before" "$work/inputs-after" || fail "transcode changed the input directory"
+done
+printf -- '--transcode -p=256,128\n' >"$work/precinct-args"
+[ "$(status "$exe" -p128,128 -i "$input" "$second_input" -o "$work/arg-precinct.jpx" -s "$work/precinct-args")" = 0 ] ||
+    fail "argfile enables transcode and overrides precincts"
+cmp -s "$work/arg-precinct.jpx" "$work/direct.jpx" || fail "argfile precinct override bytes"
+printf -- '--transcode\n' >"$work/precinct-args"
+[ "$(status "$exe" -i "$input" -o "$work/default-arg.jpx" -s "$work/precinct-args")" = 0 ] || fail "argfile defaults"
+[ "$(status "$exe" --transcode -i "$input" -o "$work/default.jpx")" = 0 ] || fail "transcode defaults"
+cmp -s "$work/default-arg.jpx" "$work/default.jpx" || fail "argfile precinct defaults not restored"
+printf -- '--validate\n' >"$work/precinct-args"
+[ "$(status "$exe" --transcode -i "$input" -o "$work/usage.jpx" -s "$work/precinct-args")" = 2 ] || fail "argfile conflict"
+[ ! -e "$work/usage.jpx" ] || fail "argfile conflict created output"
+# Later input and transcode failures preserve an existing destination.
+for mode in '' '--validate' '-links' '--transcode'; do
+    printf 'existing output' >"$work/late.jpx"
+    cp "$work/late.jpx" "$work/sentinel"
+    # shellcheck disable=SC2086
+    [ "$(status "$exe" $mode -i "$kakadu/2015_12_21__00_10_34_34__SDO_AIA_AIA_171.jp2" "$work/cut.jp2" -o "$work/late.jpx")" = 1 ] || fail "late bad input: $mode"
+    grep -q 'cut.jp2' "$work/stderr" || fail "late error does not name input"
+    cmp -s "$work/late.jpx" "$work/sentinel" || fail "late failure changed destination"
+done
+# A nonzero-origin source fails the served container check (siz.zero-origin).
+bad="$transcode_fixtures/input/synthetic_rgb_129x129_origin129_CPRL.jp2"
+[ "$(status "$exe" --transcode -i "$input" "$bad" -o "$work/late.jpx")" = 1 ] || fail "late transcode accepted"
+grep -q 'origin129' "$work/stderr" || fail "transcode error does not name input"
+cmp -s "$work/late.jpx" "$work/sentinel" || fail "late transcode changed destination"
+
 leftover=$(ls "$work" | grep -c '\.jpx\.' || true)
 [ "$leftover" = 0 ] || fail "temporary files left behind: $(ls "$work")"
 

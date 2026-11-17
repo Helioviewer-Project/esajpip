@@ -7,6 +7,7 @@
 #include "jpeg2000/hv_served.h"
 #include "merge.h"
 
+#include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -17,8 +18,9 @@
 #include "jpeg2000/hv_reader.h"
 #include "jpeg2000/hv_writer.h"
 #include "jp2-boxes.h"
+#include "transcode/transcode.h"
 
-/* The Colour Specification boxes read from one jp2h. */
+/* The Color Specification boxes read from one jp2h. */
 #define MAX_COLR 16
 
 /* The entities of an nlst entry (T.801 M.11.12, Table M.42): a codestream
@@ -37,7 +39,8 @@ typedef struct {
     hv_box ihdr, bpcc, pclr, cmap, cdef, res;
     hv_box colr[MAX_COLR];
     int ncolr;
-    int ipr;                        /* IPR boxes (jp2i), at the top level and in jp2h */
+    hv_box *ipr;                   /* spans at the top level and in jp2h */
+    size_t nipr, ipr_capacity;
     unsigned rsiz, nc, ipr_flag;
     int opacity, premultiplied;     /* cdef Typ 1, Typ 2 */
 } source;
@@ -83,7 +86,24 @@ static hv_box *header_box(source *s, uint32_t type) {
     }
 }
 
-static int read_source(const hv_merge_input *in, source *s, int links, hv_output_profile profile, char *error, size_t size) {
+static int record_ipr(source *s, const hv_box *box, char *error, size_t size) {
+    if (s->nipr == s->ipr_capacity) {
+        size_t capacity;
+        hv_box *spans;
+        if (s->ipr_capacity > SIZE_MAX / 2 / sizeof *spans)
+            return hv_fail(error, size, "%s: out of memory", s->in.path);
+        capacity = s->ipr_capacity ? 2 * s->ipr_capacity : 8;
+        spans = realloc(s->ipr, capacity * sizeof *spans);
+        if (spans == NULL)
+            return hv_fail(error, size, "%s: out of memory", s->in.path);
+        s->ipr = spans;
+        s->ipr_capacity = capacity;
+    }
+    s->ipr[s->nipr++] = *box;
+    return 0;
+}
+
+static int read_source(const hv_merge_input *in, source *s, int served, hv_output_profile profile, char *error, size_t size) {
     hv_boxes it;
     hv_box box;
     const char *message;
@@ -96,8 +116,8 @@ static int read_source(const hv_merge_input *in, source *s, int links, hv_output
     s->in = *in;
     if (in->size > INT_MAX)
         return hv_fail(error, size, "%s: file.size-limit at 0", in->path);
-    /* Linked inputs must remain readable by the server's hv_served_link. */
-    message = links || profile == HV_OUTPUT_JPIP ? hv_served_jp2(in->buf, in->size, &s->jp2c, &at)
+    /* Transcoding requires the served container, but not input PLT. */
+    message = served || profile == HV_OUTPUT_JPIP ? hv_served_jp2(in->buf, in->size, &s->jp2c, &at)
                                : hv_read_jp2(in->buf, in->size, &s->jp2c, &at);
     if (message != NULL ||
         (profile == HV_OUTPUT_JPIP && (message = hv_codestream_check(in->buf, s->jp2c.payload, s->jp2c.end,
@@ -109,8 +129,8 @@ static int read_source(const hv_merge_input *in, source *s, int links, hv_output
             if (headers++ == 0) s->jp2h = box;
         } else if (box.type == HV_BOX_XML && s->xml.type == 0)
             s->xml = box;
-        else if (box.type == HV_BOX_JP2I)
-            s->ipr++;
+        else if (box.type == HV_BOX_JP2I && record_ipr(s, &box, error, size) != 0)
+            return -1;
     }
     if (headers != 1)
         return hv_fail(error, size, "%s: jp2.one-jp2h at %zu", in->path, in->size);
@@ -126,10 +146,11 @@ static int read_source(const hv_merge_input *in, source *s, int links, hv_output
         hv_box *first = header_box(s, box.type);
         if (first != NULL && first->type == 0)
             *first = box;
-        s->ipr += box.type == HV_BOX_JP2I;         /* T.800 I.6: IPR boxes elsewhere */
+        if (box.type == HV_BOX_JP2I && record_ipr(s, &box, error, size) != 0)
+            return -1;
         if (box.type == HV_BOX_COLR) {
             if (s->ncolr == MAX_COLR)
-                return hv_fail(error, size, "%s: more than %d Colour Specification boxes",
+                return hv_fail(error, size, "%s: more than %d Color Specification boxes",
                                in->path, MAX_COLR);
             s->colr[s->ncolr++] = box;
         }
@@ -152,7 +173,7 @@ static int read_source(const hv_merge_input *in, source *s, int links, hv_output
     return 0;
 }
 
-/* Byte i of a Colour Specification box's payload as the JPX file carries
+/* Byte i of a Color Specification box's payload as the JPX file carries
  * it. A JP2 reader ignores PREC and APPROX (T.800 I.5.3.3); the output
  * writes PREC 0 and APPROX 1 (T.801 M.11.7.2, as hvJP2K's jpx_colr). */
 enum { COLR_APPROX = 2 };
@@ -161,10 +182,10 @@ static uint8_t colr_byte(const uint8_t *payload, size_t i) {
     return i == 1 ? 0 : i == COLR_APPROX ? 1 : payload[i];
 }
 
-/* An input's Colour Specification boxes as the JPX file holds them,
+/* An input's Color Specification boxes as the JPX file holds them,
  * PREC 0 and APPROX 1 (colr_byte): the first input's in the jp2h
  * (parent HV_BOX_JP2H), a later one's, where they differ from the first's,
- * in a cgrp (HV_BOX_CGRP). hv_rule_colr for a JPX jp2h or colour group,
+ * in a cgrp (HV_BOX_CGRP). hv_rule_colr for a JPX jp2h or color group,
  * which a JP2 file's jp2h need not keep (at most one with METH 1 and one
  * with METH 2, T.801 M.11.7.1; APPROX 1 to 4, M.11.7.2). A cgrp is never
  * empty (cgrp.empty): every input has a colr (jp2h.colr). */
@@ -307,7 +328,7 @@ static int emit_box(sink *k, const source *s, const hv_box *box) {
          : emit_input(k, s->in.buf + box->payload, box->end - box->payload);
 }
 
-/* A Colour Specification box as the JPX file holds it, its APPROX set
+/* A Color Specification box as the JPX file holds it, its APPROX set
  * (colr_byte): METH, PREC and APPROX, which hv_read_jp2h has checked it
  * has, then the rest as read. */
 static int emit_colr(sink *k, const source *s, const hv_box *box) {
@@ -327,22 +348,10 @@ static int emit_colr(sink *k, const source *s, const hv_box *box) {
  * file's IPR 1, in that jpch's ihdr or in the jp2h's it takes, needs one
  * in the file (jpx.ipr). */
 static int emit_ipr(sink *k, const source *s) {
-    hv_boxes it;
-    hv_box box;
-    const char *message;
-    size_t at;
-    int pass;
-    if (s->ipr == 0)
-        return 0;
-    for (pass = 0; pass < 2; pass++) {
-        if (pass == 0)
-            hv_boxes_file(&it, s->in.buf, s->in.size);
-        else
-            hv_boxes_children(&it, s->in.buf, &s->jp2h);
-        while (hv_boxes_next(&it, &box, &message, &at) == 1)
-            if (box.type == HV_BOX_JP2I && emit_box(k, s, &box) != 0)
-                return -1;
-    }
+    size_t i;
+    for (i = 0; i < s->nipr; i++)
+        if (emit_box(k, s, &s->ipr[i]) != 0)
+            return -1;
     return 0;
 }
 
@@ -448,7 +457,7 @@ static int cgrp_contents(sink *k, const headers *h) {
 }
 
 /* The Compositing Layer Header box: empty where the input's JP2 Header
- * box is the first input's; otherwise the colours (in a cgrp), cdef and
+ * box is the first input's; otherwise the colors (in a cgrp), cdef and
  * res, where they differ from the first. */
 static int jplh_contents(sink *k, const headers *h) {
     const source *s = h->s, *first = h->first;
@@ -492,23 +501,14 @@ static int write_headers(writer *w, const source *s, const source *first) {
  * No extension feature is emitted, so feature 1 always holds.
  * At most 7 features, so every mask is one byte (ML 1), and no vendor
  * features. 0, or -1 with
- * w->out.error set. */
-static int write_rreq(writer *w, const source *s, size_t n, int links) {
+ * out->error set. */
+static int write_rreq(hv_out *out, const int has[16]) {
     RreqStandardFeature standard[8];      /* 1, 2, 4, 5, 9, 10 and 15 at most */
     RreqHeader header;
-    int has[16] = {0}, i;
-    size_t j, k = 0;
+    int i;
+    size_t k = 0;
 
     memset(&header, 0, sizeof header);
-    has[1] = 1;
-    for (j = 0; j < n; j++) {
-        has[9] |= s[j].opacity;
-        has[10] |= s[j].premultiplied;
-        has[4] |= s[j].rsiz == 2;
-        has[5] |= s[j].rsiz == 0;
-    }
-    has[2] = n > 1;
-    has[15] = links != 0;
     header.fuam.nCount = header.dcm.nCount = 1;
     for (i = 0; i < 16; i++) {
         if (!has[i])
@@ -521,7 +521,7 @@ static int write_rreq(writer *w, const source *s, size_t n, int links) {
     }
     header.dcm.arr[0] = header.fuam.arr[0];
     header.nsf = (FeatureCount)k;
-    return hv_write_rreq(&w->out, &header, standard, k, NULL, 0);
+    return hv_write_rreq(out, &header, standard, k, NULL, 0);
 }
 
 /* The XML box of input i as read, associated with codestream i and
@@ -529,38 +529,24 @@ static int write_rreq(writer *w, const source *s, size_t n, int links) {
  * running to the end of its file gets an explicit length. The asoc's
  * length is known before its XML box, which may be copied straight to the
  * file. */
-static int write_xml(writer *w, const source *s, size_t i) {
+static int write_xml(writer *w, const source *s, size_t i, int transcode) {
     const hv_box *xml = &s->xml;
     size_t payload = xml->end - xml->payload,
            box = xml->to_end ? hv_box_header_size(payload) + payload : xml->end - xml->start;
+    const uint8_t *nul = transcode ? memchr(s->in.buf + xml->payload, 0, payload) : NULL;
+    if (nul != NULL) {
+        payload = (size_t)(nul - (s->in.buf + xml->payload));
+        box = hv_box_header_size(payload) + payload;
+    }
     const NlstEntry nlst[2] = {{NLST_CODESTREAM, i}, {NLST_LAYER, i}};
     const size_t nlst_payload = sizeof nlst / sizeof *nlst * HV_FIXED(NlstEntry),
                  nlst_box = hv_box_header_size(nlst_payload) + nlst_payload;
     if (hv_write_box_header(&w->out, HV_BOX_ASOC, nlst_box + (uint64_t)box) != 0 ||
         hv_write_nlst(&w->out, nlst, sizeof nlst / sizeof *nlst) != 0)
         return -1;
-    return xml->to_end ? hv_write_box_header(&w->out, HV_BOX_XML, payload) != 0 ? -1
+    return nul != NULL || xml->to_end ? hv_write_box_header(&w->out, HV_BOX_XML, payload) != 0 ? -1
                        : write_through(w, s->in.buf + xml->payload, payload)
                        : write_through(w, s->in.buf + xml->start, box);
-}
-
-/* The Data Reference box of a linked JPX file: NDR, then one url box per
- * input (version 0, flags 0, LOC and its NUL), each written to the file
- * after the one before. */
-static int write_dtbl(writer *w, char *const *urls, size_t n) {
-    uint64_t size = HV_FIXED(DataReferenceCount);
-    size_t i;
-    for (i = 0; i < n; i++) {
-        size_t url = HV_FIXED(UrlHeader) + strlen(urls[i]) + 1;
-        size += hv_box_header_size(url) + url;
-    }
-    if (hv_write_box_header(&w->out, HV_BOX_DTBL, size) != 0 ||
-        hv_write_ndr(&w->out, (uint16_t)n) != 0)
-        return -1;
-    for (i = 0; i < n; i++)
-        if (hv_write_url(&w->out, urls[i]) != 0 || flush(w) != 0)
-            return -1;
-    return 0;
 }
 
 /* The URL of a linked file: HV_FILE_SCHEME and its absolute path,
@@ -597,159 +583,226 @@ static char *link_url(const char *path, char *error, size_t size) {
     return url;
 }
 
-/* Opens input i. The first pass validates and records its layout; the
- * second only reacquires the immutable bytes. On failure, close any mapping. */
-static int open_input(const hv_merge_inputs *inputs, size_t i, source *s, int again, int links, hv_output_profile profile,
-                      char *error, size_t error_size) {
-    hv_merge_input in;
-    memset(&in, 0, sizeof in);
-    if (inputs->open(inputs->context, i, &in, error, error_size) != 0) {
-        s->in.buf = NULL;
+/* Patches bytes already counted and written, then restores the append position. */
+static int patch(writer *w, long position, const uint8_t *bytes, size_t size) {
+    long end, landed;
+    if (flush(w) != 0)
         return -1;
+    errno = 0;
+    if (fflush(w->file) != 0 || (end = ftell(w->file)) < 0 ||
+        fseek(w->file, position, SEEK_SET) != 0 ||
+        fwrite(bytes, 1, size, w->file) != size || fflush(w->file) != 0 ||
+        (landed = ftell(w->file)) < 0)
+        goto failed;
+    if (landed != position + (long)size) {
+        errno = EIO;
+        goto failed;
     }
-    if (!again && read_source(&in, s, links, profile, error, error_size) != 0) {
+    if (fseek(w->file, end, SEEK_SET) != 0)
+        goto failed;
+    return 0;
+failed:
+    /* A custom stream may fail a write without setting errno. */
+    if (errno == 0)
+        errno = EIO;
+    return hv_fail(w->error, w->error_size, "cannot patch the JPX file: %s", strerror(errno));
+}
+
+/* Resolve and escape one URL at a time; only the input paths are retained. */
+static int write_dtbl(writer *w, const char *const *paths, size_t n) {
+    hv_out header;
+    long position;
+    uint64_t start;
+    size_t i;
+    int status;
+    if (flush(w) != 0)
+        return -1;
+    if ((position = ftell(w->file)) < 0)
+        return hv_fail(w->error, w->error_size, "cannot seek in the JPX file: %s", strerror(errno));
+    start = w->written;
+    if (hv_write_box_header(&w->out, HV_BOX_DTBL, 0) != 0 ||
+        hv_write_ndr(&w->out, (uint16_t)n) != 0)
+        return -1;
+    for (i = 0; i < n; i++) {
+        const char *rule;
+        char *url = link_url(paths[i], w->error, w->error_size);
+        if (url == NULL)
+            return -1;
+        rule = hv_rule_url(0, 0, (const uint8_t *)url, strlen(url) + 1);
+        if (rule != NULL) {
+            free(url);
+            return hv_fail(w->error, w->error_size, "%s: %s", paths[i], rule);
+        }
+        status = hv_write_url(&w->out, url);
+        free(url);
+        if (status != 0 || flush(w) != 0)
+            return -1;
+    }
+    hv_out_init(&header);
+    status = hv_write_box_header(&header, HV_BOX_DTBL, w->written - start - HV_BOX_HEADER);
+    if (status == 0)
+        status = patch(w, position, header.data, header.size);
+    else
+        hv_fail(w->error, w->error_size, "%s", header.error);
+    hv_out_free(&header);
+    return status;
+}
+
+static int open_input(const hv_merge_inputs *inputs, size_t i, source *s, int served,
+                      hv_output_profile profile, char *error, size_t error_size) {
+    hv_merge_input in = {0};
+    if (inputs->open(inputs->context, i, &in, error, error_size) != 0)
+        return -1;
+    if (read_source(&in, s, served, profile, error, error_size) != 0) {
         inputs->close(inputs->context, i, &in);
         s->in.buf = NULL;
         return -1;
     }
-    if (again)
-        s->in = in;
     return 0;
 }
 
 static void close_input(const hv_merge_inputs *inputs, size_t i, source *s) {
     if (s->in.buf != NULL)
         inputs->close(inputs->context, i, &s->in);
-    s->in.buf = NULL;
+    free(s->ipr);
+    memset(s, 0, sizeof *s);
 }
 
-int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, hv_output_profile profile, FILE *file,
-                   char *error, size_t error_size) {
+int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, hv_output_profile profile,
+                   int ppx, int ppy, FILE *file, char *error, size_t error_size) {
+    /* Seven features need at most 36 bytes, leaving room for a free box header. */
+    enum { RREQ_SPACE = 44 };
+    static const uint8_t zeros[RREQ_SPACE] = {0};
+    writer w = {0};
+    source first = {0}, current = {0};
+    const char **paths = NULL;
+    hv_out transcoded, requirements;
+    size_t i = 0, start;
+    long rreq_position;
+    int status = -1, transcode = ppx != 0 || ppy != 0;
+    int has[16] = {0};
+
     if (profile != HV_OUTPUT_JPEG2000 && profile != HV_OUTPUT_JPIP)
         return hv_fail(error, error_size, "invalid output profile");
-    writer w;
-    source *s;
-    char **urls = NULL;
-    size_t i, start;
-    int status = -1;
-
-    memset(&w, 0, sizeof w);
-    w.file = file;
-    w.error = error;
-    w.error_size = error_size;
-    error[0] = 0;
+    if (transcode && profile == HV_OUTPUT_JPIP)
+        return hv_fail(error, error_size, "transcoding cannot be combined with validation (HV_OUTPUT_JPIP)");
+    if (transcode && (links || ppx < 1 || ppx > 15 || ppy < 1 || ppy > 15))
+        return hv_fail(error, error_size, "transcoding requires embedded output and precinct exponents 1 to 15");
     if (n == 0)
         return hv_fail(error, error_size, "no JP2 input files");
     if (links && n > UINT16_MAX)
         return hv_fail(error, error_size, "a linked JPX file holds at most 65,535 links");
     if (n > NLST_INDEX_MAX)
         return hv_fail(error, error_size, "a JPX file holds at most 16,777,215 input files");
-    if ((s = calloc(n, sizeof *s)) == NULL || (links && (urls = calloc(n, sizeof *urls)) == NULL)) {
-        free(s);
+    if (links && (paths = calloc(n, sizeof *paths)) == NULL)
         return hv_fail(error, error_size, "out of memory");
-    }
+    w.file = file;
+    w.error = error;
+    w.error_size = error_size;
+    error[0] = 0;
     hv_out_init(&w.out);
-
-    /* First pass: every input checked and what the output needs of it
-     * recorded; opened one at a time, besides the first, which every later
-     * one is compared with and which stays open. */
-    for (i = 0; i < n; i++) {
-        int copied_ipr;
-        if (open_input(inputs, i, &s[i], 0, links, profile, error, error_size) != 0)
-            goto done;
-        /* The boxes copied whole where the JPX file puts them (T.801
-         * M.11): the first input's jp2h, which is the JPX file's (where
-         * M.11.7.1 places no cgrp, say; a later input's cgrp is not
-         * copied), and a later input's res, in its jplh. A box a JP2 file
-         * does not define is skipped there (T.800 I.8) but may have a
-         * place in a JPX file. */
-        if (placed(&s[i], i == 0 ? &s[0].jp2h : &s[i].res, i == 0 ? 0 : HV_BOX_JPLH,
-                   i == 0 ? "the JPX file's jp2h" : "its jplh", &copied_ipr, error, error_size) != 0)
-            goto done;
-        /* Direct IPR boxes are relocated; nested ones count only in a
-         * copied header tree. Dropped metadata cannot satisfy the flag. */
-        if ((s[i].ipr_flag != 0) != (s[i].ipr > 0 || copied_ipr > 0)) {
-            hv_fail(error, error_size, "%s: ihdr.ipr at %zu", s[i].in.path, s[i].jp2h.start);
-            goto done;
-        }
-        /* The colours as the output holds them (write_headers). */
-        if (i == 0 ? check_jpx_colrs(&s[0], HV_BOX_JP2H, error, error_size) != 0
-                   : !same_colrs(&s[i], &s[0]) &&
-                         check_jpx_colrs(&s[i], HV_BOX_CGRP, error, error_size) != 0)
-            goto done;
-        if (i > 0)
-            close_input(inputs, i, &s[i]);
+    hv_out_init(&transcoded);
+    hv_out_init(&requirements);
+    has[1] = 1;
+    has[2] = n > 1;
+    has[15] = links != 0;
+    if (write_start(&w.out, links) != 0 || flush(&w) != 0)
+        goto done;
+    if ((rreq_position = ftell(file)) < 0) {
+        hv_fail(error, error_size, "cannot seek in the JPX file: %s", strerror(errno));
+        goto done;
     }
-    /* A jplh without a cdef or res box takes the one of jp2h, the first
-     * input's (T.801 M.11.7): an input without one cannot follow a first
-     * input with one. hvJP2K writes such a file. */
-    for (i = 1; i < n; i++) {
-        const char *missing = s[0].cdef.type != 0 && s[i].cdef.type == 0 ? "cdef"
-                            : s[0].res.type != 0 && s[i].res.type == 0   ? "res"
-                                                                         : NULL;
-        if (missing != NULL) {
-            hv_fail(error, error_size, "%s: no %s box, but the first input has one, which it "
-                    "would inherit", s[i].in.path, missing);
-            goto done;
-        }
-    }
-    for (i = 0; links && i < n; i++) {
-        const char *rule;
-        if ((urls[i] = link_url(s[i].in.path, error, error_size)) == NULL)
-            goto done;
-        if ((rule = hv_rule_url(0, 0, (const uint8_t *)urls[i], strlen(urls[i]) + 1)) != NULL) {
-            hv_fail(error, error_size, "%s: %s", s[i].in.path, rule);
-            goto done;
-        }
-    }
-
-    /* Second pass: the output, each later input open again while its
-     * header, IPR and XML boxes, and its codestream unless linked, are
-     * copied, straight to the file. */
-    if (write_start(&w.out, links) != 0 || write_rreq(&w, s, n, links) != 0 ||
-        write_jp2h(&w, &s[0]) != 0 || flush(&w) != 0)
+    if (write_file(&w, zeros, sizeof zeros) != 0)
         goto done;
     for (i = 0; i < n; i++) {
-        const hv_box *cs = &s[i].jp2c;
-        if (i > 0 && open_input(inputs, i, &s[i], 1, links, profile, error, error_size) != 0)
+        source *s = i == 0 ? &first : &current;
+        const hv_box *cs = &s->jp2c;
+        int copied_ipr;
+        const char *missing;
+        if (open_input(inputs, i, s, links || transcode,
+                       transcode ? HV_OUTPUT_JPEG2000 : profile, error, error_size) != 0)
             goto done;
-        if (write_headers(&w, &s[i], &s[0]) != 0)
+        if (placed(s, i == 0 ? &first.jp2h : &s->res, i == 0 ? 0 : HV_BOX_JPLH,
+                   i == 0 ? "the JPX file's jp2h" : "its jplh", &copied_ipr, error, error_size) != 0)
             goto done;
-        if (links) {
-            if (hv_begin_box(&w.out, HV_BOX_FTBL, 0, &start) != 0 ||
-                hv_write_flst(&w.out, cs->payload, (uint32_t)(cs->end - cs->payload),
-                              (uint16_t)(i + 1)) != 0 ||
-                hv_end_box(&w.out, start) != 0)
-                goto done;
-        } else if (hv_write_box_header(&w.out, HV_BOX_JP2C, cs->end - cs->payload) != 0 ||
-                   write_through(&w, s[i].in.buf + cs->payload, cs->end - cs->payload) != 0) {
+        if ((s->ipr_flag != 0) != (s->nipr > 0 || copied_ipr > 0)) {
+            hv_fail(error, error_size, "%s: ihdr.ipr at %zu", s->in.path, s->jp2h.start);
             goto done;
         }
-        if (s[i].xml.type != 0 && write_xml(&w, &s[i], i) != 0)
+        if (i == 0 ? check_jpx_colrs(&first, HV_BOX_JP2H, error, error_size) != 0
+                   : !same_colrs(s, &first) && check_jpx_colrs(s, HV_BOX_CGRP, error, error_size) != 0)
+            goto done;
+        missing = first.cdef.type != 0 && s->cdef.type == 0 ? "cdef"
+                : first.res.type != 0 && s->res.type == 0 ? "res" : NULL;
+        if (missing != NULL) {
+            hv_fail(error, error_size, "%s: no %s box, but the first input has one, which it "
+                    "would inherit", s->in.path, missing);
+            goto done;
+        }
+        has[9] |= s->opacity;
+        has[10] |= s->premultiplied;
+        has[4] |= s->rsiz == 2;
+        has[5] |= s->rsiz == 0;
+        if (i == 0 && write_jp2h(&w, &first) != 0)
+            goto done;
+        if (write_headers(&w, s, &first) != 0)
+            goto done;
+        if (links) {
+            paths[i] = s->in.path;
+            if (hv_begin_box(&w.out, HV_BOX_FTBL, 0, &start) != 0 ||
+                hv_write_flst(&w.out, cs->payload, (uint32_t)(cs->end - cs->payload),
+                              (uint16_t)(i + 1)) != 0 || hv_end_box(&w.out, start) != 0)
+                goto done;
+        } else {
+            const uint8_t *bytes = s->in.buf + cs->payload;
+            size_t size = cs->end - cs->payload;
+            if (transcode) {
+                char detail[512];
+                hv_out_rewind(&transcoded, 0);
+                if (hv_transcode_codestream(s->in.buf, cs->payload, cs->end, ppx, ppy,
+                                            HV_OUTPUT_JPIP, &transcoded, detail, sizeof detail) != 0) {
+                    hv_fail(error, error_size, "%s: %s", s->in.path, detail);
+                    goto done;
+                }
+                bytes = transcoded.data;
+                size = transcoded.size;
+            }
+            if (hv_write_box_header(&w.out, HV_BOX_JP2C, size) != 0 ||
+                write_through(&w, bytes, size) != 0)
+                goto done;
+        }
+        if (s->xml.type != 0 && write_xml(&w, s, i, transcode) != 0)
             goto done;
         if (flush(&w) != 0)
             goto done;
         if (i > 0)
-            close_input(inputs, i, &s[i]);
+            close_input(inputs, i, &current);
     }
-    if (links && write_dtbl(&w, urls, n) != 0)
+    if (links && write_dtbl(&w, paths, n) != 0)
         goto done;
-    if (flush(&w) != 0 || fflush(file) != 0) {
-        if (error[0] == 0)
-            hv_fail(error, error_size, "cannot write the JPX file");
+    if (write_rreq(&requirements, has) != 0)
+        goto done;
+    if (requirements.size > RREQ_SPACE - HV_BOX_HEADER) {
+        hv_fail(error, error_size, "Reader Requirements of %zu bytes exceed the %d bytes reserved",
+                requirements.size, RREQ_SPACE - HV_BOX_HEADER);
         goto done;
     }
+    size_t pad = RREQ_SPACE - requirements.size;
+    if (hv_write_box_header(&requirements, HV_BOX_FREE, pad - HV_BOX_HEADER) != 0 ||
+        hv_write_bytes(&requirements, zeros, pad - HV_BOX_HEADER) != 0 ||
+        patch(&w, rreq_position, requirements.data, requirements.size) != 0)
+        goto done;
     status = 0;
 
 done:
     if (status != 0 && error[0] == 0)
-        hv_fail(error, error_size, "%s", w.out.error ? w.out.error : "out of memory");
-    for (i = 0; i < n; i++)
-        close_input(inputs, i, &s[i]);
-    for (i = 0; urls != NULL && i < n; i++)
-        free(urls[i]);
-    free(urls);
-    free(s);
+        hv_fail(error, error_size, "%s", w.out.error ? w.out.error
+                                  : requirements.error ? requirements.error : "out of memory");
+    close_input(inputs, 0, &first);
+    close_input(inputs, i, &current);
+    free(paths);
+    hv_out_free(&transcoded);
+    hv_out_free(&requirements);
     hv_out_free(&w.out);
     return status;
 }
@@ -769,9 +822,9 @@ static void buffer_close(void *context, size_t i, hv_merge_input *in) {
     (void)in;
 }
 
-int hv_merge_buffers(const hv_merge_input *inputs, size_t n, int links, hv_output_profile profile, FILE *file,
-                     char *error, size_t error_size) {
+int hv_merge_buffers(const hv_merge_input *inputs, size_t n, int links, hv_output_profile profile, int ppx, int ppy,
+                     FILE *file, char *error, size_t error_size) {
     hv_merge_inputs from = {buffer_open, buffer_close, NULL};
     from.context = (void *)inputs;
-    return hv_merge_files(&from, n, links, profile, file, error, error_size);
+    return hv_merge_files(&from, n, links, profile, ppx, ppy, file, error, error_size);
 }

@@ -20,8 +20,6 @@
 set(ESAJPIP_FUZZ_CORPUS_DIR ${CMAKE_CURRENT_BINARY_DIR}/corpus)
 set(ESAJPIP_FUZZ_INCLUDES ${CMAKE_CURRENT_BINARY_DIR})
 set(ESAJPIP_FUZZ_SOURCES
-    ${PROJECT_SOURCE_DIR}/transcode/transcode.c
-    ${PROJECT_SOURCE_DIR}/transcode/tier2.c
     ${PROJECT_SOURCE_DIR}/merge/merge.c)
 set(ESAJPIP_JPIP_FUZZ_SOURCES
     fuzz_jpip_request.cc fuzz_jpip_writer.cc fuzz_jpip_cache.cc fuzz_jpip_session.cc)

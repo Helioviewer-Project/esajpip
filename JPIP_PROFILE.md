@@ -188,9 +188,13 @@ expectations, not that it conforms completely to JP2 or JPX.
   bytes are outside the supported profile.
 
 Files without `PLT` packet-length information are rejected. esajpip does not
-decode packets to rediscover their boundaries and does not replace the separate
-transcoding step required for such inputs (`hv_transcode`,
-[`transcode/`](transcode/README.md)).
+decode packets to rediscover their boundaries. Preprocess such inputs with
+`hv_transcode` ([`transcode/`](transcode/README.md)), or build an embedded
+movie directly with `hv_merge --transcode` ([`merge/`](merge/README.md)).
+The latter transcodes each input once in memory without modifying or
+copying the source archive. Both produce RPCL codestreams with PLT; the
+server needs no change. `-p W,H` selects precinct sizes (default 128,128),
+subject to the transcoder's code-block partition restrictions.
 
 ### JPX
 

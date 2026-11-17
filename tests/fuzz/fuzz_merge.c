@@ -3,14 +3,15 @@
  * remains), then the second file. They are merged in that order, so an input
  * with a palette and one without exercise the generated cmap.
  *
- * Each input is merged four times: embedded and linked, each in default and
- * in validation mode. Every accepted merge must have a valid container and
- * header boxes (hv_served_jpx, hv_check_jpx_headers). An embedded one holds
+ * Each input pair is merged five times: embedded and linked, each in default
+ * and validation mode, plus embedded with transcoding. Every accepted merge
+ * must pass hv_served_jpx and hv_check_jpx_headers. An embedded copy holds
  * the inputs' codestreams, discovered by hv_read_jp2; in validation mode
  * the input containers pass hv_served_jp2 and codestreams pass HV_READ_JPIP. A
  * linked one holds one link per input, in order, that resolves
  * (hv_served_path) to that input's file and names exactly its codestream; in
  * validation mode the linked file passes hv_served_link.
+ * Transcoded output must pass HV_READ_JPIP for each embedded codestream.
  *
  * The linked JPX file records the inputs' paths, so the two inputs are
  * written to files in a directory of their own, made once and removed at
@@ -141,12 +142,17 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         abort();
     }
     for (links = 0; links < 2; links++)
-        for (validate = 0; validate < 2; validate++) {
+        for (validate = 0; validate < (links ? 2 : 3); validate++) {
+            int transcode = validate == 2;
+            /* data[0] is the length prefix's top byte, nearly always 0 for real
+             * inputs; 0 takes the CLI default so transcoding succeeds. */
+            int exponent = transcode ? (data[0] ? data[0] % 15 + 1 : 7) : 0;
             if ((f = tmpfile()) == NULL) {
                 perror("fuzz_merge: create output file");
                 abort();
             }
-            if (hv_merge_buffers(in, 2, links, validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, f, error, sizeof error) == 0) {
+            if (hv_merge_buffers(in, 2, links, validate == 1 ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000,
+                                 exponent, exponent, f, error, sizeof error) == 0) {
                 if ((jpx = read_back(f, &n)) == NULL ||
                     hv_check_jpx_headers(jpx, n, &at) != NULL ||
                     hv_served_jpx(jpx, n, &j, &at) != NULL)
@@ -162,10 +168,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
                         const char *rule = validate
                             ? hv_served_jp2(in[i].buf, in[i].size, &source, &at)
                             : hv_read_jp2(in[i].buf, in[i].size, &source, &at);
-                        if (rule != NULL ||
-                            source.end - source.payload != length ||
-                            memcmp(jpx + j.jp2c[i].payload, in[i].buf + source.payload,
-                                   length) != 0)
+                        if (rule != NULL || (!transcode &&
+                            (source.end - source.payload != length ||
+                             memcmp(jpx + j.jp2c[i].payload, in[i].buf + source.payload,
+                                    length) != 0)))
                             abort();
                         if (validate && hv_codestream_check(jpx, j.jp2c[i].payload,
                                                             j.jp2c[i].end, HV_READ_JPIP,

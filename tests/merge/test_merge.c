@@ -19,6 +19,18 @@
 
 #include "jpeg2000/hv_reader.h"
 #include "merge/merge.h"
+#undef hv_transcode_codestream
+#include "transcode/transcode.h"
+
+static int transcode_calls, *input_transcode_calls;
+
+int merge_transcode_codestream(const uint8_t *buf, size_t start, size_t end, int ppx, int ppy,
+                               hv_output_profile profile, hv_out *out, char *error, size_t error_size) {
+    transcode_calls++;
+    if (input_transcode_calls != NULL)
+        (*input_transcode_calls)++;
+    return hv_transcode_codestream(buf, start, end, ppx, ppy, profile, out, error, error_size);
+}
 
 #ifndef MERGE_FIXTURES
 #error "MERGE_FIXTURES must name the fixture directory"
@@ -114,7 +126,8 @@ static void load_inputs(void) {
 }
 
 /* Merges into memory. 0, or -1 with the message in error. */
-static int merge_mode(const hv_merge_input *in, size_t n, int links, int validate, bytes *out, char *error,
+static int merge_precincts(const hv_merge_input *in, size_t n, int links, int validate,
+                           int ppx, int ppy, bytes *out, char *error,
                  size_t error_size) {
     FILE *f = tmpfile();
     long size;
@@ -125,7 +138,7 @@ static int merge_mode(const hv_merge_input *in, size_t n, int links, int validat
         snprintf(error, error_size, "no temporary file");
         return -1;
     }
-    status = hv_merge_buffers(in, n, links, validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, f, error, error_size);
+    status = hv_merge_buffers(in, n, links, validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, ppx, ppy, f, error, error_size);
     if (status == 0 && (fseek(f, 0, SEEK_END) != 0 || (size = ftell(f)) < 0 ||
                         fseek(f, 0, SEEK_SET) != 0 ||
                         (out->data = malloc(size ? (size_t)size : 1)) == NULL ||
@@ -135,6 +148,11 @@ static int merge_mode(const hv_merge_input *in, size_t n, int links, int validat
         out->size = (size_t)size;
     fclose(f);
     return status;
+}
+
+static int merge_mode(const hv_merge_input *in, size_t n, int links, int validate,
+                       bytes *out, char *error, size_t error_size) {
+    return merge_precincts(in, n, links, validate, 0, 0, out, error, error_size);
 }
 
 static int test_validate = 1;
@@ -195,11 +213,30 @@ static void expect_features(const char *name, const bytes *jpx, const int *expec
     int got[32], k = rreq_features(jpx, got, 32);
     check(k == n && memcmp(got, expected, (size_t)n * sizeof *got) == 0,
           "%s: rreq lists %d features, expected %d", name, k, n);
+    hv_boxes it;
+    hv_box rreq, padding;
+    const char *message;
+    size_t at;
+    hv_boxes_file(&it, jpx->data, jpx->size);
+    while (hv_boxes_next(&it, &rreq, &message, &at) == 1)
+        if (rreq.type == HV_BOX_RREQ) {
+            int valid = hv_boxes_next(&it, &padding, &message, &at) == 1 &&
+                        padding.type == HV_BOX_FREE && padding.end - rreq.start == 44 &&
+                        rreq.end - rreq.start == (size_t)(15 + 3 * n);
+            check(valid, "%s: exact rreq and free lengths", name);
+            if (valid) {
+                int zero = 1;
+                for (size_t i = padding.payload; i < padding.end; i++)
+                    zero &= jpx->data[i] == 0;
+                check(zero, "%s: zero-filled free payload", name);
+            }
+            break;
+        }
 }
 
 /* ------------------------------------------------------------------------ */
 
-/* hvJP2K's output, byte for byte, and served. */
+/* hvJP2K's output with the reserved free box, byte for byte, and served. */
 static void test_reference(void) {
     bytes expected = read_file(MERGE_FIXTURES "/expected/merged.jpx"), got;
     char error[512];
@@ -249,7 +286,7 @@ static void test_links(void) {
         } else if (x.type == HV_BOX_FTYP) {
             check(y.end - y.payload == 12 && get32(linked.data + y.payload + 8) == HV_BRAND_JPX,
                   "linked merge: ftyp does not list jpx alone");
-        } else if (x.type != HV_BOX_RREQ) {
+        } else if (x.type != HV_BOX_RREQ && x.type != HV_BOX_FREE) {
             check(x.end - x.start == y.end - y.start &&
                   memcmp(embedded.data + x.start, linked.data + y.start, x.end - x.start) == 0,
                   "linked merge: box %zu differs from the embedded merge", n);
@@ -377,6 +414,41 @@ static void test_rreq(void) {
     } else {
         expect_features("opacity, linked", &out, all, 6);
         bytes_free(&out);
+    }
+    {
+        static const int features[] = {1, 2, 4, 5, 9, 10, 15};
+        static const uint8_t expected[44] = {
+            0, 0, 0, 36, 'r', 'r', 'e', 'q', 1, 0xfe, 0xfe, 0, 7,
+            0, 1, 0x80, 0, 2, 0x40, 0, 4, 0x20, 0, 5, 0x10,
+            0, 9, 8, 0, 10, 4, 0, 15, 2, 0, 0,
+            0, 0, 0, 8, 'f', 'r', 'e', 'e'
+        };
+        bytes second = {malloc(opacity.size), opacity.size};
+        memcpy(second.data, opacity.data, opacity.size);
+        check(hv_served_jp2(second.data, second.size, &jp2c, &at) == NULL,
+              "all-feature input codestream");
+        put16(second.data + jp2c.payload + 6, 2);
+        in[1].buf = second.data;
+        in[1].size = second.size;
+        if (merge(in, 2, 1, &out, error, sizeof error) != 0) {
+            check(0, "all Reader Requirements features: %s", error);
+        } else {
+            hv_boxes it;
+            hv_box box;
+            const char *message;
+            int found = 0;
+            expect_features("all features, linked", &out, features, 7);
+            hv_boxes_file(&it, out.data, out.size);
+            while (hv_boxes_next(&it, &box, &message, &at) == 1)
+                if (box.type == HV_BOX_RREQ) {
+                    found = box.end - box.start == 36 && out.size - box.start >= sizeof expected &&
+                            memcmp(out.data + box.start, expected, sizeof expected) == 0;
+                    break;
+                }
+            check(found, "exact seven-feature rreq and empty free box bytes");
+            bytes_free(&out);
+        }
+        bytes_free(&second);
     }
     /* A later input without the cdef of the first would inherit it. */
     in[1].buf = jp2.data;
@@ -635,7 +707,7 @@ static void test_headers_mode(void) {
     expect_error("no res after one", in, 2, 0, "no res box, but the first input has one");
     bytes_free(&bad);
 
-    /* Colour Specification boxes repeated after the input's one, which
+    /* Color Specification boxes repeated after the input's one, which
      * they must follow directly (jp2h.colr-contiguous). */
     hv_boxes_file(&it, files[0].data, files[0].size);
     while (hv_boxes_next(&it, &box, &message, &at) == 1)
@@ -701,7 +773,7 @@ static void test_headers_mode(void) {
     bad = insert_in_jp2h(&files[0], colr.end, colrs, 16 * (colr.end - colr.start));
     in[1].buf = bad.data;
     in[1].size = bad.size;
-    expect_error("17 colr boxes", in, 2, 0, "more than 16 Colour Specification boxes");
+    expect_error("17 colr boxes", in, 2, 0, "more than 16 Color Specification boxes");
     bytes_free(&bad);
     free(colrs);
 }
@@ -851,21 +923,22 @@ done:
 }
 
 /* Inputs opened on demand: counts what hv_merge_files opens, and can
- * fail a first or second open. */
+ * fail an open before or after output has been written. */
 typedef struct {
-    int opens[NINPUTS], open, most;
-    size_t fail_at, fail_second_at;  /* NINPUTS: never */
+    int opens[NINPUTS], transcodes[NINPUTS], open, most;
+    size_t fail_at;                 /* NINPUTS: never */
 } counting;
 
 static int counting_open(void *context, size_t i, hv_merge_input *in, char *error,
                          size_t error_size) {
     counting *c = context;
-    if (i == c->fail_at || (i == c->fail_second_at && c->opens[i] > 0)) {
+    if (i == c->fail_at) {
         snprintf(error, error_size, "cannot open %s", names[i]);
         return -1;
     }
     *in = inputs[i];
     c->opens[i]++;
+    input_transcode_calls = &c->transcodes[i];
     if (++c->open > c->most)
         c->most = c->open;
     return 0;
@@ -876,9 +949,10 @@ static void counting_close(void *context, size_t i, hv_merge_input *in) {
     (void)i;
     (void)in;
     c->open--;
+    input_transcode_calls = NULL;
 }
 
-static int opening_validate;
+static int opening_validate, opening_transcode;
 
 static int merge_counting(counting *c, int links, char *error, size_t error_size) {
     hv_merge_inputs from = {counting_open, counting_close, NULL};
@@ -889,7 +963,9 @@ static int merge_counting(counting *c, int links, char *error, size_t error_size
         snprintf(error, error_size, "no temporary file");
         return -1;
     }
-    status = hv_merge_files(&from, NINPUTS, links, opening_validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, f, error, error_size);
+    status = hv_merge_files(&from, NINPUTS, links, opening_validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000,
+                            opening_transcode ? 7 : 0, opening_transcode ? 7 : 0,
+                            f, error, error_size);
     fclose(f);
     return status;
 }
@@ -903,30 +979,29 @@ static void test_opening_mode(void) {
     for (i = 0; i < NINPUTS; i++)
         if (files[i].data == NULL)
             return;
-    for (links = 0; links < 2; links++) {
+    for (links = 0; links < (opening_transcode ? 1 : 2); links++) {
         memset(&c, 0, sizeof c);
-        c.fail_at = c.fail_second_at = NINPUTS;
+        c.fail_at = NINPUTS;
         check(merge_counting(&c, links, error, sizeof error) == 0, "on demand: %s", error);
         check(c.most <= 2 && c.open == 0, "on demand: at most %d open, %d left open", c.most,
               c.open);
-        for (i = 0; i < NINPUTS; i++)
-            check(c.opens[i] == (i == 0 ? 1 : 2), "on demand: input %zu opened %d times", i,
-                  c.opens[i]);
+        for (i = 0; i < NINPUTS; i++) {
+            check(c.opens[i] == 1, "on demand: input %zu opened %d times", i, c.opens[i]);
+            check(c.transcodes[i] == opening_transcode, "on demand: input %zu transcoded %d times",
+                  i, c.transcodes[i]);
+        }
     }
-    memset(&c, 0, sizeof c);
-    c.fail_at = 3;
-    c.fail_second_at = NINPUTS;
-    check(merge_counting(&c, 0, error, sizeof error) != 0 && strstr(error, "cannot open") != NULL &&
-              c.open == 0,
-          "failed open: \"%s\", %d left open", error, c.open);
-    for (links = 0; links < 2; links++) {
-        memset(&c, 0, sizeof c);
-        c.fail_at = NINPUTS;
-        c.fail_second_at = links ? NINPUTS - 1 : 2;
-        check(merge_counting(&c, links, error, sizeof error) != 0 &&
-                  strstr(error, "cannot open") != NULL && c.open == 0 &&
-                  c.opens[c.fail_second_at] == 1,
-              "failed second open, links=%d: \"%s\", %d left open", links, error, c.open);
+    for (links = 0; links < (opening_transcode ? 1 : 2); links++) {
+        for (i = 0; i < NINPUTS; i++) {
+            memset(&c, 0, sizeof c);
+            c.fail_at = i;
+            check(merge_counting(&c, links, error, sizeof error) != 0 &&
+                  strstr(error, names[i]) != NULL && c.open == 0,
+                  "failed open %zu, links=%d: %s, %d left open", i, links, error, c.open);
+            for (size_t j = 0; j < NINPUTS; j++)
+                check(c.opens[j] == (j < i ? 1 : 0), "failed open %zu: input %zu opened %d times",
+                      i, j, c.opens[j]);
+        }
     }
 }
 
@@ -939,6 +1014,44 @@ static void test_headers(void) {
 static void test_opening(void) {
     for (opening_validate = 0; opening_validate < 2; opening_validate++)
         test_opening_mode();
+    opening_validate = 0;
+    opening_transcode = 1;
+    transcode_calls = 0;
+    test_opening_mode();
+    opening_transcode = 0;
+}
+
+static void test_arguments(void) {
+    static const struct {
+        hv_output_profile profile;
+        int links, ppx, ppy;
+        const char *error;
+    } cases[] = {
+        {(hv_output_profile)-1, 0, 0, 0, "invalid output profile"},
+        {HV_OUTPUT_JPEG2000, 1, 7, 7, "transcoding requires embedded output"},
+        {HV_OUTPUT_JPEG2000, 0, 16, 7, "precinct exponents 1 to 15"},
+        {HV_OUTPUT_JPEG2000, 0, -1, 7, "precinct exponents 1 to 15"},
+        {HV_OUTPUT_JPEG2000, 0, 7, 0, "precinct exponents 1 to 15"},
+        {HV_OUTPUT_JPIP, 0, 7, 7, "transcoding cannot be combined with validation"},
+    };
+    FILE *file = tmpfile();
+    char error[512];
+    if (file == NULL) {
+        check(0, "create argument guard output");
+        return;
+    }
+    for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+        counting c = {.fail_at = NINPUTS};
+        hv_merge_inputs from = {counting_open, counting_close, &c};
+        check(hv_merge_files(&from, NINPUTS, cases[i].links, cases[i].profile,
+                             cases[i].ppx, cases[i].ppy, file, error, sizeof error) != 0 &&
+              strstr(error, cases[i].error) != NULL, "argument guard %zu: %s", i, error);
+        int opened = 0;
+        for (size_t j = 0; j < NINPUTS; j++)
+            opened += c.opens[j];
+        check(opened == 0, "argument guard %zu opened %d inputs", i, opened);
+    }
+    fclose(file);
 }
 
 /* A tiled main header passes T.800 checks but not the served profile.
@@ -1297,12 +1410,175 @@ static void test_container_access(void) {
     bytes_free(&input);
 }
 
+static void test_transcoding(void) {
+    const char *path = TRANSCODE_FIXTURES "/input/2015_12_21__00_10_34_34__SDO_AIA_AIA_171.jp2";
+    const char *second_path = TRANSCODE_FIXTURES "/input/solo_fsi174_510x514_LRCP.jp2";
+    bytes original = read_file(path), got = {0}, expected = {0};
+    bytes second = read_file(second_path);
+    hv_merge_input in[2] = {{path, original.data, original.size}, {second_path, second.data, second.size}};
+    char error[512];
+    int exponents[][2] = {{7, 7}, {8, 7}};
+    if (original.data == NULL || second.data == NULL) {
+        bytes_free(&original);
+        bytes_free(&second);
+        return;
+    }
+    for (size_t i = 0; i < sizeof exponents / sizeof *exponents; i++) {
+        hv_out transcoded[2];
+        hv_merge_input prepared[2];
+        int status = 0;
+        for (size_t j = 0; j < 2; j++) {
+            hv_out_init(&transcoded[j]);
+            int result = hv_transcode_file(in[j].buf, in[j].size, exponents[i][0], exponents[i][1],
+                                           HV_OUTPUT_JPIP, &transcoded[j], error, sizeof error);
+            check(result == 0, "prepare separate transcode %zu: %s", j, error);
+            if (result != 0)
+                status = -1;
+            prepared[j] = (hv_merge_input){in[j].path, transcoded[j].data, transcoded[j].size};
+        }
+        if (status == 0) {
+            status = merge_mode(prepared, 2, 0, 1, &expected, error, sizeof error);
+            check(status == 0, "prepare separate merge: %s", error);
+            transcode_calls = 0;
+            status = merge_precincts(in, 2, 0, 0, exponents[i][0], exponents[i][1], &got, error, sizeof error);
+            check(status == 0, "transcode merge: %s", error);
+            check(transcode_calls == 2, "each input transcoded once: %d calls", transcode_calls);
+            check(got.data != NULL && expected.data != NULL && got.size == expected.size &&
+                  memcmp(got.data, expected.data, got.size) == 0, "transcode equals separate pipeline");
+            if (status == 0)
+                expect_served("transcode merge", &got, in);
+            bytes_free(&got);
+            bytes_free(&expected);
+        }
+        for (size_t j = 0; j < 2; j++)
+            hv_out_free(&transcoded[j]);
+    }
+    in[1] = in[0];
+    /* Without a NUL, hv_transcode preserves an extended XML header. */
+    {
+        hv_boxes it;
+        hv_box xml;
+        const char *rule;
+        size_t at;
+        int found = 0;
+        hv_boxes_file(&it, original.data, original.size);
+        while (hv_boxes_next(&it, &xml, &rule, &at) == 1)
+            if (xml.type == HV_BOX_XML) {
+                bytes extended = {malloc(original.size + 8), original.size + 8};
+                hv_out prepared;
+                hv_merge_input pair[2];
+                found = 1;
+                memcpy(extended.data, original.data, xml.payload);
+                put32(extended.data + xml.start, 1);
+                put32(extended.data + xml.start + 8, 0);
+                put32(extended.data + xml.start + 12, (uint32_t)(xml.end - xml.start + 8));
+                memcpy(extended.data + xml.payload + 8, original.data + xml.payload,
+                       original.size - xml.payload);
+                for (size_t i = xml.payload + 8; i < xml.end + 8; i++)
+                    if (extended.data[i] == 0)
+                        extended.data[i] = ' ';
+                hv_out_init(&prepared);
+                check(hv_transcode_file(extended.data, extended.size, 7, 7, HV_OUTPUT_JPIP,
+                                       &prepared, error, sizeof error) == 0, "prepare extended XML: %s", error);
+                pair[0] = (hv_merge_input){path, prepared.data, prepared.size};
+                pair[1] = pair[0];
+                check(merge_mode(pair, 2, 0, 1, &expected, error, sizeof error) == 0,
+                      "merge prepared extended XML: %s", error);
+                pair[0] = (hv_merge_input){path, extended.data, extended.size};
+                pair[1] = pair[0];
+                check(merge_precincts(pair, 2, 0, 0, 7, 7, &got, error, sizeof error) == 0,
+                      "transcode extended XML: %s", error);
+                check(got.data != NULL && expected.data != NULL && got.size == expected.size &&
+                      memcmp(got.data, expected.data, got.size) == 0, "extended XML pipeline bytes");
+                hv_out_free(&prepared);
+                bytes_free(&extended);
+                bytes_free(&expected);
+                bytes_free(&got);
+                break;
+            }
+        check(found, "extended XML fixture available");
+    }
+    /* JP2 ignores PREC, but header equality must still compare the raw bytes. */
+    {
+        bytes changed = {malloc(original.size), original.size};
+        hv_boxes top, children;
+        hv_box header, colr;
+        const char *rule;
+        size_t at;
+        int found = 0;
+        memcpy(changed.data, original.data, original.size);
+        hv_boxes_file(&top, changed.data, changed.size);
+        while (hv_boxes_next(&top, &header, &rule, &at) == 1)
+            if (header.type == HV_BOX_JP2H) {
+                hv_boxes_children(&children, changed.data, &header);
+                while (hv_boxes_next(&children, &colr, &rule, &at) == 1)
+                    if (colr.type == HV_BOX_COLR) {
+                        changed.data[colr.payload + 1] ^= 1;
+                        found = 1;
+                        break;
+                    }
+            }
+        check(found, "raw header test has colr");
+        in[1].buf = changed.data;
+        check(merge_precincts(in, 2, 0, 0, 7, 7, &got, error, sizeof error) == 0,
+              "raw header transcode: %s", error);
+        if (got.data != NULL) {
+            int count = 0;
+            hv_boxes_file(&top, got.data, got.size);
+            while (hv_boxes_next(&top, &header, &rule, &at) == 1)
+                if (header.type == HV_BOX_JPCH && ++count == 2)
+                    check(header.end > header.payload, "raw header difference emits second ihdr");
+            check(count == 2, "raw header test emitted both frames");
+        }
+        in[1].buf = original.data;
+        bytes_free(&changed);
+        bytes_free(&got);
+    }
+    /* The selected XML payload ends at its first NUL, with an explicit length. */
+    {
+        hv_boxes it;
+        hv_box box;
+        const char *rule;
+        size_t at;
+        hv_boxes_file(&it, original.data, original.size);
+        while (hv_boxes_next(&it, &box, &rule, &at) == 1)
+            if (box.type == HV_BOX_XML && box.end > box.payload + 3) {
+                original.data[box.payload + 3] = 0;
+                check(merge_precincts(in, 2, 0, 0, 7, 7, &got, error, sizeof error) == 0,
+                      "XML NUL transcode: %s", error);
+                if (got.data != NULL) {
+                    hv_boxes top, children;
+                    hv_box asoc, xml;
+                    int found = 0;
+                    hv_boxes_file(&top, got.data, got.size);
+                    while (hv_boxes_next(&top, &asoc, &rule, &at) == 1)
+                        if (asoc.type == HV_BOX_ASOC) {
+                            hv_boxes_children(&children, got.data, &asoc);
+                            while (hv_boxes_next(&children, &xml, &rule, &at) == 1)
+                                if (xml.type == HV_BOX_XML) {
+                                    found++;
+                                    check(!xml.to_end && xml.end - xml.payload == 3 &&
+                                          memcmp(got.data + xml.payload, original.data + box.payload, 3) == 0,
+                                          "XML trimmed with explicit length");
+                                }
+                        }
+                    check(found == 2, "both XML boxes emitted: %d", found);
+                }
+                bytes_free(&got);
+                break;
+            }
+    }
+    bytes_free(&second);
+    bytes_free(&original);
+}
+
 int main(void) {
     struct {
         const char *name;
         void (*run)(void);
     } groups[] = {
         {"hvJP2K reference", test_reference},
+        {"transcode merge", test_transcoding},
         {"default and validation modes", test_modes},
         {"general container access", test_container_access},
         {"opaque main-header bodies", test_opaque_headers},
@@ -1314,6 +1590,7 @@ int main(void) {
         {"IPR boxes", test_ipr},
         {"XML with LBox = 0", test_xml_to_end},
         {"rejected inputs", test_errors},
+        {"library argument guards", test_arguments},
         {"inputs opened on demand", test_opening},
         {"long linked URLs", test_long_link_urls},
     };

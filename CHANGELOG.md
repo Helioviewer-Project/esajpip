@@ -52,14 +52,24 @@ HTTP connections be pooled or replaced independently of channels.
   (`jp2.rsiz`). An input's IPR boxes, at the top level and in its `jp2h`, go
   into its `jpch`, where hvJP2K drops them but keeps the IPR 1 announcing
   them. Every box it copies from an input goes straight to the output file,
-  so its memory does not grow with them.
+  so its memory does not grow with them. Every input is opened once;
+  the first stays mapped for header comparisons, and each later input is
+  checked and emitted before closing it. Reader Requirements are patched
+  into a 44-byte reservation with a zero-filled `free` box after `rreq`.
+  Library output must be seekable; partial output must be discarded on failure.
+  `--transcode` transcodes every input once in memory and embeds it, with
+  `-p W,H` selecting precinct sizes (default 128,128), so PLT-less archives
+  can be served without modifying or duplicating them. `-links` and
+  `--validate` cannot be combined with `--transcode`.
 - Both tools replace their output through a synced temporary file, removed
   if a signal ends the tool (SIGBUS from a truncated input included), keep
   a replaced file's owner and group, write through an output that is a
   symbolic link, and refuse inputs over `INT_MAX` bytes. The output takes
   the permissions, less the setuid, setgid and sticky bits, of the file it
-  replaces (`hv_merge`) or of the input (`hv_transcode`). `hv_merge -links`
-  refuses to replace one of its inputs.
+  replaces (`hv_merge`) or of the input (`hv_transcode`). Every `hv_merge`
+  mode refuses to replace an input through any name, hard link or symbolic
+  link. hvJP2K truncates such an input before copying it, losing it and
+  writing a corrupt or truncated movie.
 - Every test in one place, `tests/` with its own CMake: the library and the
   tools, their command lines, the server, and the shared corpus. One gate,
   `BUILD_TESTING`, and one runner, `tests/run.sh`, with labels for `tools`,

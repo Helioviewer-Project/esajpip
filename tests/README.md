@@ -173,7 +173,8 @@ build/profile-fuzz/tests/fuzz/fuzz_transcode -jobs=8 -workers=8 \
 | `geometry` | `hv_geometry` against T.800 computed a second way. |
 | `transcode` | The transcoder's library: packet layout, precincts, PLT, and the profile of its output. |
 | `transcode_command` | `hv_transcode`'s command line and its files on disk. |
-| `merge` | The merger's library: box construction, JPX graph, color handling. |
+| `merge` | The merger's library: box construction, JPX graph, color handling, single-open inputs, requirements patching, and transcoding. |
+| `merge_writer` | Output size accounting, patch failures, append-mode rejection, and flush error preservation. |
 | `merge_command` | `hv_merge`'s command line and its files on disk. |
 | `logging` | Rotation, truncation, concurrent producers, dropped-record reporting, output failure and shutdown draining. Uses small test-only log limits. |
 | `jpip_request` | JPIP parameter parsing, JHV request shapes, selectors, route classification and cache-model diagnostics, linked without the server. |

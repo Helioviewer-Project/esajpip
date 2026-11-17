@@ -242,7 +242,7 @@ static void check_merge(const char *name, const char *first_path, const uint8_t 
             fail(name, what, "no temporary file");
             return;
         }
-        if (hv_merge_buffers(in, 2, links, HV_OUTPUT_JPIP, f, error, sizeof error) != 0) {
+        if (hv_merge_buffers(in, 2, links, HV_OUTPUT_JPIP, 0, 0, f, error, sizeof error) != 0) {
             fclose(f);
             return;                     /* not an input hv_merge takes */
         }

@@ -3,11 +3,13 @@
  * command line, parsed as hvJP2K's argparse parser does:
  *
  *   hv_merge -i jp2file1,jp2file2,... [jp2file ...] -o jpxfile [-links]
- *                [-s argfile]
+ *                [--validate | --transcode [-p W,H]] [-s argfile]
  *
  *   -i      input JP2 files, comma or space separated, in the JPX order
  *   -o      output JPX file
  *   -links  link the codestreams instead of copying them
+ *   --transcode  transcode each input once in memory and embed it
+ *   -p W,H  precinct size for --transcode (default 128,128)
  *   -s      read more arguments from a file, or standard input for "-"
  *           (split as Python's shlex.split does, quotes and backslashes
  *           included), then parse the command line and them again
@@ -51,7 +53,7 @@ static int push(list *l, char *s) {
 
 static void usage(FILE *f) {
     fprintf(f, "usage: hv_merge -i jp2file1,jp2file2,... [jp2file ...] -o jpxfile "
-               "[-links] [--validate] [-s argfile]\n");
+               "[-links] [--validate | --transcode [-p W,H]] [-s argfile]\n");
 }
 
 static void help(void) {
@@ -63,6 +65,8 @@ static void help(void) {
            "  -o          output JPX filename\n"
            "  -links      record links rather than actual codestream data\n"
            "  --validate  validate the complete codestream, including PLT entries\n"
+           "  --transcode transcode every input in memory to RPCL with PLT, then embed it\n"
+           "  -p W,H      precinct powers of 2 from 2 to 32,768 (default 128,128)\n"
            "  -s          read arguments from file\n");
 }
 
@@ -156,10 +160,10 @@ static char *read_text(const char *path) {
 typedef struct {
     list inputs;            /* the -i words */
     const char *output, *argfile;
-    int links, validate;
+    int links, validate, transcode, precincts, ppx, ppy;
 } arguments;
 
-enum { OPT_NONE, OPT_HELP, OPT_I, OPT_O, OPT_S, OPT_LINKS, OPT_VALIDATE, OPT_UNKNOWN };
+enum { OPT_NONE, OPT_HELP, OPT_I, OPT_O, OPT_S, OPT_LINKS, OPT_VALIDATE, OPT_TRANSCODE, OPT_P, OPT_UNKNOWN };
 
 /* The option strings, as hvJP2K's argparse parser has them. */
 static const struct {
@@ -168,6 +172,7 @@ static const struct {
 } options[] = {
     {"-h", OPT_HELP}, {"--help", OPT_HELP}, {"-i", OPT_I}, {"-o", OPT_O},
     {"-links", OPT_LINKS}, {"-s", OPT_S}, {"--validate", OPT_VALIDATE},
+    {"--transcode", OPT_TRANSCODE}, {"-p", OPT_P},
 };
 #define NOPTIONS (sizeof options / sizeof *options)
 
@@ -247,9 +252,22 @@ static int is_value(char **argv, size_t i) {
     return classify(argv[i], &value, &equals) == OPT_NONE;
 }
 
-/* Option -i, -o or -s with its value, attached or in the next words, as
+/* The exponent of a power of 2 from 2 to 32,768, as hv_transcode takes. */
+static int exponent(const char *s, char **end) {
+    long v;
+    int e = 0;
+    errno = 0;
+    v = strtol(s, end, 10);
+    if (errno != 0 || *end == s || v < 2 || v > 32768 || (v & (v - 1)) != 0)
+        return -1;
+    while ((1L << e) < v)
+        e++;
+    return e;
+}
+
+/* Option -i, -o, -p or -s with its value, attached or in the next words, as
  * argv[*i] ends: -i takes the words up to the next one that is not a
- * value (one, if attached), -o and -s one word. 0, -1 on a usage error, -2
+ * value (one, if attached), -o, -p and -s one word. 0, -1 on a usage error, -2
  * out of memory. */
 static int take(int option, char *value, char **argv, size_t argc, size_t *i, arguments *a) {
     if (option == OPT_I) {
@@ -268,7 +286,13 @@ static int take(int option, char *value, char **argv, size_t argc, size_t *i, ar
     }
     if (option == OPT_O)
         a->output = value;
-    else
+    else if (option == OPT_P) {
+        char *end;
+        a->precincts = 1;
+        a->ppx = exponent(value, &end);
+        if (a->ppx < 0 || *end != ',' || (a->ppy = exponent(end + 1, &end)) < 0 || *end)
+            return -1;
+    } else
         a->argfile = value;
     return 0;
 }
@@ -297,12 +321,17 @@ static int parse(char **argv, size_t argc, arguments *a) {
                 return -1;
             /* -hX...: -X with the rest attached, if X names an option. */
             option = value[0] == 'i' ? OPT_I : value[0] == 'o' ? OPT_O
-                   : value[0] == 's' ? OPT_S : OPT_HELP;
+                   : value[0] == 's' ? OPT_S : value[0] == 'p' ? OPT_P : OPT_HELP;
             if (option == OPT_HELP)
                 return 1;
             value = value[1] == '=' ? value + 2 : value[1] != 0 ? value + 1 : NULL;
             status = take(option, value, argv, argc, &i, a);
             return status != 0 ? status : 1;
+        case OPT_TRANSCODE:
+            if (value != NULL)
+                return -1;
+            a->transcode = 1;
+            break;
         case OPT_VALIDATE:
             if (value != NULL)
                 return -1;
@@ -316,6 +345,7 @@ static int parse(char **argv, size_t argc, arguments *a) {
         case OPT_I:
         case OPT_O:
         case OPT_S:
+        case OPT_P:
             if ((status = take(option, value, argv, argc, &i, a)) != 0)
                 return status;
             break;
@@ -329,7 +359,7 @@ static int parse(char **argv, size_t argc, arguments *a) {
 
 typedef struct {
     char **names;
-    const struct stat *output;  /* existing linked output, otherwise NULL */
+    const struct stat *output;  /* existing output, otherwise NULL */
 } input_files;
 
 /* An input mapped while hv_merge_files has it open: the file is opened
@@ -363,7 +393,7 @@ static int map_input(void *context, size_t i, hv_merge_input *in, char *error,
     if (files->output != NULL && st.st_dev == files->output->st_dev &&
         st.st_ino == files->output->st_ino) {
         snprintf(error, error_size,
-                 "%s is also the output: a linked JPX file cannot replace a file it links to",
+                 "%s is also the output: hv_merge cannot replace an input file",
                  names[i]);
         close(fd);
         return -1;
@@ -393,21 +423,20 @@ static void unmap_input(void *context, size_t i, hv_merge_input *in) {
 
 /* The JPX file, written in place of `output` (hv_file): an existing
  * output keeps its permissions, and a symbolic link its target, as when
- * hvJP2K opens the output for writing. A linked JPX file cannot replace
- * one of its inputs (the same file, through any name or link), which it
- * would link to; an embedded one can. */
-static int merge(char **names, size_t n, const char *output, int links, int validate, char *error,
+ * hvJP2K opens the output for writing. No merge may replace an input,
+ * through any name or link. */
+static int merge(char **names, size_t n, const char *output, int links, int validate, int ppx, int ppy, char *error,
                  size_t error_size) {
     struct stat out;
     input_files files = {names, NULL};
     hv_merge_inputs inputs = {map_input, unmap_input, &files};
     hv_file f;
 
-    if (links && stat(output, &out) == 0)
+    if (stat(output, &out) == 0)
         files.output = &out;
     if (hv_file_create(&f, output, HV_FILE_KEEP_MODE, error, error_size) != 0)
         return -1;
-    if (hv_merge_files(&inputs, n, links, validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, f.file, error, error_size) != 0) {
+    if (hv_merge_files(&inputs, n, links, validate ? HV_OUTPUT_JPIP : HV_OUTPUT_JPEG2000, ppx, ppy, f.file, error, error_size) != 0) {
         hv_file_abort(&f);
         return -1;
     }
@@ -422,6 +451,7 @@ int main(int argc, char **argv) {
     int status;
 
     memset(&a, 0, sizeof a);
+    a.ppx = a.ppy = 7;
     if ((status = parse(argv + 1, (size_t)argc - 1, &a)) != 0)
         goto parsed;
     /* hvJP2K reads the file only when -s names one (an empty name does
@@ -441,9 +471,12 @@ int main(int argc, char **argv) {
                 goto oom;
         free(a.inputs.v);
         memset(&a, 0, sizeof a);
+        a.ppx = a.ppy = 7;
         if ((status = parse(all.v, all.n, &a)) != 0)
             goto parsed;
     }
+    if ((a.transcode && (a.links || a.validate)) || (a.precincts && !a.transcode))
+        goto usage;
     if (a.inputs.n == 0 || a.output == NULL)
         goto usage;
     /* Names are split at commas, empty ones dropped (hvJP2K is lenient
@@ -461,7 +494,8 @@ int main(int argc, char **argv) {
             p = comma + 1;
         }
     }
-    status = merge(names.v, names.n, a.output, a.links, a.validate, error, sizeof error) != 0;
+    status = merge(names.v, names.n, a.output, a.links, a.validate,
+                   a.transcode ? a.ppx : 0, a.transcode ? a.ppy : 0, error, sizeof error) != 0;
     if (status != 0)
         fprintf(stderr, "hv_merge: %s\n", error);
     goto done;

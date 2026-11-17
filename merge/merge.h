@@ -8,11 +8,12 @@
  * Every input must have one bounded codestream (hv_read_jp2), exactly
  * one JP2 header before it, and pass selected header/image checks
  * (hv_read_jp2h_boxes). Linked or validated inputs additionally pass
- * the served container checks (hv_served_jp2). The default leaves the remaining
- * codestream opaque. With HV_OUTPUT_JPIP, serving validation checks the complete
- * codestream too, including PLT. Copied-box placement and output header
- * requirements are checked in both modes. What
- * a JP2 file may hold and the JPX file may not is rejected too: in the
+ * the served container checks (hv_served_jp2), as do transcoded inputs.
+ * The default leaves the remaining codestream opaque. With HV_OUTPUT_JPIP,
+ * serving validation checks the complete codestream too, including PLT.
+ * Copied-box placement and output header requirements are checked in both
+ * modes. What a JP2 file may hold and the JPX file may not is rejected too:
+ * in the
  * first input more than one colr box with the same METH (colr.one-method,
  * as the JPX file's jp2h), and in a later input no cdef or res box where
  * the first has one (its jplh would inherit the first's). Limits: at most
@@ -28,7 +29,7 @@
 #include "jpeg2000/hv_profile.h"
 
 /* One immutable input: its bytes and size must remain unchanged throughout
- * hv_merge_files or hv_merge_buffers, including between acquisitions.
+ * hv_merge_files or hv_merge_buffers.
  * Mutation is a configuration/operational error outside this contract.
  * With links, buf must hold the file at path, and that file must remain
  * unchanged for as long as the linked JPX is used. */
@@ -38,31 +39,37 @@ typedef struct {
     size_t size;
 } hv_merge_input;
 
-/* The inputs, opened when needed: open fills *in for input i, whose path
- * stays valid until hv_merge_files returns and whose bytes stay valid until
- * close; 0, or -1 with a message in error. hv_merge_files opens the first
- * input once, checks it and keeps it open. It opens every later input twice.
- * The first pass reads the container and selected header information, plus
- * the complete codestream when HV_OUTPUT_JPIP is selected. The second pass only
- * reacquires the same immutable bytes and uses the recorded layout to copy
- * header, IPR and XML boxes, and the codestream unless linked. At most two
- * inputs are open at a time. */
+/* The inputs, each opened exactly once: open fills *in for input i, whose
+ * path stays valid until hv_merge_files returns and whose bytes stay valid
+ * until close; 0, or -1 with a message in error. An unsuccessful open must
+ * release its own resources. The first input stays open for header comparisons;
+ * every later input is checked and emitted before close. At most two inputs
+ * are open at a time. IPR spans are recorded during discovery; XML and IPR
+ * payloads are copied directly from the mapping. */
 typedef struct {
     int (*open)(void *context, size_t i, hv_merge_input *in, char *error, size_t error_size);
     void (*close)(void *context, size_t i, hv_merge_input *in);
     void *context;
 } hv_merge_inputs;
 
-/* Writes the JPX file merging n inputs to out: their codestreams embedded,
- * or with `links`, linked. HV_OUTPUT_JPEG2000 copies opaque codestreams;
- * HV_OUTPUT_JPIP also requires serving-compatible containers and codestreams.
- * 0, or -1 with a message in error; out may then
- * hold part of the file. */
-int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, hv_output_profile profile, FILE *out,
-                   char *error, size_t error_size);
+/* Writes the JPX file merging n inputs to out, which must be seekable and
+ * not opened in append mode. Their codestreams are embedded, or with `links`,
+ * linked. With ppx = ppy = 0, HV_OUTPUT_JPEG2000
+ * copies opaque codestreams; HV_OUTPUT_JPIP also requires serving-compatible
+ * containers and codestreams. Otherwise ppx and ppy are precinct exponents
+ * 1 to 15: every input is transcoded once to HV_OUTPUT_JPIP and embedded.
+ * Transcoding cannot be combined with HV_OUTPUT_JPIP validation or links.
+ * The original headers are compared without normalization.
+ * Reader Requirements are patched in a 44-byte reservation followed by a
+ * zero-filled free box, without changing the output byte count. Seek or flush
+ * failures abort. 0, or -1 with a message in error; out may then hold part
+ * of the file, including an unpatched reservation. Library callers must
+ * discard partial output. The CLI removes its temporary file on failure. */
+int hv_merge_files(const hv_merge_inputs *inputs, size_t n, int links, hv_output_profile profile,
+                   int ppx, int ppy, FILE *out, char *error, size_t error_size);
 
 /* The same, for inputs already in memory. */
-int hv_merge_buffers(const hv_merge_input *inputs, size_t n, int links, hv_output_profile profile, FILE *out,
-                     char *error, size_t error_size);
+int hv_merge_buffers(const hv_merge_input *inputs, size_t n, int links, hv_output_profile profile,
+                     int ppx, int ppy, FILE *out, char *error, size_t error_size);
 
 #endif
